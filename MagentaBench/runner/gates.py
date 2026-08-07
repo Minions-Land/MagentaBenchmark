@@ -413,11 +413,19 @@ def _evaluate_claim(
             isolation_errors.append(
                 f"{item.case.case_id}: undeclared EnvironmentReceipt"
             )
-    isolation_gate = (
-        _invalid("; ".join(isolation_errors))
-        if isolation_errors
-        else _valid("allowed-diff compile check and evidence provenance agree")
-    )
+    if isolation_errors:
+        isolation_gate = _invalid("; ".join(isolation_errors))
+    elif len(items) != expected_run_count:
+        # Isolation over a partial plan proves nothing about the missing runs.
+        isolation_gate = _invalid(
+            f"isolation is incomplete: {len(items)} of {expected_run_count} "
+            "planned runs are present"
+        )
+    else:
+        isolation_gate = _valid(
+            f"allowed-diff compile check and evidence provenance agree "
+            f"({len(items)}/{expected_run_count} verified)"
+        )
 
     scoring_errors: list[str] = []
     scored_bundles = 0
@@ -446,6 +454,13 @@ def _evaluate_claim(
                 )
     if scoring_errors:
         scoring_gate = _invalid("; ".join(scoring_errors))
+    elif len(items) != expected_run_count:
+        # Scoring cannot be complete over a partial plan: a single scored bundle
+        # in a plan that is missing runs would otherwise report agreement.
+        scoring_gate = _invalid(
+            f"scoring is incomplete: {len(items)} of {expected_run_count} "
+            "planned runs are present"
+        )
     elif scored_bundles == 0:
         # No bundle reached an execution-valid status, so every scoring branch
         # above was skipped. Reporting agreement here would assert verification
@@ -456,7 +471,7 @@ def _evaluate_claim(
     else:
         scoring_gate = _valid(
             f"every verifiable output has exact-verifier evidence "
-            f"({scored_bundles} scored)"
+            f"({scored_bundles}/{len(items)} scored)"
         )
 
     pairs, pair_error = _subject_pairs(items, control_id, treatment_id)
