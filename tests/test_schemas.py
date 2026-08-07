@@ -38,18 +38,25 @@ from MagentaBench.schemas import (
     VerifierEvidence,
     canonical_digest,
     check_allowed_diff,
-    compile_benchmark_artifact,
-    compile_subject_artifact,
     expand_factor_sweep,
     load_benchmark_spec,
     load_claim_report,
     load_evidence_bundle,
     load_execution_spec,
     load_subject_spec,
-    resolve_execution_spec,
     schema_documents,
 )
-from MagentaBench.schemas.compiler import _source_content_digest
+from MagentaBench.schemas.compiler import (
+    _compile_benchmark_artifact as compile_benchmark_artifact,
+    _compile_subject_artifact as compile_subject_artifact,
+    _resolve_execution_spec as resolve_execution_spec,
+)
+from MagentaBench.schemas.compiler import (
+    _compile_benchmark_artifact as compile_benchmark_artifact,
+    _compile_subject_artifact as compile_subject_artifact,
+    _resolve_execution_spec as resolve_execution_spec,
+    _source_content_digest,
+)
 
 EXAMPLES = Path(__file__).parents[1] / "MagentaBench" / "schemas" / "examples"
 

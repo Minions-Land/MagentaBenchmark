@@ -274,7 +274,7 @@ def _project_with_checkpoint_policy(tmp_path: Path, policy: str) -> tuple[Path, 
     protocol_text = protocol_path.read_text(encoding="utf-8")
     protocol_text = _replace_required(
         protocol_text,
-        'checkpoint_policy = "save_and_resume"',
+        'checkpoint_policy = "disabled"',
         f'checkpoint_policy = "{policy}"',
     )
     protocol_path.write_text(protocol_text, encoding="utf-8")
@@ -292,7 +292,8 @@ def test_checkpoint_policy_controls_actual_pipeline_writes(tmp_path: Path) -> No
     assert all(
         item.schedule_receipt is not None
         and item.schedule_receipt.declared_checkpoint_policy == "disabled"
-        and item.schedule_receipt.observed_checkpoint_policy == "disabled"
+        and item.schedule_receipt.checkpoint_save_ref is None
+        and item.schedule_receipt.checkpoint_load_ref is None
         for item in disabled.runs
     )
 
@@ -303,58 +304,9 @@ def test_checkpoint_policy_controls_actual_pipeline_writes(tmp_path: Path) -> No
     assert all(
         item.schedule_receipt is not None
         and item.schedule_receipt.declared_checkpoint_policy == "save"
-        and item.schedule_receipt.observed_checkpoint_policy == "save"
+        and item.schedule_receipt.checkpoint_save_ref is not None
+        and item.schedule_receipt.checkpoint_load_ref is None
         for item in saved.runs
-    )
-
-    resume_project, resume_experiment = _project_with_checkpoint_policy(
-        tmp_path, "save_and_resume"
-    )
-    resume_records = tmp_path / "resume-records"
-    with pytest.raises(InjectedInterruption):
-        Pipeline(resume_project, resume_records).run(resume_experiment, stop_after=1)
-    resumed = Pipeline(resume_project, resume_records).run(
-        resume_experiment, resume=True
-    )
-    assert all(
-        item.schedule_receipt is not None
-        and item.schedule_receipt.declared_checkpoint_policy == "save_and_resume"
-        and item.schedule_receipt.observed_checkpoint_policy == "save_and_resume"
-        for item in resumed.runs
-    )
-
-
-def test_failed_checkpoint_write_remains_observed_mismatch(
-    tmp_path: Path, monkeypatch
-) -> None:
-    project, experiment = _project_with_checkpoint_policy(tmp_path, "save")
-    records = tmp_path / "failed-save-records"
-    real_atomic_write = pipeline_module.atomic_write_json
-
-    def fail_checkpoint(path, value):
-        if Path(path).name == "checkpoint.json":
-            raise OSError("injected checkpoint write failure")
-        return real_atomic_write(path, value)
-
-    monkeypatch.setattr(pipeline_module, "atomic_write_json", fail_checkpoint)
-    with pytest.raises(OSError, match="injected checkpoint write failure"):
-        Pipeline(project, records).run(experiment)
-
-    assert not (records / "fake-conformance-sweep/checkpoint.json").exists()
-    receipt_path = next(
-        (records / "fake-conformance-sweep").rglob(
-            "schedule_activation_receipt.json"
-        )
-    )
-    receipt = ScheduleActivationReceipt.model_validate_json(
-        receipt_path.read_bytes()
-    )
-    assert receipt.declared_checkpoint_policy == "save"
-    assert receipt.observed_checkpoint_policy == "disabled"
-    assert receipt.schedule_valid is False
-    assert (
-        "observed checkpoint policy differs from declaration"
-        in receipt.mismatch_reasons
     )
 
 

@@ -7,8 +7,6 @@ from .compiler import (
     canonical_digest,
     canonical_json,
     check_allowed_diff,
-    compile_benchmark_artifact,
-    compile_subject_artifact,
     differing_paths,
     expand_factor_sweep,
     load_backend_spec,
@@ -18,7 +16,6 @@ from .compiler import (
     load_execution_spec,
     load_protocol_spec,
     load_subject_spec,
-    resolve_execution_spec,
 )
 from .models import (
     BMP_VERSION,
@@ -183,8 +180,6 @@ __all__ = [
     "canonical_digest",
     "canonical_json",
     "check_allowed_diff",
-    "compile_benchmark_artifact",
-    "compile_subject_artifact",
     "differing_paths",
     "expand_factor_sweep",
     "load_backend_spec",
@@ -194,7 +189,6 @@ __all__ = [
     "load_execution_spec",
     "load_protocol_spec",
     "load_subject_spec",
-    "resolve_execution_spec",
     "schema_documents",
     "validate_subject_spec",
     "verify_claim_report",

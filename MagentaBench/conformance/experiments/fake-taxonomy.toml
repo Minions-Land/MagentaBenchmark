@@ -3,7 +3,6 @@ id = "fake-taxonomy"
 benchmark = "fake.exact.v1"
 subject = "fake.fault"
 protocol = "fake.deterministic.v1"
-counterbalance = true
 
 [experiment.design]
 scope = "conformance"

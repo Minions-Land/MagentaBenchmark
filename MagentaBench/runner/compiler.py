@@ -45,9 +45,11 @@ from MagentaBench.schemas import (
     RunPurpose,
     SUBJECT_KIND_SCOPE_MATRIX,
     SubjectSpecAdapter,
-    compile_benchmark_artifact,
-    compile_subject_artifact,
-    resolve_execution_spec,
+)
+from MagentaBench.schemas.compiler import (
+    _compile_benchmark_artifact,
+    _compile_subject_artifact,
+    _resolve_execution_spec,
 )
 
 
@@ -336,11 +338,11 @@ class Compiler:
 
     def _benchmark_artifact(self, entry_id: str):
         spec, registry_path = self._lookup("benchmark", entry_id)
-        return compile_benchmark_artifact(spec, base_dir=registry_path.parent)
+        return _compile_benchmark_artifact(spec, base_dir=registry_path.parent)
 
     def _subject_artifact(self, entry_id: str):
         spec, registry_path = self._lookup("subject", entry_id)
-        return compile_subject_artifact(spec, base_dir=registry_path.parent)
+        return _compile_subject_artifact(spec, base_dir=registry_path.parent)
 
     _SCOPE_PROOF_TYPES = {
         ClaimScope.component: "AssemblySidecarRef",
@@ -720,7 +722,7 @@ class Compiler:
             allowed_diff=allowed_diff,
             factors=dict(factor_values),
         )
-        resolved_execution = resolve_execution_spec(
+        resolved_execution = _resolve_execution_spec(
             execution,
             backend=backend,
             protocol=protocol,

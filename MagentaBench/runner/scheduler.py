@@ -534,7 +534,11 @@ class Scheduler:
             checkpoint_save_ref=None,
             checkpoint_load_ref=None,
             ancestor_schedule_receipt_ref=None,
-            order_seed=run.manifest.execution.seed,
+            order_seed=(
+                run.manifest.execution.seed
+                if protocol.case_order == "seeded_random"
+                else None
+            ),
             attempts=tuple(attempts),
             budget_ledger=ledger,
             schedule_valid=schedule_valid,

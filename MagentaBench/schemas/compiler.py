@@ -209,7 +209,7 @@ def _resolve_existing_source(source: str, *, base_dir: Path | None = None) -> st
     return str(resolved)
 
 
-def compile_benchmark_artifact(
+def _compile_benchmark_artifact(
     spec: BenchmarkSpec,
     *,
     base_dir: Path | None = None,
@@ -236,7 +236,7 @@ def compile_benchmark_artifact(
     return BenchmarkArtifactAdapter.validate_python(payload)
 
 
-def compile_subject_artifact(
+def _compile_subject_artifact(
     spec: SubjectSpec,
     *,
     base_dir: Path | None = None,
@@ -274,7 +274,7 @@ def _deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> dict[st
     return result
 
 
-def resolve_execution_spec(
+def _resolve_execution_spec(
     spec: ExecutionSpec,
     *,
     backend: BackendSpec,
@@ -471,8 +471,6 @@ __all__ = [
     "canonical_digest",
     "canonical_json",
     "check_allowed_diff",
-    "compile_benchmark_artifact",
-    "compile_subject_artifact",
     "differing_paths",
     "expand_factor_sweep",
     "load_backend_spec",
@@ -482,5 +480,4 @@ __all__ = [
     "load_execution_spec",
     "load_protocol_spec",
     "load_subject_spec",
-    "resolve_execution_spec",
 ]
