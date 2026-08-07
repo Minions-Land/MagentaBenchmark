@@ -237,6 +237,48 @@
       "title": "Budget",
       "type": "object"
     },
+    "ClaimDesign": {
+      "additionalProperties": false,
+      "description": "Identity-bearing declaration of a run's attribution and purpose.",
+      "properties": {
+        "purpose": {
+          "$ref": "#/$defs/RunPurpose"
+        },
+        "scope": {
+          "$ref": "#/$defs/ClaimScope"
+        },
+        "vary": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Vary",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scope",
+        "purpose",
+        "vary"
+      ],
+      "title": "ClaimDesign",
+      "type": "object"
+    },
+    "ClaimScope": {
+      "enum": [
+        "component",
+        "whole_harness",
+        "model",
+        "checkpoint",
+        "evolver",
+        "meta_evolver",
+        "schedule",
+        "ablation",
+        "hyperparameter",
+        "conformance"
+      ],
+      "title": "ClaimScope",
+      "type": "string"
+    },
     "EnvironmentSpec": {
       "additionalProperties": false,
       "description": "Reproducible environment requirements; interpreter pin is mandatory.",
@@ -758,6 +800,14 @@
       "title": "ResolvedManifestMetadata",
       "type": "object"
     },
+    "RunPurpose": {
+      "enum": [
+        "exploratory",
+        "claim"
+      ],
+      "title": "RunPurpose",
+      "type": "string"
+    },
     "TaskSuiteBenchmarkArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -976,6 +1026,9 @@
       "title": "Bmp Version",
       "type": "string"
     },
+    "claim_design": {
+      "$ref": "#/$defs/ClaimDesign"
+    },
     "created_at": {
       "anyOf": [
         {
@@ -1083,6 +1136,7 @@
     "benchmark",
     "subject",
     "execution",
+    "claim_design",
     "metadata"
   ],
   "title": "ResolvedBmpManifest",

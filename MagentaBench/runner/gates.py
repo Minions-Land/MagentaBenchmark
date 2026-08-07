@@ -10,9 +10,13 @@ from typing import Iterable, Mapping
 from MagentaBench.schemas import (
     ClaimReport,
     EffectEstimate,
+    Observation,
+    ObservationReport,
     GateName,
     GateResult,
     LineageRef,
+    RunPurpose,
+    RunReport,
     RunStatus,
 )
 
@@ -107,7 +111,7 @@ def _score(item: CompletedRun) -> float | None:
     return None if evidence is None else evidence.score
 
 
-def evaluate_claim(
+def _evaluate_claim(
     *,
     experiment_id: str,
     experiment_digest: str,
@@ -252,6 +256,7 @@ def evaluate_claim(
         for item in items
     )
     return ClaimReport(
+        purpose=RunPurpose.claim,
         experiment_id=experiment_id,
         manifest_digest=experiment_digest,
         gates=gates,
@@ -261,4 +266,59 @@ def evaluate_claim(
     )
 
 
-__all__ = ["CompletedRun", "evaluate_claim"]
+def evaluate_run_report(
+    *,
+    experiment_id: str,
+    experiment_digest: str,
+    completed: Iterable[CompletedRun],
+    expected_run_count: int,
+    control_id: str,
+    treatment_id: str,
+    deterministic_conformance: bool,
+    counterbalanced: bool,
+) -> RunReport:
+    """Build the report type structurally required by the declared purpose."""
+
+    items = list(completed)
+    if not items:
+        raise ValueError("cannot report an experiment with no completed runs")
+    purposes = {item.plan.manifest.claim_design.purpose for item in items}
+    if len(purposes) != 1:
+        raise ValueError("run purpose must be invariant across an experiment")
+    purpose = next(iter(purposes))
+    if purpose == RunPurpose.claim:
+        return _evaluate_claim(
+            experiment_id=experiment_id,
+            experiment_digest=experiment_digest,
+            completed=items,
+            expected_run_count=expected_run_count,
+            control_id=control_id,
+            treatment_id=treatment_id,
+            deterministic_conformance=deterministic_conformance,
+            counterbalanced=counterbalanced,
+        )
+
+    statuses = [item.case.bundle.status for item in items]
+    scores = [score for item in items if (score := _score(item)) is not None]
+    observations = (
+        Observation(metric="exact_match", value=mean(scores), n_runs=len(scores)),
+    ) if scores else ()
+    lineage = tuple(
+        LineageRef(
+            run_id=item.case.bundle.run_id,
+            case_id=item.case.case_id,
+            evidence_bundle_sha256=item.case.bundle_digest,
+        )
+        for item in items
+    )
+    return ObservationReport(
+        purpose=RunPurpose.exploratory,
+        experiment_id=experiment_id,
+        manifest_digest=experiment_digest,
+        observations=observations,
+        failure_breakdown=dict(Counter(statuses)),
+        lineage=lineage,
+    )
+
+
+__all__ = ["CompletedRun", "evaluate_run_report"]

@@ -19,6 +19,7 @@ from MagentaBench.schemas import (
     Budget,
     EnvironmentReceipt,
     EnvironmentSpec,
+    ObservationReport,
     ProvenanceRecord,
     RunStatus,
     canonical_digest,
@@ -62,10 +63,10 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
         RunStatus.pass_,
         RunStatus.verified_fail,
     ]
-    assert result.claim_report.claim_eligible is True
-    assert result.claim_report.effect is not None
-    assert result.claim_report.effect.point_estimate == 1.0
-    assert result.claim_report.effect.n_pairs == 2
+    assert isinstance(result.report, ObservationReport)
+    assert result.report.observations[0].value == 0.5
+    assert result.report.observations[0].n_runs == 4
+    assert "claim_eligible" not in result.report.model_dump(mode="json")
     for item in result.runs:
         bundle = item.case.bundle
         assert bundle.provenance.executable == "/usr/bin/echo"

@@ -1,0 +1,329 @@
+{
+  "$defs": {
+    "ClaimReport": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_eligible": {
+          "description": "Whether every independently recorded validity gate passes.",
+          "readOnly": true,
+          "title": "Claim Eligible",
+          "type": "boolean"
+        },
+        "effect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EffectEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "effect_is_causal_claim": {
+          "description": "Whether an estimate may be described using causal claim language.",
+          "readOnly": true,
+          "title": "Effect Is Causal Claim",
+          "type": "boolean"
+        },
+        "experiment_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "failure_breakdown": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/RunStatus"
+          },
+          "title": "Failure Breakdown",
+          "type": "object"
+        },
+        "gates": {
+          "additionalProperties": {
+            "$ref": "#/$defs/GateResult"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/GateName"
+          },
+          "title": "Gates",
+          "type": "object"
+        },
+        "lineage": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LineageRef"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "purpose": {
+          "const": "claim",
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose",
+        "experiment_id",
+        "manifest_digest",
+        "gates",
+        "claim_eligible",
+        "effect_is_causal_claim"
+      ],
+      "title": "ClaimReport",
+      "type": "object"
+    },
+    "EffectEstimate": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence_interval": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Confidence Interval",
+          "type": "array"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "n_pairs": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "N Pairs"
+        },
+        "n_runs": {
+          "minimum": 1,
+          "title": "N Runs",
+          "type": "integer"
+        },
+        "point_estimate": {
+          "title": "Point Estimate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "point_estimate",
+        "confidence_interval",
+        "n_runs"
+      ],
+      "title": "EffectEstimate",
+      "type": "object"
+    },
+    "GateName": {
+      "enum": [
+        "execution_valid",
+        "protocol_valid",
+        "isolation_valid",
+        "scoring_valid",
+        "statistics_valid",
+        "claim_eligible"
+      ],
+      "title": "GateName",
+      "type": "string"
+    },
+    "GateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "valid": {
+          "title": "Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "valid"
+      ],
+      "title": "GateResult",
+      "type": "object"
+    },
+    "LineageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Id"
+        },
+        "evidence_bundle_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evidence Bundle Sha256",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "evidence_bundle_sha256"
+      ],
+      "title": "LineageRef",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "n_runs": {
+          "minimum": 1,
+          "title": "N Runs",
+          "type": "integer"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "value",
+        "n_runs"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "ObservationReport": {
+      "additionalProperties": false,
+      "description": "Exploratory observations with no claim eligibility or causal fields.",
+      "properties": {
+        "experiment_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "failure_breakdown": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/RunStatus"
+          },
+          "title": "Failure Breakdown",
+          "type": "object"
+        },
+        "lineage": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LineageRef"
+          },
+          "title": "Lineage",
+          "type": "array"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "observations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Observation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "purpose": {
+          "const": "exploratory",
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose",
+        "experiment_id",
+        "manifest_digest"
+      ],
+      "title": "ObservationReport",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "pass",
+        "verified_fail",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "claim": "#/$defs/ClaimReport",
+      "exploratory": "#/$defs/ObservationReport"
+    },
+    "propertyName": "purpose"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ObservationReport"
+    },
+    {
+      "$ref": "#/$defs/ClaimReport"
+    }
+  ]
+}

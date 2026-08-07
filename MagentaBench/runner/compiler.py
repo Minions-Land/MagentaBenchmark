@@ -12,6 +12,7 @@ import hashlib
 import itertools
 import json
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,13 +31,18 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 from MagentaBench.schemas import (
     BackendSpec,
     BenchmarkSpecAdapter,
+    ClaimDesign,
     ClaimReport,
+    ClaimScope,
     ExecutionSpec,
     GateName,
     GateResult,
+    ObservationReport,
     ProtocolSpec,
     ResolvedBmpManifest,
     ResolvedManifestMetadata,
+    RunPurpose,
+    SUBJECT_KIND_SCOPE_MATRIX,
     SubjectSpecAdapter,
     compile_benchmark_artifact,
     compile_subject_artifact,
@@ -196,21 +202,26 @@ def enforce_allowed_diff(
     control: ResolvedBmpManifest,
     treatment: ResolvedBmpManifest,
     allowed_diff: Iterable[str],
+    *,
+    resolved_paths: Iterable[str] | None = None,
 ) -> tuple[str, ...]:
     """Validate a control/treatment pair and return its complete resolved diff."""
 
-    # Metadata contains pair labels and run identity, not causal configuration.
-    left = {
-        "benchmark": control.benchmark.model_dump(mode="json"),
-        "subject": control.subject.model_dump(mode="json"),
-        "execution": control.execution.model_dump(mode="json"),
-    }
-    right = {
-        "benchmark": treatment.benchmark.model_dump(mode="json"),
-        "subject": treatment.subject.model_dump(mode="json"),
-        "execution": treatment.execution.model_dump(mode="json"),
-    }
-    paths = resolved_diff_paths(left, right)
+    if resolved_paths is None:
+        # Metadata contains pair labels and run identity, not causal configuration.
+        left = {
+            "benchmark": control.benchmark.model_dump(mode="json"),
+            "subject": control.subject.model_dump(mode="json"),
+            "execution": control.execution.model_dump(mode="json"),
+        }
+        right = {
+            "benchmark": treatment.benchmark.model_dump(mode="json"),
+            "subject": treatment.subject.model_dump(mode="json"),
+            "execution": treatment.execution.model_dump(mode="json"),
+        }
+        paths = resolved_diff_paths(left, right)
+    else:
+        paths = tuple(resolved_paths)
     allowed = tuple(allowed_diff)
     forbidden = [path for path in paths if path not in allowed]
     if forbidden:
@@ -221,6 +232,20 @@ def enforce_allowed_diff(
 class Compiler:
     """Load registries and compile an experiment TOML into resolved run plans."""
 
+    _EXPERIMENT_KEYS = frozenset(
+        {
+            "id",
+            "benchmark",
+            "subject",
+            "protocol",
+            "claim_mode",
+            "control",
+            "treatment",
+            "allowed_diff",
+            "counterbalance",
+            "design",
+        }
+    )
     _REGISTRY_SECTIONS = {
         "benchmark": ("benchmarks", BenchmarkSpecAdapter),
         "subject": ("subjects", SubjectSpecAdapter),
@@ -295,6 +320,52 @@ class Compiler:
         spec, registry_path = self._lookup("subject", entry_id)
         return compile_subject_artifact(spec, base_dir=registry_path.parent)
 
+    _SCOPE_PROOF_TYPES = {
+        ClaimScope.component: "AssemblySidecarRef",
+        ClaimScope.model: "ModelActivationReceipt",
+        ClaimScope.checkpoint: "CheckpointLoadReceipt",
+        ClaimScope.evolver: "EvolutionRunEvidence",
+        ClaimScope.meta_evolver: "NestedIsolationReceipt and RecursiveBudgetReceipt",
+        ClaimScope.schedule: "ScheduleActivationReceipt",
+        ClaimScope.ablation: "AssemblySidecarRef",
+        ClaimScope.hyperparameter: "HyperparameterActivationReceipt",
+        ClaimScope.conformance: "FakeConformanceEvidence",
+        ClaimScope.whole_harness: "WholeHarnessArtifactEvidence",
+    }
+    _ACTIVE_SCOPES = frozenset({ClaimScope.conformance, ClaimScope.whole_harness})
+
+    @classmethod
+    def _validate_subject_evidence_for_scope(
+        cls, manifest: ResolvedBmpManifest
+    ) -> None:
+        """Reject attribution scopes unsupported by frozen subject evidence."""
+
+        scope = manifest.claim_design.scope
+        subject = manifest.subject
+        legal_scopes = SUBJECT_KIND_SCOPE_MATRIX.get(subject.kind, frozenset())
+        proof_type = cls._SCOPE_PROOF_TYPES[scope]
+        if scope not in legal_scopes:
+            raise CompilationError(
+                f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
+                f"requires missing evidence class {proof_type}"
+            )
+        if scope not in cls._ACTIVE_SCOPES:
+            raise CompilationError(
+                f"claim scope {scope.value!r} requires missing evidence class "
+                f"{proof_type}; runtime support is not active"
+            )
+        if scope == ClaimScope.component and getattr(subject, "sidecar_ref", None) is None:
+            raise CompilationError(
+                "claim scope 'component' requires missing evidence class AssemblySidecarRef"
+            )
+        if (
+            scope == ClaimScope.conformance
+            and manifest.claim_design.purpose != RunPurpose.exploratory
+        ):
+            raise CompilationError(
+                "conformance scope requires run purpose 'exploratory'"
+            )
+
     def _compile_expanded(
         self,
         declaration: Mapping[str, Any],
@@ -305,11 +376,25 @@ class Compiler:
         execution_raw = declaration.get("execution")
         if not isinstance(experiment, dict) or not isinstance(execution_raw, dict):
             raise CompilationError("experiment TOML requires [experiment] and [execution]")
+        unknown_experiment_keys = sorted(set(experiment) - self._EXPERIMENT_KEYS)
+        if unknown_experiment_keys:
+            raise CompilationError(
+                f"unknown [experiment] fields: {unknown_experiment_keys}"
+            )
 
         required = ("id", "benchmark", "subject", "protocol")
         missing = [name for name in required if not experiment.get(name)]
         if missing:
             raise CompilationError(f"[experiment] missing fields: {', '.join(missing)}")
+        design_raw = experiment.get("design")
+        if not isinstance(design_raw, dict):
+            raise CompilationError(
+                "[experiment.design] is required with scope, purpose, and vary"
+            )
+        try:
+            claim_design = ClaimDesign.model_validate(design_raw)
+        except pydantic.ValidationError as exc:
+            raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
 
         try:
             execution = ExecutionSpec.model_validate(execution_raw)
@@ -330,7 +415,7 @@ class Compiler:
                 "fake subjects require deterministic_conformance=true"
             )
 
-        allowed_raw = experiment.get("allowed_diff", experiment.get("vary", ()))
+        allowed_raw = experiment.get("allowed_diff", ())
         if isinstance(allowed_raw, str):
             allowed_diff = (allowed_raw,)
         else:
@@ -352,8 +437,10 @@ class Compiler:
             benchmark=benchmark,
             subject=subject,
             execution=resolved_execution,
+            claim_design=claim_design,
             metadata=metadata,
         )
+        self._validate_subject_evidence_for_scope(manifest)
         canonical = canonical_manifest_json(manifest)
         return CompiledRun(
             manifest=manifest,
@@ -371,6 +458,53 @@ class Compiler:
         }
         return canonical_json_bytes(factors)
 
+    @staticmethod
+    def _validate_scope_vary_declaration(design: ClaimDesign) -> None:
+        dotted_path = re.compile(
+            r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_-]+)+$"
+        )
+        invalid = [path for path in design.vary if not dotted_path.fullmatch(path)]
+        if invalid:
+            raise CompilationError(
+                f"claim scope {design.scope.value!r} has invalid canonical vary paths: {invalid}"
+            )
+        if design.scope == ClaimScope.conformance:
+            if design.vary:
+                raise CompilationError("conformance scope requires vary=[]")
+            return
+        if design.scope == ClaimScope.whole_harness:
+            forbidden = [path for path in design.vary if not path.startswith("subject.")]
+            if forbidden:
+                raise CompilationError(
+                    "whole_harness scope permits only subject.* vary paths; "
+                    f"forbidden: {forbidden}"
+                )
+
+    @classmethod
+    def _enforce_scope_diff(
+        cls,
+        control: ResolvedBmpManifest,
+        treatment: ResolvedBmpManifest,
+        resolved_paths: tuple[str, ...],
+    ) -> None:
+        if control.claim_design != treatment.claim_design:
+            raise CompilationError("claim design must be invariant across comparison arms")
+        design = control.claim_design
+        cls._validate_scope_vary_declaration(design)
+        if design.scope == ClaimScope.conformance:
+            return
+        enforce_allowed_diff(
+            control,
+            treatment,
+            design.vary,
+            resolved_paths=resolved_paths,
+        )
+        unused = sorted(set(design.vary) - set(resolved_paths))
+        if unused:
+            raise CompilationError(
+                f"declared vary paths are not activated by any arm: {unused}"
+            )
+
     def _enforce_one_factor(
         self,
         declaration: Mapping[str, Any],
@@ -378,6 +512,12 @@ class Compiler:
     ) -> None:
         experiment = declaration["experiment"]
         if experiment.get("claim_mode") != "one_factor":
+            for run in runs:
+                self._validate_scope_vary_declaration(run.manifest.claim_design)
+                if run.manifest.claim_design.vary:
+                    raise CompilationError(
+                        "declared vary paths require explicit comparison arms"
+                    )
             return
         control_id = experiment.get("control")
         treatment_id = experiment.get("treatment")
@@ -400,7 +540,10 @@ class Compiler:
                 raise CompilationError("one_factor sweep has an unpaired control/treatment")
             control = pair[control_id].manifest
             treatment = pair[treatment_id].manifest
-            enforce_allowed_diff(control, treatment, control.metadata.allowed_diff)
+            paths = enforce_allowed_diff(
+                control, treatment, control.metadata.allowed_diff
+            )
+            self._enforce_scope_diff(control, treatment, paths)
 
     def compile(
         self,
@@ -418,6 +561,14 @@ class Compiler:
         experiment = declaration.get("experiment")
         if not isinstance(experiment, dict) or not experiment.get("id"):
             raise CompilationError("experiment TOML requires [experiment].id")
+        unknown_experiment_keys = sorted(set(experiment) - self._EXPERIMENT_KEYS)
+        if unknown_experiment_keys:
+            raise CompilationError(
+                f"unknown [experiment] fields: {unknown_experiment_keys}"
+            )
+        claim_mode = experiment.get("claim_mode")
+        if claim_mode not in {None, "one_factor"}:
+            raise CompilationError(f"unsupported claim_mode: {claim_mode!r}")
 
         factors = declaration.get("factors")
         if factors is not None and not isinstance(factors, dict):
@@ -446,6 +597,11 @@ class Compiler:
                 expand_factor_sweep(base, factors)
             )
         ]
+        designs = {canonical_json_bytes(run.manifest.claim_design) for run in runs}
+        if len(designs) != 1:
+            raise CompilationError(
+                "claim design must be invariant across every expanded run"
+            )
         try:
             self._enforce_one_factor(declaration, runs)
         except IsolationViolation as exc:
@@ -470,20 +626,34 @@ class Compiler:
         reason = "forbidden resolved diff paths: " + ", ".join(
             violation.forbidden_paths
         )
-        not_executed = GateResult(valid=False, reason="not executed: isolation violation")
-        report = ClaimReport(
-            experiment_id=experiment_id,
-            manifest_digest=sha256_bytes(digest_basis),
-            gates={
-                GateName.execution_valid: not_executed,
-                GateName.protocol_valid: not_executed,
-                GateName.isolation_valid: GateResult(valid=False, reason=reason),
-                GateName.scoring_valid: not_executed,
-                GateName.statistics_valid: not_executed,
-            },
-            failure_breakdown={},
-            lineage=(),
-        )
+        purpose = runs[0].manifest.claim_design.purpose
+        if purpose == RunPurpose.claim:
+            not_executed = GateResult(
+                valid=False, reason="not executed: isolation violation"
+            )
+            report: Any = ClaimReport(
+                purpose=RunPurpose.claim,
+                experiment_id=experiment_id,
+                manifest_digest=sha256_bytes(digest_basis),
+                gates={
+                    GateName.execution_valid: not_executed,
+                    GateName.protocol_valid: not_executed,
+                    GateName.isolation_valid: GateResult(valid=False, reason=reason),
+                    GateName.scoring_valid: not_executed,
+                    GateName.statistics_valid: not_executed,
+                },
+                failure_breakdown={},
+                lineage=(),
+            )
+        else:
+            report = ObservationReport(
+                purpose=RunPurpose.exploratory,
+                experiment_id=experiment_id,
+                manifest_digest=sha256_bytes(digest_basis),
+                observations=(),
+                failure_breakdown={},
+                lineage=(),
+            )
         target = directory / "isolation_violation.json"
         temporary = target.with_suffix(".json.tmp")
         with temporary.open("wb") as handle:
@@ -491,6 +661,18 @@ class Compiler:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, target)
+        if purpose == RunPurpose.exploratory:
+            from .evidence import atomic_write_json
+
+            atomic_write_json(
+                directory / "isolation_violation_receipt.json",
+                {
+                    "rejection_type": "isolation_violation",
+                    "reason": reason,
+                    "forbidden_paths": list(violation.forbidden_paths),
+                    "resolved_diff_paths": list(violation.all_paths),
+                },
+            )
         return target
 
 

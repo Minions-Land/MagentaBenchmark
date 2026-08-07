@@ -14,7 +14,9 @@ from .models import (
     EnvironmentSpec,
     EvidenceBundle,
     ExecutionSpec,
+    ObservationReport,
     ResolvedBmpManifest,
+    RunReportAdapter,
     ResolvedExecutionSpec,
     SubjectArtifactAdapter,
     SubjectSpecAdapter,
@@ -35,6 +37,8 @@ def schema_documents() -> dict[str, dict[str, Any]]:
         "resolved-execution-spec": ResolvedExecutionSpec.model_json_schema(),
         "evidence-bundle": EvidenceBundle.model_json_schema(),
         "claim-report": ClaimReport.model_json_schema(mode="serialization"),
+        "observation-report": ObservationReport.model_json_schema(),
+        "run-report": RunReportAdapter.json_schema(mode="serialization"),
         "resolved-bmp-manifest": ResolvedBmpManifest.model_json_schema(),
     }
 

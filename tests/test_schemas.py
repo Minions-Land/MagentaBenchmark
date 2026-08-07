@@ -12,7 +12,9 @@ from MagentaBench.schemas import (
     BackendSpec,
     BenchmarkSpecAdapter,
     Budget,
+    ClaimDesign,
     ClaimReport,
+    ClaimScope,
     EnvironmentReceipt,
     EnvironmentSpec,
     EvidenceBundle,
@@ -20,10 +22,15 @@ from MagentaBench.schemas import (
     GateName,
     ManifestCompiler,
     MountSpec,
+    ObservationReport,
     PackageRecord,
     ProtocolSpec,
     ProvenanceRecord,
+    ResolvedBmpManifest,
     ResolvedExecutionSpec,
+    RunPurpose,
+    RunReportAdapter,
+    SUBJECT_KIND_SCOPE_MATRIX,
     SubjectSpecAdapter,
     VerifierEvidence,
     build_resolved_manifest,
@@ -91,11 +98,78 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         "environment-receipt",
         "evidence-bundle",
         "claim-report",
+        "observation-report",
+        "run-report",
         "resolved-bmp-manifest",
     }.issubset(documents)
     assert documents["subject-spec"]["discriminator"]["propertyName"] == "kind"
     assert "claim_eligible" in documents["claim-report"]["properties"]
     assert "effect_is_causal_claim" in documents["claim-report"]["properties"]
+
+
+def test_claim_design_is_required_and_closed(tmp_path: Path) -> None:
+    manifest_payload = _manifest(tmp_path, created_at="now").model_dump(mode="python")
+    manifest_payload.pop("claim_design")
+    with pytest.raises(ValidationError, match="claim_design"):
+        ResolvedBmpManifest.model_validate(manifest_payload)
+    with pytest.raises(ValidationError, match="scope"):
+        ClaimDesign.model_validate(
+            {"scope": "invented", "purpose": "exploratory", "vary": []}
+        )
+    with pytest.raises(ValidationError, match="purpose"):
+        ClaimDesign.model_validate(
+            {"scope": "conformance", "purpose": "invented", "vary": []}
+        )
+    with pytest.raises(ValidationError, match="vary"):
+        ClaimDesign.model_validate(
+            {"scope": "conformance", "purpose": "exploratory"}
+        )
+
+
+def test_claim_scope_and_purpose_are_identity_bearing(tmp_path: Path) -> None:
+    base = _manifest(tmp_path, created_at="now")
+    different_scope = base.model_copy(
+        update={
+            "claim_design": ClaimDesign(
+                scope=ClaimScope.whole_harness,
+                purpose=RunPurpose.exploratory,
+                vary=("subject.artifact_digest",),
+            )
+        }
+    )
+    different_purpose = base.model_copy(
+        update={
+            "claim_design": ClaimDesign(
+                scope=ClaimScope.conformance,
+                purpose=RunPurpose.claim,
+                vary=(),
+            )
+        }
+    )
+    assert len(
+        {
+            base.canonical_digest(),
+            different_scope.canonical_digest(),
+            different_purpose.canonical_digest(),
+        }
+    ) == 3
+    assert SUBJECT_KIND_SCOPE_MATRIX["fake"] == frozenset({ClaimScope.conformance})
+    assert ClaimScope.component not in SUBJECT_KIND_SCOPE_MATRIX["opaque_agent"]
+
+
+def test_observation_report_is_structurally_not_a_claim_report() -> None:
+    report = ObservationReport(
+        purpose=RunPurpose.exploratory,
+        experiment_id="exploration",
+        manifest_digest="a" * 64,
+    )
+    serialized = report.model_dump(mode="json")
+    assert "claim_eligible" not in serialized
+    assert "effect" not in serialized
+    assert "gates" not in serialized
+    assert isinstance(RunReportAdapter.validate_python(serialized), ObservationReport)
+    with pytest.raises(ValidationError):
+        RunReportAdapter.validate_python(serialized | {"claim_eligible": True})
 
 
 def test_environment_spec_requires_explicit_interpreter_and_names_only() -> None:
@@ -173,6 +247,24 @@ def test_provenance_rejects_plaintext_environment_maps() -> None:
                 "backend_digest": "sha256:backend",
                 "environment": {"OPENAI_API_KEY": "secret"},
             }
+        )
+
+
+def test_provenance_records_optional_executable_digest() -> None:
+    provenance = ProvenanceRecord(
+        manifest_digest="a" * 64,
+        runner_digest="b" * 64,
+        benchmark_digest="c" * 64,
+        subject_digest="d" * 64,
+        backend_digest="sha256:backend",
+        executable="/usr/bin/echo",
+        executable_digest="e" * 64,
+    )
+    _round_trip(provenance)
+    with pytest.raises(ValidationError, match="executable_digest"):
+        ProvenanceRecord.model_validate(
+            provenance.model_dump(mode="python")
+            | {"executable_digest": "not-a-sha256"}
         )
 
 
@@ -356,6 +448,11 @@ def _manifest(tmp_path: Path, *, created_at: str, seed: int = 7):
         benchmark=benchmark,
         subject=subject,
         execution=execution,
+        claim_design=ClaimDesign(
+            scope=ClaimScope.conformance,
+            purpose=RunPurpose.exploratory,
+            vary=(),
+        ),
         created_at=created_at,
     )
 
@@ -478,5 +575,10 @@ def test_fake_subject_is_scoped_to_deterministic_conformance(tmp_path: Path) -> 
             benchmark_id="fake-benchmark",
             subject_id="fake-subject",
             execution=execution,
+            claim_design=ClaimDesign(
+                scope=ClaimScope.conformance,
+                purpose=RunPurpose.exploratory,
+                vary=(),
+            ),
             protocol_id="normal",
         )

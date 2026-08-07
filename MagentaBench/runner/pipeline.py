@@ -1,4 +1,4 @@
-"""End-to-end BMP execution, checkpoint, resume, aggregation and claims."""
+"""End-to-end BMP execution, checkpoint, resume, aggregation and reports."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from MagentaBench.schemas import ClaimReport
+from MagentaBench.schemas import ClaimReport, RunPurpose, RunReport
 
 from .backend.fake import CaseExecution, EvidenceDriftError, FakeBackend
 from .compiler import CompiledRun, Compiler, canonical_json_bytes, sha256_bytes
 from .evidence import atomic_write_json, sha256_file
-from .gates import CompletedRun, evaluate_claim
+from .gates import CompletedRun, evaluate_run_report
 
 
 class ResumeDriftError(RuntimeError):
@@ -28,8 +28,8 @@ class InjectedInterruption(RuntimeError):
 class PipelineResult:
     runs: tuple[CompletedRun, ...]
     aggregate_path: Path
-    claim_report_path: Path
-    claim_report: ClaimReport
+    report_path: Path
+    report: RunReport
 
 
 class Pipeline:
@@ -264,7 +264,7 @@ class Pipeline:
         experiment_digest = sha256_bytes(
             canonical_json_bytes([run.manifest_digest for run in compiled])
         )
-        claim = evaluate_claim(
+        report = evaluate_run_report(
             experiment_id=experiment_id,
             experiment_digest=experiment_digest,
             completed=completed,
@@ -274,8 +274,13 @@ class Pipeline:
             deterministic_conformance=deterministic,
             counterbalanced=counterbalanced,
         )
-        claim_path = experiment_dir / "claim_report.json"
-        atomic_write_json(claim_path, claim)
+        report_name = (
+            "claim_report.json"
+            if report.purpose == RunPurpose.claim
+            else "observation_report.json"
+        )
+        report_path = experiment_dir / report_name
+        atomic_write_json(report_path, report)
         aggregate = {
             "experiment_id": experiment_id,
             "experiment_digest": experiment_digest,
@@ -287,7 +292,7 @@ class Pipeline:
                 else item.case.bundle.verifier_evidence.score
                 for item in completed
             ],
-            "claim_report_sha256": sha256_file(claim_path),
+            "run_report_sha256": sha256_file(report_path),
         }
         aggregate_path = experiment_dir / "aggregate.json"
         atomic_write_json(aggregate_path, aggregate)
@@ -295,15 +300,19 @@ class Pipeline:
             experiment_dir / "resume_receipt.json",
             {"resume": resume, "reused": reused_ids, "rerun": executed_ids},
         )
-        self._append_event(
-            events_path,
-            {"seq": len(completed) + 2, "event": "complete", "eligible": claim.claim_eligible},
-        )
+        complete_event: dict[str, Any] = {
+            "seq": len(completed) + 2,
+            "event": "complete",
+            "purpose": report.purpose.value,
+        }
+        if isinstance(report, ClaimReport):
+            complete_event["eligible"] = report.claim_eligible
+        self._append_event(events_path, complete_event)
         return PipelineResult(
             runs=tuple(completed),
             aggregate_path=aggregate_path,
-            claim_report_path=claim_path,
-            claim_report=claim,
+            report_path=report_path,
+            report=report,
         )
 
 

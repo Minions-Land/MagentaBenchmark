@@ -82,6 +82,7 @@ def test_real_zero_cost_aose_docker_contract(tmp_path: Path) -> None:
     assert receipt_a["agent_executable_sha256"] == (
         "4b5a5694e3c0e8b1d58fc52ac6ef076e55e72c2f53195243ac86d5ff517cc2f6"
     )
+    assert a.case.bundle.provenance.executable_digest == receipt_a["agent_executable_sha256"]
 
     assert b.case.bundle.status == RunStatus.unsupported
     assert run_b.manifest.benchmark.authoritative_reward_metric is None
@@ -95,6 +96,7 @@ def test_real_zero_cost_aose_docker_contract(tmp_path: Path) -> None:
     assert receipt_b["agent_executable_sha256"] == (
         "1643dacd9feaedc58f3cc581e4d22577dfe25c09b10282936186ccf0f2e61118"
     )
+    assert b.case.bundle.provenance.executable_digest == receipt_b["agent_executable_sha256"]
     assert a.workspace_kept and a.workspace.is_dir()
     assert not b.workspace_kept and not b.workspace.exists()
     assert receipt_a["container_removed"] is True

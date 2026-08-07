@@ -14,7 +14,7 @@ from MagentaBench.runner.pipeline import (
     Pipeline,
     ResumeDriftError,
 )
-from MagentaBench.schemas import GateName, RunStatus
+from MagentaBench.schemas import ObservationReport, RunStatus
 
 
 ROOT = Path(__file__).parents[1]
@@ -52,7 +52,7 @@ def test_fake_backend_classifies_complete_failure_taxonomy(tmp_path: Path) -> No
         assert payload["provenance"]["manifest_digest"]
 
 
-def test_end_to_end_fake_sweep_writes_evidence_and_eligible_claim(tmp_path: Path) -> None:
+def test_end_to_end_fake_sweep_writes_evidence_and_observation(tmp_path: Path) -> None:
     result = Pipeline(ROOT, tmp_path).run(EXPERIMENTS / "fake-sweep.toml")
 
     assert len(result.runs) == 8
@@ -65,21 +65,15 @@ def test_end_to_end_fake_sweep_writes_evidence_and_eligible_claim(tmp_path: Path
         RunStatus.pass_,
         RunStatus.verified_fail,
     ]
-    assert result.claim_report.claim_eligible is True
-    assert result.claim_report.effect is not None
-    assert result.claim_report.effect.point_estimate == 1.0
-    assert result.claim_report.effect.n_pairs == 4
-    assert len(result.claim_report.lineage) == 8
-    assert all(
-        result.claim_report.gates[name].valid
-        for name in (
-            GateName.execution_valid,
-            GateName.protocol_valid,
-            GateName.isolation_valid,
-            GateName.scoring_valid,
-            GateName.statistics_valid,
-        )
-    )
+    assert isinstance(result.report, ObservationReport)
+    assert result.report.observations[0].metric == "exact_match"
+    assert result.report.observations[0].value == 0.5
+    assert result.report.observations[0].n_runs == 8
+    assert len(result.report.lineage) == 8
+    serialized = result.report.model_dump(mode="json")
+    assert "claim_eligible" not in serialized
+    assert "effect" not in serialized
+    assert "gates" not in serialized
 
     experiment_dir = tmp_path / "fake-conformance-sweep"
     for name in (
@@ -87,7 +81,7 @@ def test_end_to_end_fake_sweep_writes_evidence_and_eligible_claim(tmp_path: Path
         "events.jsonl",
         "checkpoint.json",
         "aggregate.json",
-        "claim_report.json",
+        "observation_report.json",
         "resume_receipt.json",
     ):
         assert (experiment_dir / name).is_file()
@@ -117,7 +111,7 @@ def test_interrupted_resume_is_semantically_equivalent_and_reuses_completed(
     clean = pipeline.run(experiment)
     experiment_dir = tmp_path / "fake-conformance-sweep"
     clean_aggregate = clean.aggregate_path.read_bytes()
-    clean_claim = clean.claim_report_path.read_bytes()
+    clean_report = clean.report_path.read_bytes()
     clean_bundles = {
         path.relative_to(experiment_dir): path.read_bytes()
         for path in experiment_dir.rglob("evidence_bundle.json")
@@ -129,7 +123,7 @@ def test_interrupted_resume_is_semantically_equivalent_and_reuses_completed(
     resumed = Pipeline(ROOT, tmp_path).run(experiment, resume=True)
 
     assert resumed.aggregate_path.read_bytes() == clean_aggregate
-    assert resumed.claim_report_path.read_bytes() == clean_claim
+    assert resumed.report_path.read_bytes() == clean_report
     assert {
         path.relative_to(experiment_dir): path.read_bytes()
         for path in experiment_dir.rglob("evidence_bundle.json")

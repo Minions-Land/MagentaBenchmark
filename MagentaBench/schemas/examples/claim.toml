@@ -1,4 +1,5 @@
 [claim]
+purpose = "claim"
 experiment_id = "terminal-module-evolution-sweep"
 manifest_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 

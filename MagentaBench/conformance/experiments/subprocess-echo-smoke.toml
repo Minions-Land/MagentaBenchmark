@@ -13,6 +13,11 @@ allowed_diff = [
 ]
 counterbalance = true
 
+[experiment.design]
+scope = "conformance"
+purpose = "exploratory"
+vary = []
+
 [execution]
 backend = "subprocess.echo"
 model = "none/echo"

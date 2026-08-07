@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "LineageRef": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Case Id"
+        },
+        "evidence_bundle_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evidence Bundle Sha256",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "evidence_bundle_sha256"
+      ],
+      "title": "LineageRef",
+      "type": "object"
+    },
+    "Observation": {
+      "additionalProperties": false,
+      "properties": {
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "n_runs": {
+          "minimum": 1,
+          "title": "N Runs",
+          "type": "integer"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "metric",
+        "value",
+        "n_runs"
+      ],
+      "title": "Observation",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "pass",
+        "verified_fail",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Exploratory observations with no claim eligibility or causal fields.",
+  "properties": {
+    "experiment_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "failure_breakdown": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/RunStatus"
+      },
+      "title": "Failure Breakdown",
+      "type": "object"
+    },
+    "lineage": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/LineageRef"
+      },
+      "title": "Lineage",
+      "type": "array"
+    },
+    "manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "observations": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Observation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "purpose": {
+      "const": "exploratory",
+      "title": "Purpose",
+      "type": "string"
+    }
+  },
+  "required": [
+    "purpose",
+    "experiment_id",
+    "manifest_digest"
+  ],
+  "title": "ObservationReport",
+  "type": "object"
+}

@@ -13,6 +13,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from types import MappingProxyType
 from typing import Annotated, Any, ClassVar, Literal, Mapping, Union
 
 from pydantic import (
@@ -542,6 +543,82 @@ class ResolvedExecutionSpec(StrictModel):
     protocol: ProtocolSpec | None = None
 
 
+class ClaimScope(str, Enum):
+    component = "component"
+    whole_harness = "whole_harness"
+    model = "model"
+    checkpoint = "checkpoint"
+    evolver = "evolver"
+    meta_evolver = "meta_evolver"
+    schedule = "schedule"
+    ablation = "ablation"
+    hyperparameter = "hyperparameter"
+    conformance = "conformance"
+
+
+class RunPurpose(str, Enum):
+    exploratory = "exploratory"
+    claim = "claim"
+
+
+SUBJECT_KIND_SCOPE_MATRIX: Mapping[str, frozenset[ClaimScope]] = MappingProxyType({
+    "hcp_harness": frozenset(
+        {
+            ClaimScope.component,
+            ClaimScope.whole_harness,
+            ClaimScope.model,
+            ClaimScope.checkpoint,
+            ClaimScope.schedule,
+            ClaimScope.ablation,
+            ClaimScope.hyperparameter,
+        }
+    ),
+    "opaque_agent": frozenset(
+        {
+            ClaimScope.whole_harness,
+            ClaimScope.model,
+            ClaimScope.checkpoint,
+            ClaimScope.schedule,
+            ClaimScope.hyperparameter,
+        }
+    ),
+    "evolver": frozenset(
+        {
+            ClaimScope.model,
+            ClaimScope.checkpoint,
+            ClaimScope.evolver,
+            ClaimScope.schedule,
+            ClaimScope.hyperparameter,
+        }
+    ),
+    "meta_evolver": frozenset(
+        {
+            ClaimScope.model,
+            ClaimScope.checkpoint,
+            ClaimScope.meta_evolver,
+            ClaimScope.schedule,
+            ClaimScope.hyperparameter,
+        }
+    ),
+    "fake": frozenset({ClaimScope.conformance}),
+})
+
+
+class ClaimDesign(StrictModel):
+    """Identity-bearing declaration of a run's attribution and purpose."""
+
+    scope: ClaimScope
+    purpose: RunPurpose
+    vary: tuple[str, ...]
+
+    @field_validator("vary")
+    @classmethod
+    def vary_paths_are_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("vary paths must be unique")
+        return value
+
+
 class ResolvedManifestMetadata(StrictModel):
     experiment_id: str = Field(pattern=ID_PATTERN)
     run_id: str = Field(pattern=ID_PATTERN)
@@ -567,6 +644,7 @@ class ResolvedBmpManifest(StrictModel):
     benchmark: BenchmarkArtifact
     subject: SubjectArtifact
     execution: ResolvedExecutionSpec
+    claim_design: ClaimDesign
     metadata: ResolvedManifestMetadata
     created_at: str | None = None
     wall_clock_start: str | None = None
@@ -642,6 +720,7 @@ class ProvenanceRecord(StrictModel):
     backend_digest: str = Field(min_length=1)
     trace_emission_claimed: bool = False
     executable: str | None = None
+    executable_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
     distribution: str | None = None
     version: str | None = None
     commit: str | None = None
@@ -752,7 +831,34 @@ class LineageRef(StrictModel):
     evidence_bundle_sha256: str = Field(pattern=SHA256_PATTERN)
 
 
+class Observation(StrictModel):
+    metric: str = Field(min_length=1)
+    value: float
+    n_runs: int = Field(ge=1)
+
+
+class ObservationReport(StrictModel):
+    """Exploratory observations with no claim eligibility or causal fields."""
+
+    purpose: Literal[RunPurpose.exploratory]
+    experiment_id: str = Field(pattern=ID_PATTERN)
+    manifest_digest: str = Field(pattern=SHA256_PATTERN)
+    observations: tuple[Observation, ...] = ()
+    failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
+    lineage: tuple[LineageRef, ...] = ()
+
+    @field_validator("failure_breakdown")
+    @classmethod
+    def failure_counts_are_nonnegative(
+        cls, value: Mapping[RunStatus, int]
+    ) -> Mapping[RunStatus, int]:
+        if any(count < 0 for count in value.values()):
+            raise ValueError("failure breakdown counts must be non-negative")
+        return value
+
+
 class ClaimReport(StrictModel):
+    purpose: Literal[RunPurpose.claim]
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
     gates: Mapping[GateName, GateResult]
@@ -800,6 +906,13 @@ class ClaimReport(StrictModel):
         return self
 
 
+RunReport = Annotated[
+    Union[ObservationReport, ClaimReport],
+    Field(discriminator="purpose"),
+]
+RunReportAdapter = TypeAdapter(RunReport)
+
+
 __all__ = [
     "BMP_VERSION",
     "IDENTITY_EXCLUDE",
@@ -812,7 +925,9 @@ __all__ = [
     "BenchmarkSpec",
     "BenchmarkSpecAdapter",
     "Budget",
+    "ClaimDesign",
     "ClaimReport",
+    "ClaimScope",
     "EffectEstimate",
     "EnvironmentReceipt",
     "EnvironmentSpec",
@@ -825,13 +940,19 @@ __all__ = [
     "AssemblySidecarRef",
     "LineageRef",
     "MountSpec",
+    "Observation",
+    "ObservationReport",
     "PackageRecord",
     "ProtocolSpec",
     "ProvenanceRecord",
     "ResolvedBmpManifest",
     "ResolvedExecutionSpec",
     "ResolvedManifestMetadata",
+    "RunPurpose",
+    "RunReport",
+    "RunReportAdapter",
     "RunStatus",
+    "SUBJECT_KIND_SCOPE_MATRIX",
     "SubjectArtifact",
     "SubjectArtifactAdapter",
     "SubjectSpec",

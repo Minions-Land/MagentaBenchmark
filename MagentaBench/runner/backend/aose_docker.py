@@ -179,27 +179,31 @@ class AoseDockerBackend:
         mount_receipt = self._probe_mounts(image, task)
         executable_digest = self._image_file_hash(image, str(agent_argv[0]))
 
-        workspace = (
-            self.workspace_root
-            / run.manifest.metadata.run_id
-            / task.task_id
-        )
-        if workspace.exists():
-            shutil.rmtree(workspace)
-        workspace.mkdir(parents=True, exist_ok=False)
-        evidence_dir = (
+        case_root = (
             self.record_root
             / run.manifest.metadata.experiment_id
             / run.manifest_digest
             / "cases"
             / task.task_id
         )
-        if evidence_dir.exists():
-            shutil.rmtree(evidence_dir)
-        evidence_dir.mkdir(parents=True, exist_ok=False)
+        case_root.mkdir(parents=True, exist_ok=True)
+        workspace_case_root = (
+            self.workspace_root / run.manifest.metadata.run_id / task.task_id
+        )
+        attempt_index = 0
+        while (
+            (case_root / f"attempt-{attempt_index:04d}").exists()
+            or (workspace_case_root / f"attempt-{attempt_index:04d}").exists()
+        ):
+            attempt_index += 1
+        attempt_id = f"attempt-{attempt_index:04d}"
+        evidence_dir = case_root / attempt_id
+        evidence_dir.mkdir(parents=False, exist_ok=False)
+        workspace = workspace_case_root / attempt_id
+        workspace.mkdir(parents=True, exist_ok=False)
 
         container_name = (
-            f"bmp-{run.manifest.metadata.run_id}-{task.task_id}"
+            f"bmp-{run.manifest.metadata.run_id}-{task.task_id}-{attempt_id}"
             .lower()
             .replace("_", "-")[:120]
         )
@@ -252,12 +256,16 @@ class AoseDockerBackend:
         atomic_write_bytes(stdout_path, stdout.encode("utf-8"))
         atomic_write_bytes(stderr_path, stderr.encode("utf-8"))
 
-        output_check = check_outputs(workspace)
+        expected_outputs = (workspace / "trace.md", workspace / "answer.txt")
+        unsafe_outputs = [path for path in expected_outputs if path.is_symlink()]
+        output_check = None if unsafe_outputs else check_outputs(workspace)
         if timed_out:
             status = RunStatus.timeout
         elif returncode != 0:
             status = RunStatus.agent_error
-        elif output_check.status == RunStatus.no_output:
+        elif unsafe_outputs:
+            status = RunStatus.invalid_output
+        elif output_check is not None and output_check.status == RunStatus.no_output:
             status = RunStatus.no_output
         else:
             # The rubric judge was intentionally not invoked. Outputs are
@@ -269,7 +277,7 @@ class AoseDockerBackend:
         outputs_dir = evidence_dir / "outputs"
         for name in ("trace.md", "answer.txt"):
             source = workspace / name
-            if source.is_file() and source.stat().st_size > 0:
+            if not source.is_symlink() and source.is_file() and source.stat().st_size > 0:
                 destination = outputs_dir / name
                 atomic_write_bytes(destination, source.read_bytes())
                 ref = artifact_ref(destination)
@@ -286,12 +294,14 @@ class AoseDockerBackend:
         )
         receipt_path = evidence_dir / "container_receipt.json"
         receipt = {
+            "attempt_id": attempt_id,
             "image_id": observed_image_id,
             "docker_argv": list(docker_argv),
             "agent_executable": str(agent_argv[0]),
             "agent_executable_sha256": executable_digest,
             "returncode": returncode,
             "timed_out": timed_out,
+            "unsafe_output_symlinks": [path.name for path in unsafe_outputs],
             "duration_seconds": duration,
             "judge_invocations": 0,
             "provider_environment_names": [],
@@ -302,7 +312,10 @@ class AoseDockerBackend:
         }
         atomic_write_json(receipt_path, receipt)
         status_path = evidence_dir / "status.json"
-        atomic_write_json(status_path, {"status": status.value, "case_id": task.task_id})
+        combined_case_id = f"{task.task_id}__{attempt_id}"
+        atomic_write_json(
+            status_path, {"status": status.value, "case_id": combined_case_id}
+        )
         bundle = EvidenceBundle(
             run_id=run.manifest.metadata.run_id,
             status=status,
@@ -322,6 +335,7 @@ class AoseDockerBackend:
                 subject_digest=run.manifest.subject.artifact_digest,
                 backend_digest=observed_image_id.removeprefix("sha256:"),
                 executable=str(agent_argv[0]),
+                executable_digest=executable_digest,
                 distribution="docker",
                 version=run.manifest.execution.backend.version,
                 image_digest=observed_image_id,
@@ -334,7 +348,7 @@ class AoseDockerBackend:
         bundle_path = evidence_dir / "evidence_bundle.json"
         atomic_write_json(bundle_path, bundle)
         case = CaseExecution(
-            case_id=task.task_id,
+            case_id=combined_case_id,
             bundle=bundle,
             bundle_path=bundle_path,
             bundle_digest=sha256_file(bundle_path),

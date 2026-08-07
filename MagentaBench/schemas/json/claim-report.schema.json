@@ -212,9 +212,15 @@
       "pattern": "^[0-9a-f]{64}$",
       "title": "Manifest Digest",
       "type": "string"
+    },
+    "purpose": {
+      "const": "claim",
+      "title": "Purpose",
+      "type": "string"
     }
   },
   "required": [
+    "purpose",
     "experiment_id",
     "manifest_digest",
     "gates",

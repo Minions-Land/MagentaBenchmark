@@ -89,12 +89,145 @@ def test_forbidden_diff_is_rejected_and_audited_before_execution(tmp_path: Path)
     )
     assert len(audits) == 1
     report = json.loads(audits[0].read_text(encoding="utf-8"))
-    assert report["claim_eligible"] is False
-    assert report["gates"]["isolation_valid"]["valid"] is False
-    assert "subject.id" in report["gates"]["isolation_valid"]["reason"]
+    assert report["purpose"] == "exploratory"
+    assert "claim_eligible" not in report
+    assert "gates" not in report
+    receipt = json.loads(
+        (audits[0].parent / "isolation_violation_receipt.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert receipt["rejection_type"] == "isolation_violation"
+    assert "subject.id" in receipt["reason"]
     assert not list(tmp_path.rglob("evidence_bundle.json"))
 
 
 def test_deterministic_conformance_protocol_rejects_non_fake_subject() -> None:
     with pytest.raises(CompilationError, match="only for fake subjects"):
         Compiler(ROOT).compile(EXPERIMENTS / "fake-protocol-real-subject.toml")
+
+
+def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-taxonomy.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        'protocol = "fake.deterministic.v1"',
+        'protocol = "fake.deterministic.v1"\nclaim_mode = "invented"',
+    )
+    experiment = tmp_path / "unknown-claim-mode.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="unsupported claim_mode: 'invented'"):
+        Compiler(ROOT).compile(experiment)
+
+
+def test_experiment_design_is_required_without_fallback(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-taxonomy.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        '\n[experiment.design]\nscope = "conformance"\npurpose = "exploratory"\nvary = []\n',
+        "",
+    )
+    experiment = tmp_path / "missing-design.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match=r"\[experiment\.design\] is required"):
+        Compiler(ROOT).compile(experiment)
+
+
+@pytest.mark.parametrize(
+    ("scope", "proof_type"),
+    [
+        ("component", "AssemblySidecarRef"),
+        ("model", "ModelActivationReceipt"),
+        ("schedule", "ScheduleActivationReceipt"),
+        ("checkpoint", "CheckpointLoadReceipt"),
+        ("evolver", "EvolutionRunEvidence"),
+        ("meta_evolver", "NestedIsolationReceipt"),
+        ("ablation", "AssemblySidecarRef"),
+        ("hyperparameter", "HyperparameterActivationReceipt"),
+    ],
+)
+def test_inactive_scopes_name_the_missing_evidence_class(
+    tmp_path: Path, scope: str, proof_type: str
+) -> None:
+    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
+        encoding="utf-8"
+    )
+    source = source.replace('scope = "whole_harness"', f'scope = "{scope}"')
+    experiment = tmp_path / f"blocked-{scope}.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match=proof_type):
+        Compiler(ROOT).compile(experiment)
+
+
+def _whole_harness_experiment(*, vary: str) -> str:
+    return f'''[experiment]
+id = "aose-whole-harness-compile"
+benchmark = "aosebench.biomnibench-da.v1"
+subject = "aose.dryrun.true"
+protocol = "aose.zero-cost-dryrun.v1"
+claim_mode = "one_factor"
+control = "aose.dryrun.true"
+treatment = "aose.dryrun.echo"
+allowed_diff = [
+  "subject.artifact_digest",
+  "subject.emits_trace",
+  "subject.entrypoint",
+  "subject.id",
+]
+
+[experiment.design]
+scope = "whole_harness"
+purpose = "claim"
+vary = [{vary}]
+
+[execution]
+backend = "aose.docker.immutable"
+model = "none/zero-cost"
+seed = 0
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 120.0
+max_cost = 0.0
+
+[factors]
+subject = ["aose.dryrun.true", "aose.dryrun.echo"]
+'''
+
+
+def test_whole_harness_scope_accepts_exact_subject_contrast(tmp_path: Path) -> None:
+    vary = ", ".join(
+        repr(path)
+        for path in (
+            "subject.artifact_digest",
+            "subject.emits_trace",
+            "subject.entrypoint",
+            "subject.id",
+        )
+    )
+    experiment = tmp_path / "whole-harness.toml"
+    experiment.write_text(_whole_harness_experiment(vary=vary), encoding="utf-8")
+    runs = Compiler(ROOT).compile(experiment)
+    assert {run.manifest.subject.id for run in runs} == {
+        "aose.dryrun.true",
+        "aose.dryrun.echo",
+    }
+    assert all(run.manifest.claim_design.scope.value == "whole_harness" for run in runs)
+
+
+def test_whole_harness_scope_rejects_non_subject_vary_path(tmp_path: Path) -> None:
+    experiment = tmp_path / "whole-harness-model-drift.toml"
+    experiment.write_text(
+        _whole_harness_experiment(vary='"execution.model"'), encoding="utf-8"
+    )
+    with pytest.raises(CompilationError, match=r"only subject\.\* vary paths"):
+        Compiler(ROOT).compile(experiment)
+
+
+def test_claim_design_cannot_vary_across_expanded_runs(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
+        encoding="utf-8"
+    )
+    source += '\n[factors]\n"experiment.design.purpose" = ["claim", "exploratory"]\n'
+    experiment = tmp_path / "mixed-purpose.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="claim design must be invariant"):
+        Compiler(ROOT).compile(experiment)

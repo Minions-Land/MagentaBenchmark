@@ -9,6 +9,11 @@ treatment = "fake.treatment"
 allowed_diff = ["subject.fixed_answer"]
 counterbalance = true
 
+[experiment.design]
+scope = "conformance"
+purpose = "exploratory"
+vary = []
+
 [execution]
 backend = "fake.local"
 model = "none/deterministic"
