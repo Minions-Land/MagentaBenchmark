@@ -180,21 +180,27 @@ def test_interrupted_resume_records_cross_run_checkpoint_lineage(
     resumed = Pipeline(project, records).run(experiment, resume=True)
     assert len(resumed.runs) == 8
     assert all(
+        item.schedule_receipt.declared_checkpoint_policy == "save"
+        and item.schedule_receipt.checkpoint_save_ref is not None
+        and item.schedule_receipt.checkpoint_load_ref is None
+        for item in resumed.runs[:3]
+    )
+    assert all(
         item.schedule_receipt.declared_checkpoint_policy == "save_and_resume"
         and item.schedule_receipt.checkpoint_save_ref is not None
         and item.schedule_receipt.checkpoint_load_ref is not None
         and item.schedule_receipt.ancestor_schedule_receipt_ref is not None
         and item.schedule_receipt.checkpoint_load_ref.schedule_receipt_digest
         == item.schedule_receipt.ancestor_schedule_receipt_ref.sha256
-        for item in resumed.runs
+        for item in resumed.runs[3:]
     )
     receipt = json.loads(
         (records / "fake-conformance-sweep/resume_receipt.json").read_text(
             encoding="utf-8"
         )
     )
-    assert receipt["reused"] == []
-    assert len(receipt["rerun"]) == 8
+    assert len(receipt["reused"]) == 3
+    assert len(receipt["rerun"]) == 5
 
 
 def test_schedule_receipt_identity_mutations_are_rejected(tmp_path: Path) -> None:

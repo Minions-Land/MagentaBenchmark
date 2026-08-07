@@ -464,16 +464,41 @@ class Pipeline:
         plan = self._plan(compiled)
         checkpoint_load_ref: CheckpointLoadReceipt | None = None
         ancestor_schedule_receipt_ref: ArtifactRef | None = None
+        resume_prefix_count = 0
+        resume_schedule_paths: dict[str, str] = {}
+        resume_old_runs: list[CompiledRun] = []
         if resume:
             self._validate_resume(plan_path, plan)
-            self._validate_checkpoint(checkpoint_path, plan_path, compiled)
+            checkpoint = self._read_json(checkpoint_path)
+            resume_prefix_count = int(checkpoint["next_index"])
+            resume_schedule_paths = dict(checkpoint["schedule_receipt_paths"])
+            resume_old_runs = [
+                replace(
+                    run,
+                    manifest=run.manifest.model_copy(
+                        update={
+                            "execution": run.manifest.execution.model_copy(
+                                update={
+                                    "protocol": run.manifest.execution.protocol.model_copy(
+                                        update={"checkpoint_policy": "save"}
+                                    )
+                                }
+                            )
+                        }
+                    ),
+                )
+                for run in compiled[:resume_prefix_count]
+            ]
+            self._validate_checkpoint(
+                checkpoint_path, plan_path, resume_old_runs
+            )
             checkpoint = self._read_json(checkpoint_path)
             previous_plan_digest = sha256_file(plan_path)
             previous_checkpoint_digest = sha256_file(checkpoint_path)
             next_index = int(checkpoint["next_index"])
             if next_index < 1:
                 raise ResumeDriftError("resume requires at least one saved ancestor run")
-            ancestor_run = compiled[next_index - 1]
+            ancestor_run = resume_old_runs[next_index - 1]
             ancestor_run_id = ancestor_run.manifest.metadata.run_id
             ancestor_receipt_path = Path(
                 checkpoint["schedule_receipt_paths"][ancestor_run_id]
@@ -520,7 +545,7 @@ class Pipeline:
         completed: list[CompletedRun] = []
         reused_ids: list[str] = []
         executed_ids: list[str] = []
-        for run in compiled:
+        for run_index, run in enumerate(compiled):
             observed_backend_adapter = getattr(self.backend, "adapter", None)
             declared_backend_adapter = run.manifest.execution.backend.adapter
             if observed_backend_adapter != declared_backend_adapter:
@@ -537,17 +562,31 @@ class Pipeline:
                 )
             if not resume and protocol.checkpoint_policy == "resume":
                 raise ResumeDriftError("checkpoint policy 'resume' requires resume=true")
-            task = self.backend._load_task(run)
-            receipt_path = (
-                self.backend.run_directory(run) / "schedule_activation_receipt.json"
-            )
+            execution_run = run
             schedule: ScheduleResult | None = None
-            if resume and receipt_path.is_file():
+            if resume and run_index < resume_prefix_count:
+                execution_run = resume_old_runs[run_index]
+                receipt_path = Path(
+                    resume_schedule_paths[run.manifest.metadata.run_id]
+                )
                 try:
-                    schedule = self._load_schedule_execution(run, receipt_path)
+                    schedule = self._load_schedule_execution(
+                        execution_run, receipt_path
+                    )
                 except EvidenceDriftError as exc:
                     raise ResumeDriftError(str(exc)) from exc
-            if schedule is None:
+                if schedule is None:
+                    raise ResumeDriftError(
+                        f"resume retained schedule evidence is unavailable: "
+                        f"{run.manifest.metadata.run_id}"
+                    )
+                reused_ids.append(run.manifest.metadata.run_id)
+            else:
+                task = self.backend._load_task(run)
+                receipt_path = (
+                    self.backend.run_directory(run)
+                    / "schedule_activation_receipt.json"
+                )
                 schedule = self.scheduler.execute(
                     run,
                     [task],
@@ -563,8 +602,6 @@ class Pipeline:
                     receipt_path=receipt_path,
                 )
                 executed_ids.append(run.manifest.metadata.run_id)
-            else:
-                reused_ids.append(run.manifest.metadata.run_id)
             if len(schedule.selected) != 1:
                 raise RuntimeError(
                     "schedule did not produce exactly one selected candidate per case"
@@ -572,7 +609,7 @@ class Pipeline:
             case = schedule.selected[0]
             completed.append(
                 CompletedRun(
-                    plan=run,
+                    plan=execution_run,
                     case=case,
                     schedule_receipt=schedule.receipt,
                     schedule_receipt_path=schedule.receipt_path,
@@ -629,7 +666,10 @@ class Pipeline:
                     for item in completed
                 },
             }
-            if protocol.checkpoint_policy in {"save", "save_and_resume"}:
+            if (
+                protocol.checkpoint_policy in {"save", "save_and_resume"}
+                and run_index >= resume_prefix_count
+            ):
                 save_artifact_path = (
                     experiment_dir
                     / "checkpoint_saves"
