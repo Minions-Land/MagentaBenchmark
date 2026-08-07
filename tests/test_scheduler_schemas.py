@@ -224,6 +224,22 @@ def test_attempt_context_cannot_exceed_remaining_global_budget() -> None:
             attempt_budget=BudgetAllocation(max_tokens=6, max_cost=1.0),
             remaining_global_budget=BudgetAllocation(max_tokens=5, max_cost=1.0),
         )
+    with pytest.raises(ValidationError, match="remaining global budget"):
+        AttemptContext(
+            case_id="case-1",
+            execution_run_id="attempt-3",
+            attempt_index=2,
+            attempt_budget=BudgetAllocation(max_tokens=None, max_cost=1.0),
+            remaining_global_budget=BudgetAllocation(max_tokens=5, max_cost=1.0),
+        )
+    unlimited = AttemptContext(
+        case_id="case-1",
+        execution_run_id="attempt-4",
+        attempt_index=3,
+        attempt_budget=BudgetAllocation(max_tokens=5, max_cost=1.0),
+        remaining_global_budget=BudgetAllocation(max_tokens=None, max_cost=None),
+    )
+    assert unlimited.attempt_budget.max_tokens == 5
 
 
 def test_checkpoint_policy_requires_decomposed_observed_receipts() -> None:

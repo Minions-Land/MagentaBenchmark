@@ -139,7 +139,7 @@ def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None
     )
     experiment = tmp_path / "unknown-claim-mode.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError, match=r"unknown \[experiment\] fields"):
+    with pytest.raises(CompilationError, match=r"claim_mode is forbidden.*ExperimentContrast"):
         Compiler(ROOT).compile(experiment)
 
 

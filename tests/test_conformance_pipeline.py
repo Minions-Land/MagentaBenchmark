@@ -43,7 +43,6 @@ def test_fake_backend_classifies_complete_failure_taxonomy(tmp_path: Path) -> No
         run
         for run in sweep_runs
         if run.manifest.subject.id == "fake.control"
-        and run.factor_values["execution.seed"] == 11
         and run.factor_values["repetition"] == 0
     )
     backend = FakeBackend(tmp_path)

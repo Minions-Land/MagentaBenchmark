@@ -1243,7 +1243,7 @@ class AttemptContext(StrictModel):
         for field_name in ("max_tokens", "max_cost"):
             attempt = getattr(self.attempt_budget, field_name)
             remaining = getattr(self.remaining_global_budget, field_name)
-            if attempt is not None and (remaining is None or attempt > remaining):
+            if remaining is not None and (attempt is None or attempt > remaining):
                 raise ValueError(
                     f"attempt {field_name} must not exceed remaining global budget"
                 )

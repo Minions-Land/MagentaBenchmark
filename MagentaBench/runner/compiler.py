@@ -277,6 +277,18 @@ class Compiler:
         self._registry_cache: dict[tuple[str, str], tuple[Any, Path]] = {}
 
     @staticmethod
+    def _parse_contrast(experiment: Mapping[str, Any]) -> ExperimentContrast:
+        raw = experiment.get("contrast")
+        if raw is None:
+            raw = {"mode": "all_arms", "counterbalanced": False}
+        if not isinstance(raw, Mapping):
+            raise CompilationError("[experiment.contrast] must be a table")
+        try:
+            return ExperimentContrast.model_validate(raw)
+        except pydantic.ValidationError as exc:
+            raise CompilationError(f"invalid [experiment.contrast]: {exc}") from exc
+
+    @staticmethod
     def _load_toml(path: Path) -> dict[str, Any]:
         try:
             with path.open("rb") as handle:
@@ -465,6 +477,10 @@ class Compiler:
         execution_raw = declaration.get("execution")
         if not isinstance(experiment, dict) or not isinstance(execution_raw, dict):
             raise CompilationError("experiment TOML requires [experiment] and [execution]")
+        if "claim_mode" in experiment:
+            raise CompilationError(
+                "claim_mode is forbidden; use [experiment.contrast] (ExperimentContrast)"
+            )
         unknown_experiment_keys = sorted(set(experiment) - self._EXPERIMENT_KEYS)
         if unknown_experiment_keys:
             raise CompilationError(
@@ -483,26 +499,7 @@ class Compiler:
             claim_design = ClaimDesign.model_validate(design_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
-        contrast_raw = experiment.get("contrast")
-        if contrast_raw is None:
-            control_id = experiment.get("control")
-            treatment_id = experiment.get("treatment")
-            if control_id and treatment_id:
-                contrast_raw = {
-                    "mode": "one_factor",
-                    "control_id": control_id,
-                    "treatment_id": treatment_id,
-                    "counterbalanced": bool(experiment.get("counterbalance", False)),
-                }
-            else:
-                contrast_raw = {
-                    "mode": "all_arms",
-                    "counterbalanced": False,
-                }
-        try:
-            contrast = ExperimentContrast.model_validate(contrast_raw)
-        except pydantic.ValidationError as exc:
-            raise CompilationError(f"invalid [experiment.contrast]: {exc}") from exc
+        contrast = self._parse_contrast(experiment)
 
         try:
             execution = ExecutionSpec.model_validate(execution_raw)
@@ -860,14 +857,16 @@ class Compiler:
         experiment = declaration.get("experiment")
         if not isinstance(experiment, dict) or not experiment.get("id"):
             raise CompilationError("experiment TOML requires [experiment].id")
+        if "claim_mode" in experiment:
+            raise CompilationError(
+                "claim_mode is forbidden; use [experiment.contrast] (ExperimentContrast)"
+            )
         unknown_experiment_keys = sorted(set(experiment) - self._EXPERIMENT_KEYS)
         if unknown_experiment_keys:
             raise CompilationError(
                 f"unknown [experiment] fields: {unknown_experiment_keys}"
             )
-        contrast_decl = experiment.get("contrast") or {}
-        if not isinstance(contrast_decl, dict):
-            raise CompilationError("[experiment.contrast] must be a table")
+        contrast = self._parse_contrast(experiment)
 
         factors = declaration.get("factors")
         if factors is not None and not isinstance(factors, dict):
@@ -875,8 +874,8 @@ class Compiler:
         base = {key: value for key, value in declaration.items() if key != "factors"}
 
         # A one-factor contrast may omit a redundant subject axis.
-        if contrast_decl.get("mode") == "one_factor":
-            if not contrast_decl.get("control_id") or not contrast_decl.get("treatment_id"):
+        if contrast.mode == "one_factor":
+            if not contrast.control_id or not contrast.treatment_id:
                 raise CompilationError(
                     "one_factor contrast requires control_id and treatment_id"
                 )
@@ -886,7 +885,7 @@ class Compiler:
             if not has_subject_axis:
                 factors = dict(factors or {})
                 factors = {
-                    "subject": [contrast_decl["control_id"], contrast_decl["treatment_id"]],
+                    "subject": [contrast.control_id, contrast.treatment_id],
                     **factors,
                 }
 
