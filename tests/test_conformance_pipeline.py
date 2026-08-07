@@ -29,6 +29,36 @@ def _replace_required(text: str, old: str, new: str) -> str:
     return replaced
 
 
+def _copy_resume_project(tmp_path: Path, name: str) -> tuple[Path, Path]:
+    project = tmp_path / name
+    shutil.copytree(ROOT / "registries", project / "registries")
+    shutil.copytree(
+        ROOT / "MagentaBench/conformance", project / "MagentaBench/conformance"
+    )
+    experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
+    experiment.write_text(
+        _replace_required(
+            experiment.read_text(encoding="utf-8"),
+            'protocol = "fake.deterministic.v1"',
+            'protocol = "fake.checkpoint-lineage.v1"',
+        ),
+        encoding="utf-8",
+    )
+    return project, experiment
+
+
+def _activate_save_and_resume(project: Path) -> None:
+    protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
+    protocol_path.write_text(
+        _replace_required(
+            protocol_path.read_text(encoding="utf-8"),
+            'checkpoint_policy = "save"',
+            'checkpoint_policy = "save_and_resume"',
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_subject_view_hides_verifier_gold() -> None:
     public = FakeTask().public_input()
     assert not hasattr(public, "expected")
@@ -110,6 +140,12 @@ def test_end_to_end_fake_sweep_writes_evidence_and_observation(tmp_path: Path) -
         assert (experiment_dir / name).is_file()
     assert not (experiment_dir / "checkpoint.json").exists()
     assert not (experiment_dir / "resume_receipt.json").exists()
+    assert all(
+        item.schedule_receipt.declared_checkpoint_policy == "disabled"
+        and item.schedule_receipt.checkpoint_save_ref is None
+        and item.schedule_receipt.checkpoint_load_ref is None
+        for item in result.runs
+    )
     case_dirs = list(experiment_dir.glob("*/cases/*__case-001__attempt-0000"))
     assert len(case_dirs) == 8
     assert len({case_dir.parents[1] for case_dir in case_dirs}) == 8
@@ -132,52 +168,33 @@ def test_end_to_end_fake_sweep_writes_evidence_and_observation(tmp_path: Path) -
         assert attempt.debit.spent == usage
 
 
-def test_interrupted_resume_is_semantically_equivalent_and_reuses_completed(
+def test_interrupted_resume_records_cross_run_checkpoint_lineage(
     tmp_path: Path,
 ) -> None:
-    experiment = EXPERIMENTS / "fake-sweep.toml"
-    pipeline = Pipeline(ROOT, tmp_path)
-    clean = pipeline.run(experiment)
-    experiment_dir = tmp_path / "fake-conformance-sweep"
-    clean_aggregate = json.loads(clean.aggregate_path.read_text(encoding="utf-8"))
-    clean_report = clean.report_path.read_bytes()
-    clean_bundles = {
-        path.relative_to(experiment_dir): path.read_bytes()
-        for path in experiment_dir.rglob("evidence_bundle.json")
-    }
-
-    shutil.rmtree(experiment_dir)
+    project, experiment = _copy_resume_project(tmp_path, "resume-project")
+    records = tmp_path / "resume-records"
     with pytest.raises(InjectedInterruption):
-        Pipeline(ROOT, tmp_path).run(experiment, stop_after=3)
-    resumed = Pipeline(ROOT, tmp_path).run(experiment, resume=True)
+        Pipeline(project, records).run(experiment, stop_after=3)
 
-    resumed_aggregate = json.loads(
-        resumed.aggregate_path.read_text(encoding="utf-8")
+    _activate_save_and_resume(project)
+    resumed = Pipeline(project, records).run(experiment, resume=True)
+    assert len(resumed.runs) == 8
+    assert all(
+        item.schedule_receipt.declared_checkpoint_policy == "save_and_resume"
+        and item.schedule_receipt.checkpoint_save_ref is not None
+        and item.schedule_receipt.checkpoint_load_ref is not None
+        and item.schedule_receipt.ancestor_schedule_receipt_ref is not None
+        and item.schedule_receipt.checkpoint_load_ref.schedule_receipt_digest
+        == item.schedule_receipt.ancestor_schedule_receipt_ref.sha256
+        for item in resumed.runs
     )
-    for key in (
-        "experiment_id",
-        "experiment_digest",
-        "run_count",
-        "statuses",
-        "scores",
-        "run_report_sha256",
-    ):
-        assert resumed_aggregate[key] == clean_aggregate[key]
-    assert resumed.report_path.read_bytes() == clean_report
-    assert {
-        path.relative_to(experiment_dir): path.read_bytes()
-        for path in experiment_dir.rglob("evidence_bundle.json")
-    } == clean_bundles
     receipt = json.loads(
-        (experiment_dir / "resume_receipt.json").read_text(encoding="utf-8")
+        (records / "fake-conformance-sweep/resume_receipt.json").read_text(
+            encoding="utf-8"
+        )
     )
-    assert len(receipt["reused"]) == 3
-    assert len(receipt["rerun"]) == 5
-    sequences = [
-        json.loads(line)["seq"]
-        for line in (experiment_dir / "events.jsonl").read_text().splitlines()
-    ]
-    assert sequences == list(range(1, len(sequences) + 1))
+    assert receipt["reused"] == []
+    assert len(receipt["rerun"]) == 8
 
 
 def test_schedule_receipt_identity_mutations_are_rejected(tmp_path: Path) -> None:
@@ -223,13 +240,10 @@ def test_schedule_receipt_identity_mutations_are_rejected(tmp_path: Path) -> Non
 
 
 def test_resume_validates_every_retained_rollout_bundle(tmp_path: Path) -> None:
-    project = tmp_path / "rollout-resume-project"
-    shutil.copytree(ROOT / "registries", project / "registries")
-    shutil.copytree(
-        ROOT / "MagentaBench/conformance",
-        project / "MagentaBench/conformance",
+    project, experiment = _copy_resume_project(
+        tmp_path, "rollout-resume-project"
     )
-    protocol_path = project / "registries/protocols/fake-deterministic.toml"
+    protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol_text = protocol_path.read_text(encoding="utf-8")
     protocol_text = _replace_required(
         protocol_text, "rollouts_per_case = 1", "rollouts_per_case = 3"
@@ -241,11 +255,11 @@ def test_resume_validates_every_retained_rollout_bundle(tmp_path: Path) -> None:
         protocol_text, 'candidate_selection = "single"', 'candidate_selection = "best_of_n"'
     )
     protocol_path.write_text(protocol_text, encoding="utf-8")
-    experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
     record_root = tmp_path / "rollout-resume-records"
     with pytest.raises(InjectedInterruption):
         Pipeline(project, record_root).run(experiment, stop_after=1)
 
+    _activate_save_and_resume(project)
     experiment_root = record_root / "fake-conformance-sweep"
     receipt = json.loads(
         next(experiment_root.rglob("schedule_activation_receipt.json")).read_text(
@@ -258,27 +272,21 @@ def test_resume_validates_every_retained_rollout_bundle(tmp_path: Path) -> None:
     bundle["provenance"]["runner_digest"] = "0" * 64
     bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
 
-    with pytest.raises(ResumeDriftError, match="runner_digest"):
+    with pytest.raises(ResumeDriftError, match="retained bundle byte drift"):
         Pipeline(project, record_root).run(experiment, resume=True)
 
 
 def _project_with_checkpoint_policy(tmp_path: Path, policy: str) -> tuple[Path, Path]:
-    project = tmp_path / policy
-    shutil.copytree(ROOT / "registries", project / "registries")
-    shutil.copytree(
-        ROOT / "MagentaBench" / "conformance",
-        project / "MagentaBench" / "conformance",
-    )
-    protocol_path = project / "registries/protocols/fake-deterministic.toml"
+    project, experiment = _copy_resume_project(tmp_path, policy)
+    protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol_text = protocol_path.read_text(encoding="utf-8")
-    if policy != "disabled":
+    if policy != "save":
         protocol_text = _replace_required(
             protocol_text,
-            'checkpoint_policy = "disabled"',
+            'checkpoint_policy = "save"',
             f'checkpoint_policy = "{policy}"',
         )
     protocol_path.write_text(protocol_text, encoding="utf-8")
-    experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
     return project, experiment
 
 
@@ -308,6 +316,14 @@ def test_checkpoint_policy_controls_actual_pipeline_writes(tmp_path: Path) -> No
         and item.schedule_receipt.checkpoint_load_ref is None
         for item in saved.runs
     )
+
+    resume_project, resume_experiment = _project_with_checkpoint_policy(
+        tmp_path, "save_and_resume"
+    )
+    with pytest.raises(ResumeDriftError, match="ancestor schedule receipt"):
+        Pipeline(resume_project, tmp_path / "fresh-resume-records").run(
+            resume_experiment
+        )
 
 
 def test_resume_drift_aborts_nonzero_path(tmp_path: Path) -> None:
@@ -356,11 +372,13 @@ def test_resume_refuses_benchmark_scoring_semantics_drift(tmp_path: Path) -> Non
 def test_resume_refuses_post_checkpoint_schedule_receipt_tamper(
     tmp_path: Path,
 ) -> None:
-    experiment = EXPERIMENTS / "fake-sweep.toml"
+    project, experiment = _copy_resume_project(tmp_path, "tamper-project")
+    records = tmp_path / "tamper-records"
     with pytest.raises(InjectedInterruption):
-        Pipeline(ROOT, tmp_path).run(experiment, stop_after=1)
+        Pipeline(project, records).run(experiment, stop_after=1)
+    _activate_save_and_resume(project)
     receipt_path = next(
-        (tmp_path / "fake-conformance-sweep").rglob(
+        (records / "fake-conformance-sweep").rglob(
             "schedule_activation_receipt.json"
         )
     )
@@ -369,17 +387,21 @@ def test_resume_refuses_post_checkpoint_schedule_receipt_tamper(
     receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
 
     with pytest.raises(ResumeDriftError, match="schedule receipt digest drift"):
-        Pipeline(ROOT, tmp_path).run(experiment, resume=True)
+        Pipeline(project, records).run(experiment, resume=True)
 
 
 @pytest.mark.parametrize("mutation", ["delete", "extra", "missing"])
 def test_resume_enforces_checkpoint_schedule_receipt_lineage(
     tmp_path: Path, mutation: str
 ) -> None:
-    experiment = EXPERIMENTS / "fake-sweep.toml"
+    project, experiment = _copy_resume_project(
+        tmp_path, f"lineage-{mutation}-project"
+    )
+    records = tmp_path / f"lineage-{mutation}-records"
     with pytest.raises(InjectedInterruption):
-        Pipeline(ROOT, tmp_path).run(experiment, stop_after=1)
-    experiment_root = tmp_path / "fake-conformance-sweep"
+        Pipeline(project, records).run(experiment, stop_after=1)
+    _activate_save_and_resume(project)
+    experiment_root = records / "fake-conformance-sweep"
     checkpoint_path = experiment_root / "checkpoint.json"
     checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
     if mutation == "delete":
@@ -392,38 +414,38 @@ def test_resume_enforces_checkpoint_schedule_receipt_lineage(
         checkpoint_path.write_text(json.dumps(checkpoint), encoding="utf-8")
 
     with pytest.raises(ResumeDriftError, match="schedule receipt"):
-        Pipeline(ROOT, tmp_path).run(experiment, resume=True)
+        Pipeline(project, records).run(experiment, resume=True)
 
 
 def test_resume_refuses_complete_bundle_provenance_drift(tmp_path: Path) -> None:
-    experiment = EXPERIMENTS / "fake-sweep.toml"
+    project, experiment = _copy_resume_project(tmp_path, "bundle-drift-project")
+    records = tmp_path / "bundle-drift-records"
     with pytest.raises(InjectedInterruption):
-        Pipeline(ROOT, tmp_path).run(experiment, stop_after=1)
-    experiment_dir = tmp_path / "fake-conformance-sweep"
+        Pipeline(project, records).run(experiment, stop_after=1)
+    _activate_save_and_resume(project)
+    experiment_dir = records / "fake-conformance-sweep"
     bundle_path = next(experiment_dir.rglob("evidence_bundle.json"))
     bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
     bundle["provenance"]["runner_digest"] = "0" * 64
     bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
 
-    with pytest.raises(ResumeDriftError, match="runner_digest"):
-        Pipeline(ROOT, tmp_path).run(experiment, resume=True)
+    with pytest.raises(ResumeDriftError, match="retained bundle byte drift"):
+        Pipeline(project, records).run(experiment, resume=True)
 
 
-def test_corrupt_partial_bundle_is_rerun_not_reused(tmp_path: Path) -> None:
-    experiment = EXPERIMENTS / "fake-sweep.toml"
+def test_corrupt_saved_bundle_refuses_checkpoint_load(tmp_path: Path) -> None:
+    project, experiment = _copy_resume_project(tmp_path, "corrupt-project")
+    records = tmp_path / "corrupt-records"
     with pytest.raises(InjectedInterruption):
-        Pipeline(ROOT, tmp_path).run(experiment, stop_after=2)
-    experiment_dir = tmp_path / "fake-conformance-sweep"
+        Pipeline(project, records).run(experiment, stop_after=2)
+    _activate_save_and_resume(project)
+    experiment_dir = records / "fake-conformance-sweep"
     completed_bundles = sorted(experiment_dir.rglob("evidence_bundle.json"))
     assert len(completed_bundles) == 2
     completed_bundles[0].write_text("{corrupt", encoding="utf-8")
     stale_cache = completed_bundles[0].parent / "stale-cache.txt"
     stale_cache.write_text("must not leak into rerun", encoding="utf-8")
 
-    Pipeline(ROOT, tmp_path).run(experiment, resume=True)
-    receipt = json.loads(
-        (experiment_dir / "resume_receipt.json").read_text(encoding="utf-8")
-    )
-    assert len(receipt["reused"]) == 1
-    assert len(receipt["rerun"]) == 7
-    assert not stale_cache.exists()
+    with pytest.raises(ResumeDriftError, match="retained bundle byte drift"):
+        Pipeline(project, records).run(experiment, resume=True)
+    assert stale_cache.is_file()

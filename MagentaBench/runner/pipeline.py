@@ -155,15 +155,49 @@ class Pipeline:
             ordered.extend(pair[subject_id] for subject_id in ids)
         return ordered
 
-    def _validate_resume(self, plan_path: Path, expected: dict[str, Any]) -> None:
+    @staticmethod
+    def _is_checkpoint_transition(
+        previous: dict[str, Any], expected: dict[str, Any]
+    ) -> bool:
+        previous_runs = previous.get("runs")
+        expected_runs = expected.get("runs")
+        if not isinstance(previous_runs, list) or not isinstance(expected_runs, list):
+            return False
+        if len(previous_runs) != len(expected_runs):
+            return False
+        previous_copy = json.loads(json.dumps(previous))
+        expected_copy = json.loads(json.dumps(expected))
+        for old_run, new_run in zip(
+            previous_copy["runs"], expected_copy["runs"], strict=True
+        ):
+            if old_run.get("checkpoint_policy") != "save":
+                return False
+            if new_run.get("checkpoint_policy") != "save_and_resume":
+                return False
+            old_run["checkpoint_policy"] = "save_and_resume"
+            old_manifest = old_run.get("manifest_identity", {})
+            new_manifest = new_run.get("manifest_identity", {})
+            try:
+                old_manifest["execution"]["protocol"]["checkpoint_policy"] = (
+                    "save_and_resume"
+                )
+                old_run["manifest_digest"] = new_run["manifest_digest"]
+            except (KeyError, TypeError):
+                return False
+            if old_manifest != new_manifest:
+                return False
+        return canonical_json_bytes(previous_copy) == canonical_json_bytes(expected_copy)
+
+    def _validate_resume(self, plan_path: Path, expected: dict[str, Any]) -> dict[str, Any]:
         try:
             actual = self._read_json(plan_path)
         except (OSError, ValueError) as exc:
             raise ResumeDriftError(f"resume plan is missing or unreadable: {exc}") from exc
-        if canonical_json_bytes(actual) != canonical_json_bytes(expected):
+        if canonical_json_bytes(actual) != canonical_json_bytes(expected) and not self._is_checkpoint_transition(actual, expected):
             raise ResumeDriftError(
                 "resume refused: manifest/backend/runner/task/verifier plan drift"
             )
+        return actual
 
     def _validate_checkpoint(
         self, checkpoint_path: Path, plan_path: Path, runs: list[CompiledRun]
@@ -173,6 +207,7 @@ class Pipeline:
             next_index = int(checkpoint["next_index"])
             completed = checkpoint["completed"]
             schedule_receipts = checkpoint["schedule_receipts"]
+            schedule_receipt_paths = checkpoint["schedule_receipt_paths"]
             plan_digest = checkpoint["plan_sha256"]
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise ResumeDriftError(
@@ -191,11 +226,14 @@ class Pipeline:
             raise ResumeDriftError("resume checkpoint completed run ids drift")
         if not isinstance(schedule_receipts, dict) or set(schedule_receipts) != expected_ids:
             raise ResumeDriftError("resume checkpoint schedule receipt lineage drift")
+        if (
+            not isinstance(schedule_receipt_paths, dict)
+            or set(schedule_receipt_paths) != expected_ids
+        ):
+            raise ResumeDriftError("resume checkpoint schedule receipt path lineage drift")
         for run in runs[:next_index]:
             run_id = run.manifest.metadata.run_id
-            receipt_path = (
-                self.backend.run_directory(run) / "schedule_activation_receipt.json"
-            )
+            receipt_path = Path(schedule_receipt_paths[run_id])
             if (
                 not receipt_path.is_file()
                 or schedule_receipts[run_id] != sha256_file(receipt_path)
@@ -207,6 +245,11 @@ class Pipeline:
                 receipt = ScheduleActivationReceipt.model_validate(
                     self._read_json(receipt_path)
                 )
+                bundle_refs = [
+                    item.evidence_bundle_ref
+                    for item in receipt.attempts
+                    if item.evidence_bundle_ref is not None
+                ]
                 selected_refs = [
                     item.evidence_bundle_ref
                     for item in receipt.attempts
@@ -216,6 +259,16 @@ class Pipeline:
                 raise ResumeDriftError(
                     f"resume checkpoint schedule receipt malformed: {run_id}"
                 ) from exc
+            for ref in bundle_refs:
+                bundle_path = Path(ref.path)
+                if (
+                    not bundle_path.is_file()
+                    or bundle_path.stat().st_size != ref.size_bytes
+                    or sha256_file(bundle_path) != ref.sha256
+                ):
+                    raise ResumeDriftError(
+                        f"resume checkpoint retained bundle byte drift: {run_id}"
+                    )
             if (
                 len(selected_refs) != 1
                 or completed[run_id] != selected_refs[0].sha256
@@ -409,13 +462,45 @@ class Pipeline:
         plan_path = experiment_dir / "plan.json"
         checkpoint_path = experiment_dir / "checkpoint.json"
         plan = self._plan(compiled)
-        checkpoint_loaded = False
+        checkpoint_load_ref: CheckpointLoadReceipt | None = None
+        ancestor_schedule_receipt_ref: ArtifactRef | None = None
         if resume:
             self._validate_resume(plan_path, plan)
             self._validate_checkpoint(checkpoint_path, plan_path, compiled)
-            checkpoint_loaded = True
+            checkpoint = self._read_json(checkpoint_path)
+            previous_plan_digest = sha256_file(plan_path)
+            previous_checkpoint_digest = sha256_file(checkpoint_path)
+            next_index = int(checkpoint["next_index"])
+            if next_index < 1:
+                raise ResumeDriftError("resume requires at least one saved ancestor run")
+            ancestor_run = compiled[next_index - 1]
+            ancestor_run_id = ancestor_run.manifest.metadata.run_id
+            ancestor_receipt_path = Path(
+                checkpoint["schedule_receipt_paths"][ancestor_run_id]
+            )
+            ancestor_schedule_receipt_ref = artifact_ref(ancestor_receipt_path)
+            atomic_write_json(plan_path, plan)
+            checkpoint_load_ref = CheckpointLoadReceipt(
+                loaded_checkpoint_digest=previous_checkpoint_digest,
+                resolved_plan_digest=sha256_file(plan_path),
+                schedule_receipt_digest=ancestor_schedule_receipt_ref.sha256,
+                selected_bundle_digests=tuple(checkpoint["completed"].values()),
+            )
+            if previous_plan_digest != checkpoint["plan_sha256"]:
+                raise ResumeDriftError("loaded checkpoint plan digest drift")
+            self.backend = FakeBackend(
+                experiment_dir / f"resume-execution-{previous_checkpoint_digest[:12]}"
+            )
         else:
             protocol = compiled[0].manifest.execution.protocol
+            if (
+                protocol is not None
+                and protocol.checkpoint_policy == "save_and_resume"
+            ):
+                raise ResumeDriftError(
+                    "checkpoint policy 'save_and_resume' requires resume=true "
+                    "and an ancestor schedule receipt"
+                )
             if (
                 protocol is not None
                 and protocol.checkpoint_policy == "disabled"
@@ -537,6 +622,12 @@ class Pipeline:
                     item.plan.manifest.metadata.run_id: item.schedule_receipt_sha256
                     for item in completed
                 },
+                "schedule_receipt_paths": {
+                    item.plan.manifest.metadata.run_id: str(
+                        item.schedule_receipt_path.resolve()
+                    )
+                    for item in completed
+                },
             }
             if protocol.checkpoint_policy in {"save", "save_and_resume"}:
                 save_artifact_path = (
@@ -546,7 +637,11 @@ class Pipeline:
                 )
                 atomic_write_json(save_artifact_path, checkpoint)
                 schedule = self._record_checkpoint_save(
-                    schedule, save_artifact_path, len(completed)
+                    schedule,
+                    save_artifact_path,
+                    len(completed),
+                    checkpoint_load_ref=checkpoint_load_ref,
+                    ancestor_schedule_receipt_ref=ancestor_schedule_receipt_ref,
                 )
                 completed[-1] = replace(
                     completed[-1],

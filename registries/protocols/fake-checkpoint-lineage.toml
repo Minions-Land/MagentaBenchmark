@@ -1,0 +1,18 @@
+[protocol]
+id = "fake.checkpoint-lineage.v1"
+kind = "mechanism_validation"
+adapter = "magentabench.scheduler"
+bmp_version = "0.1"
+rollouts_per_case = 1
+parallelism = 1
+case_order = "fixed"
+adaptive_budget = false
+candidate_selection = "single"
+state_reset = "never"
+checkpoint_policy = "save"
+deterministic_conformance = true
+
+[protocol.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
