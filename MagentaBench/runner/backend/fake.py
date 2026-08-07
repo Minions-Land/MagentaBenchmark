@@ -167,6 +167,7 @@ class FakeBackend:
                 backend.defaults.get("network_mode", backend.defaults.get("network", "none"))
             ),
             workspace_namespace=None,
+            test_override=run.manifest.metadata.test_override,
         )
 
     def execute(

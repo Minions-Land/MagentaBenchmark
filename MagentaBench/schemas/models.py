@@ -1012,11 +1012,18 @@ class ClaimDesign(StrictModel):
         return value
 
 
+class TestOverrideReceipt(StrictModel):
+    reason: str = Field(min_length=1)
+    forced_purpose: Literal["exploratory"] = "exploratory"
+    forced_scope: Literal["conformance"] = "conformance"
+
+
 class ResolvedManifestMetadata(StrictModel):
     experiment_id: str = Field(pattern=ID_PATTERN)
     run_id: str = Field(pattern=ID_PATTERN)
     allowed_diff: tuple[str, ...] = ()
     factors: Mapping[str, Any] = Field(default_factory=dict)
+    test_override: TestOverrideReceipt | None = None
 
     @field_validator("allowed_diff")
     @classmethod
@@ -1145,6 +1152,7 @@ class ProvenanceRecord(StrictModel):
     workspace_namespace: str | None = Field(default=None, min_length=1)
     environment_receipt: EnvironmentReceipt | None = None
     container_receipt_ref: ArtifactRef | None = None
+    test_override: TestOverrideReceipt | None = None
 
     @model_validator(mode="after")
     def no_equals_in_direct_strings(self) -> "ProvenanceRecord":
@@ -1869,6 +1877,7 @@ __all__ = [
     "SubjectSpec",
     "SubjectSpecAdapter",
     "SystemPromptRecord",
+    "TestOverrideReceipt",
     "UsageRecord",
     "VerifierEvidence",
     "WorkspaceRecord",

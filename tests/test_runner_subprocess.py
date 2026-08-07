@@ -20,7 +20,6 @@ from MagentaBench.schemas import (
     Budget,
     EnvironmentReceipt,
     EnvironmentSpec,
-    ObservationReport,
     ProvenanceRecord,
     RunStatus,
     canonical_digest,
@@ -50,34 +49,29 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
     workspaces = tmp_path / "workspaces"
     backend = SubprocessBackend(records, workspace_root=workspaces)
 
-    result = Pipeline(
-        ROOT, records, backend=backend, allow_test_override=True
-    ).run(EXPERIMENT)
+    with pytest.raises(ValueError, match="test override evidence"):
+        Pipeline(
+            ROOT, records, backend=backend, allow_test_override=True
+        ).run(EXPERIMENT)
 
-    statuses = [item.case.bundle.status for item in result.runs]
-    assert statuses == [
-        RunStatus.verified_fail,
-        RunStatus.pass_,
-        RunStatus.pass_,
-        RunStatus.verified_fail,
-    ]
-    assert isinstance(result.report, ObservationReport)
-    assert result.report.observations[0].value == 0.5
-    assert result.report.observations[0].n_runs == 4
-    assert "claim_eligible" not in result.report.model_dump(mode="json")
-    for item in result.runs:
-        bundle = item.case.bundle
-        assert bundle.provenance.executable == "/usr/bin/echo"
-        assert bundle.log_refs
+    bundle_paths = sorted(records.rglob("evidence_bundle.json"))
+    assert len(bundle_paths) == 4
+    statuses = []
+    for bundle_path in bundle_paths:
+        bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        statuses.append(bundle["status"])
+        assert bundle["provenance"]["executable"] == "/usr/bin/echo"
+        assert bundle["provenance"]["test_override"]["forced_scope"] == "conformance"
         receipt = json.loads(
-            Path(bundle.log_refs[2].path).read_text(encoding="utf-8")
+            Path(bundle["log_refs"][2]["path"]).read_text(encoding="utf-8")
         )
         assert receipt["workspace_kept"] is False
         assert not Path(receipt["workspace"]).exists()
-        assert Path(bundle.log_refs[0].path).read_text(encoding="utf-8") in {
+        assert Path(bundle["log_refs"][0]["path"]).read_text(encoding="utf-8") in {
             "BMP_OK\n",
             "BMP_BAD\n",
         }
+    assert sorted(statuses) == ["pass", "pass", "verified_fail", "verified_fail"]
     assert not list(workspaces.rglob("case-001"))
 
 

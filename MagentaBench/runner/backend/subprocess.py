@@ -176,6 +176,7 @@ class SubprocessBackend:
             network_mode="none",
             workspace_namespace=str(workspace.parent),
             environment_receipt=self.environment_receipt,
+            test_override=run.manifest.metadata.test_override,
         )
 
     def execute(

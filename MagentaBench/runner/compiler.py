@@ -45,6 +45,7 @@ from MagentaBench.schemas import (
     RunPurpose,
     SUBJECT_KIND_SCOPE_MATRIX,
     SubjectSpecAdapter,
+    TestOverrideReceipt,
 )
 from MagentaBench.schemas.compiler import (
     _compile_benchmark_artifact,
@@ -499,7 +500,14 @@ class Compiler:
             claim_design = ClaimDesign.model_validate(design_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
-        self._validate_scope_vary_declaration(claim_design)
+        if self.allow_test_override:
+            claim_design = ClaimDesign(
+                scope=ClaimScope.conformance,
+                purpose=RunPurpose.exploratory,
+                vary=(),
+            )
+        else:
+            self._validate_scope_vary_declaration(claim_design)
         contrast = self._parse_contrast(experiment)
 
         try:
@@ -730,6 +738,11 @@ class Compiler:
             run_id=f"{experiment['id']}__run{run_index:04d}",
             allowed_diff=allowed_diff,
             factors=dict(factor_values),
+            test_override=(
+                TestOverrideReceipt(reason="explicit allow_test_override=true")
+                if self.allow_test_override
+                else None
+            ),
         )
         resolved_execution = _resolve_execution_spec(
             execution,

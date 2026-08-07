@@ -13,6 +13,20 @@ ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shim-smoke.toml"
 
 
+def _parse_test_result(*args, **kwargs):
+    return parse_harbor_result(*args, allow_test_parse=True, **kwargs)
+
+
+def _parse_test_results(*args, **kwargs):
+    return parse_harbor_results(*args, allow_test_parse=True, **kwargs)
+
+
+def test_test_override_parser_requires_explicit_permission(tmp_path: Path) -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    with pytest.raises(HarborConfigurationError, match="allow_test_parse"):
+        parse_harbor_result(run, result_root=tmp_path)
+
+
 def test_native_trial_results_are_separated_by_attempt(tmp_path: Path) -> None:
     run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     root = tmp_path / "harbor-results"
@@ -31,7 +45,7 @@ def test_native_trial_results_are_separated_by_attempt(tmp_path: Path) -> None:
         (trial / "answer.txt").write_text(answer, encoding="utf-8")
         (trial / "trajectory.jsonl").write_text("{}\n", encoding="utf-8")
 
-    cases = parse_harbor_results(
+    cases = _parse_test_results(
         run,
         result_root=root,
         case_id="case-1",
@@ -53,7 +67,7 @@ def test_native_trial_results_are_separated_by_attempt(tmp_path: Path) -> None:
 def test_harbor_case_traversal_is_rejected(tmp_path: Path) -> None:
     run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     with pytest.raises(HarborConfigurationError, match="invalid case id"):
-        parse_harbor_result(run, result_root=tmp_path, case_id="../escape")
+        _parse_test_result(run, result_root=tmp_path, case_id="../escape")
 
 
 def test_harbor_symlink_artifact_escape_is_rejected(tmp_path: Path) -> None:
@@ -71,4 +85,4 @@ def test_harbor_symlink_artifact_escape_is_rejected(tmp_path: Path) -> None:
     outside.write_text("secret", encoding="utf-8")
     (trial / "answer.txt").symlink_to(outside)
     with pytest.raises(HarborConfigurationError, match="symlink"):
-        parse_harbor_result(run, result_root=root)
+        _parse_test_result(run, result_root=root)

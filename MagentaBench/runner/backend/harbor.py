@@ -345,9 +345,14 @@ def parse_harbor_results(
     environment_receipt: EnvironmentReceipt | None = None,
     authoritative_reward_key: str | None = None,
     reward_pass_value: float | None = None,
+    allow_test_parse: bool = False,
 ) -> tuple[CaseExecution, ...]:
     """Ingest every native trial into immutable, case-owned evidence."""
 
+    if run.manifest.metadata.test_override is not None and not allow_test_parse:
+        raise HarborConfigurationError(
+            "test-override Harbor parsing requires allow_test_parse=true"
+        )
     result_root = Path(result_root).resolve()
     if not _CASE_ID.fullmatch(case_id):
         raise HarborConfigurationError(f"invalid case id: {case_id!r}")
@@ -466,6 +471,7 @@ def parse_harbor_results(
                 network_mode=str(backend.defaults.get("network_mode", "none")),
                 workspace_namespace=str(result_root.parent),
                 environment_receipt=environment_receipt,
+                test_override=run.manifest.metadata.test_override,
             ),
         )
         bundle_path = case_dir / "evidence_bundle.json"
@@ -493,6 +499,7 @@ def parse_harbor_result(
     environment_receipt: EnvironmentReceipt | None = None,
     authoritative_reward_key: str | None = None,
     reward_pass_value: float | None = None,
+    allow_test_parse: bool = False,
 ) -> CaseExecution:
     return parse_harbor_results(
         run,
@@ -505,6 +512,7 @@ def parse_harbor_result(
         environment_receipt=environment_receipt,
         authoritative_reward_key=authoritative_reward_key,
         reward_pass_value=reward_pass_value,
+        allow_test_parse=allow_test_parse,
     )[0]
 
 
@@ -666,6 +674,7 @@ class HarborBackend:
                 network_mode="none",
                 workspace_namespace=str(evidence_root.parent),
                 environment_receipt=self.environment_receipt,
+                test_override=run.manifest.metadata.test_override,
             ),
         )
         bundle_path = case_dir / "evidence_bundle.json"
@@ -798,6 +807,7 @@ class HarborBackend:
             environment_receipt=self.environment_receipt,
             authoritative_reward_key=run.manifest.benchmark.authoritative_reward_metric,
             reward_pass_value=run.manifest.benchmark.reward_pass_value,
+            allow_test_parse=self.allow_test_shim,
         )
         updated_cases: list[CaseExecution] = []
         for case in cases:

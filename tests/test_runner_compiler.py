@@ -143,6 +143,43 @@ def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None
         Compiler(ROOT).compile(experiment)
 
 
+def test_allow_test_override_is_identity_marked() -> None:
+    normal = Compiler(ROOT).compile(EXPERIMENTS / "fake-sweep.toml")[0]
+    overridden = Compiler(ROOT, allow_test_override=True).compile(
+        EXPERIMENTS / "fake-sweep.toml"
+    )[0]
+    assert normal.manifest.metadata.test_override is None
+    assert overridden.manifest.metadata.test_override is not None
+    assert overridden.manifest.metadata.test_override.reason
+    assert overridden.manifest.metadata.test_override.forced_purpose == "exploratory"
+    assert overridden.manifest.metadata.test_override.forced_scope == "conformance"
+    assert overridden.manifest_digest != normal.manifest_digest
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("purpose", "claim"), ("scope", "whole_harness")],
+)
+def test_allow_test_override_forces_exploratory_conformance(
+    tmp_path: Path, field: str, value: str
+) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        f'{field} = "{("exploratory" if field == "purpose" else "conformance")}"',
+        f'{field} = "{value}"',
+    )
+    experiment = tmp_path / f"override-{field}.toml"
+    experiment.write_text(source, encoding="utf-8")
+    runs = Compiler(ROOT, allow_test_override=True).compile(experiment)
+    assert runs
+    assert all(
+        run.manifest.claim_design.purpose.value == "exploratory"
+        and run.manifest.claim_design.scope.value == "conformance"
+        and run.manifest.claim_design.vary == ()
+        for run in runs
+    )
+
+
 def test_experiment_design_is_required_without_fallback(tmp_path: Path) -> None:
     source = (EXPERIMENTS / "fake-taxonomy.toml").read_text(encoding="utf-8")
     source = source.replace(

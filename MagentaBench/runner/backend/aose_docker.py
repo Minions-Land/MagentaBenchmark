@@ -401,6 +401,7 @@ class AoseDockerBackend:
                 backend_kind="docker",
                 network_mode="none",
                 workspace_namespace=str(workspace.parent),
+                test_override=run.manifest.metadata.test_override,
             ),
         )
         bundle_path = evidence_dir / "evidence_bundle.json"

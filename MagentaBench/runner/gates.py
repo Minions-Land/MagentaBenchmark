@@ -586,6 +586,12 @@ def evaluate_run_report(
     items = list(completed)
     if not items:
         raise ValueError("cannot report an experiment with no completed runs")
+    if any(
+        item.plan.manifest.metadata.test_override is not None
+        or item.case.bundle.provenance.test_override is not None
+        for item in items
+    ):
+        raise ValueError("test override evidence cannot produce a run report")
     purposes = {item.plan.manifest.claim_design.purpose for item in items}
     if len(purposes) != 1:
         raise ValueError("run purpose must be invariant across an experiment")

@@ -11,6 +11,10 @@ ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shim-smoke.toml"
 
 
+def _parse_test_result(*args, **kwargs):
+    return parse_harbor_result(*args, allow_test_parse=True, **kwargs)
+
+
 def test_native_harbor_shapes_cover_current_runtime_statuses(tmp_path: Path) -> None:
     run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     fixtures = {
@@ -47,12 +51,14 @@ def test_native_harbor_shapes_cover_current_runtime_statuses(tmp_path: Path) -> 
         (root / "result.json").write_text(json.dumps(payload), encoding="utf-8")
         if expected in {"pass", "verified_fail"}:
             (root / "answer.txt").write_text(expected, encoding="utf-8")
-        case = parse_harbor_result(
+        case = _parse_test_result(
             run,
             result_root=root,
             case_id="case-001",
             authoritative_reward_key="score",
             reward_pass_value=1.0,
         )
+        assert case.bundle.provenance.test_override is not None
+        assert case.bundle.provenance.test_override.forced_scope == "conformance"
         observed.add(case.bundle.status.value)
     assert observed == {status.value for status in RunStatus if status != RunStatus.scored}

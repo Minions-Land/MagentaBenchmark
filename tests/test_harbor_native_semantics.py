@@ -11,6 +11,14 @@ ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shim-smoke.toml"
 
 
+def _parse_test_result(*args, **kwargs):
+    return parse_harbor_result(*args, allow_test_parse=True, **kwargs)
+
+
+def _parse_test_results(*args, **kwargs):
+    return parse_harbor_results(*args, allow_test_parse=True, **kwargs)
+
+
 def _run():
     return Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
 
@@ -24,7 +32,7 @@ def test_invented_top_level_outcome_cannot_create_verifier_evidence(
         json.dumps({"status": "pass", "state": "completed", "outcome": "success"}),
         encoding="utf-8",
     )
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.status == RunStatus.invalid_output
     assert case.bundle.verifier_evidence is None
     assert any(Path(ref.path).name == "result.json" for ref in case.bundle.log_refs)
@@ -40,7 +48,7 @@ def test_native_job_trial_uses_child_result_artifact_without_answer(tmp_path: Pa
     child = root / "trial-a"
     child.mkdir()
     (child / "result.json").write_text("{}", encoding="utf-8")
-    cases = parse_harbor_results(
+    cases = _parse_test_results(
         _run(),
         result_root=root,
         authoritative_reward_key="score",
@@ -63,7 +71,7 @@ def test_native_named_rewards_require_adapter_semantics(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (root / "answer.txt").write_text("answer", encoding="utf-8")
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.status == RunStatus.unsupported
     assert case.bundle.verifier_evidence is not None
     assert case.bundle.verifier_evidence.score is None
@@ -79,7 +87,7 @@ def test_native_continuous_reward_uses_declared_adapter_semantics(tmp_path: Path
         encoding="utf-8",
     )
     (root / "answer.txt").write_text("answer", encoding="utf-8")
-    case = parse_harbor_result(
+    case = _parse_test_result(
         _run(),
         result_root=root,
         authoritative_reward_key="quality",
@@ -104,7 +112,7 @@ def test_native_no_result_exception_families_are_distinct(tmp_path: Path) -> Non
             json.dumps({"exception_info": {"exception_type": exception_type}}),
             encoding="utf-8",
         )
-        case = parse_harbor_result(_run(), result_root=root)
+        case = _parse_test_result(_run(), result_root=root)
         assert case.bundle.status == status
 
 
@@ -121,7 +129,7 @@ def test_native_timing_info_is_primary_failure_phase_signal(tmp_path: Path) -> N
         ),
         encoding="utf-8",
     )
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.status == RunStatus.agent_error
 
 
@@ -137,7 +145,7 @@ def test_verifier_phase_timeout_stays_verifier_error(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.status == RunStatus.verifier_error
     assert case.bundle.verifier_evidence is not None
     assert case.bundle.verifier_evidence.details["incomplete_phase"] == "verifier"
@@ -160,7 +168,7 @@ def test_native_usage_is_read_from_nested_agent_result(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.usage is not None
     assert case.bundle.usage.input_tokens == 11
     assert case.bundle.usage.output_tokens == 7
@@ -172,7 +180,7 @@ def test_malformed_result_is_preserved_as_invalid_output(tmp_path: Path) -> None
     root = tmp_path / "malformed"
     root.mkdir()
     (root / "result.json").write_text("{not-json", encoding="utf-8")
-    case = parse_harbor_result(_run(), result_root=root)
+    case = _parse_test_result(_run(), result_root=root)
     assert case.bundle.status == RunStatus.invalid_output
     assert case.bundle.log_refs
     assert any(Path(ref.path).name == "result.json" for ref in case.bundle.log_refs)
@@ -186,7 +194,7 @@ def test_missing_native_trial_child_is_infra_without_cross_trial_mix(tmp_path: P
         encoding="utf-8",
     )
     (root / "unrelated-secret.log").write_text("not this trial", encoding="utf-8")
-    cases = parse_harbor_results(_run(), result_root=root)
+    cases = _parse_test_results(_run(), result_root=root)
     assert len(cases) == 1
     assert cases[0].bundle.status == RunStatus.infra_error
     assert all(Path(ref.path).name != "unrelated-secret.log" for ref in cases[0].bundle.log_refs)

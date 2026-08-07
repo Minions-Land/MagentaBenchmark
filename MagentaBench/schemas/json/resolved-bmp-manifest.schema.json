@@ -1032,6 +1032,17 @@
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Run Id",
           "type": "string"
+        },
+        "test_override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TestOverrideReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1154,6 +1165,33 @@
         "authoritative_reward_metric"
       ],
       "title": "TaskSuiteBenchmarkArtifact",
+      "type": "object"
+    },
+    "TestOverrideReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "forced_purpose": {
+          "const": "exploratory",
+          "default": "exploratory",
+          "title": "Forced Purpose",
+          "type": "string"
+        },
+        "forced_scope": {
+          "const": "conformance",
+          "default": "conformance",
+          "title": "Forced Scope",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "TestOverrideReceipt",
       "type": "object"
     },
     "ToolAgentSuiteBenchmarkArtifact": {
