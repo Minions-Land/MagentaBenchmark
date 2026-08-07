@@ -711,7 +711,9 @@ class Pipeline:
             experiment_id=experiment_id,
             experiment_digest=experiment_digest,
             completed=completed,
-            expected_run_count=len(compiled),
+            expected_run_ids=tuple(
+                run.manifest.metadata.run_id for run in compiled
+            ),
             control_id=control_id,
             treatment_id=treatment_id,
             deterministic_conformance=deterministic,

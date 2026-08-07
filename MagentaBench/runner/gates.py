@@ -124,6 +124,57 @@ def _score(item: CompletedRun) -> float | None:
     return None if evidence is None else evidence.score
 
 
+def _exploratory_metric_scores(
+    items: Iterable[CompletedRun],
+) -> tuple[str, tuple[float, ...]]:
+    runs = tuple(items)
+    metrics = {
+        item.plan.manifest.benchmark.authoritative_reward_metric for item in runs
+    }
+    if len(metrics) != 1:
+        raise ValueError(
+            "exploratory authoritative reward metric differs across included runs"
+        )
+    metric = next(iter(metrics))
+    scores: list[float] = []
+    for item in runs:
+        bundle = item.case.bundle
+        evidence = bundle.verifier_evidence
+        if evidence is None:
+            if bundle.status in _EXECUTION_VALID:
+                raise ValueError(
+                    f"{item.case.case_id}: execution-valid bundle lacks verifier evidence"
+                )
+            continue
+        if evidence.score is None:
+            if bundle.status in _EXECUTION_VALID:
+                raise ValueError(
+                    f"{item.case.case_id}: execution-valid bundle lacks verifier score"
+                )
+            if evidence.metrics:
+                raise ValueError(
+                    f"{item.case.case_id}: named verifier metrics exist without score"
+                )
+            continue
+        if not evidence.metrics:
+            raise ValueError(
+                f"{item.case.case_id}: verifier metrics are empty for scored evidence"
+            )
+        if metric not in evidence.metrics:
+            raise ValueError(
+                f"{item.case.case_id}: authoritative reward metric {metric!r} "
+                "is missing from verifier evidence"
+            )
+        named_score = evidence.metrics[metric]
+        if named_score != evidence.score:
+            raise ValueError(
+                f"{item.case.case_id}: authoritative reward metric {metric!r} "
+                "disagrees with verifier score"
+            )
+        scores.append(named_score)
+    return metric, tuple(scores)
+
+
 def _receipt_binding_errors(item: CompletedRun) -> list[str]:
     receipt = item.schedule_receipt
     if receipt is None:
@@ -136,6 +187,11 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
     effective_selection = protocol.candidate_selection
     if receipt.run_id != manifest.metadata.run_id:
         errors.append("schedule run_id does not match manifest")
+    if receipt.protocol_digest != canonical_digest(protocol):
+        errors.append("schedule protocol_digest does not match resolved protocol")
+    if not receipt.schedule_valid:
+        reasons = "; ".join(receipt.mismatch_reasons) or "unspecified mismatch"
+        errors.append(f"schedule receipt is invalid: {reasons}")
     if receipt.declared_rollouts_per_case != protocol.rollouts_per_case:
         errors.append("declared rollouts do not match resolved protocol")
     if receipt.declared_parallelism != protocol.parallelism:
@@ -263,6 +319,26 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
         if selected_ids != ([expected_winner] if expected_winner is not None else []):
             errors.append(f"{case_id}: candidate selection lineage drift")
 
+    if item.schedule_receipt_path is None:
+        errors.append("schedule receipt path is missing")
+        receipt_path = None
+    else:
+        receipt_path = Path(item.schedule_receipt_path)
+    if receipt_path is not None and not receipt_path.is_file():
+        errors.append("schedule receipt path is missing")
+    elif receipt_path is not None:
+        persisted_digest = sha256_file(receipt_path)
+        if persisted_digest != item.schedule_receipt_sha256:
+            errors.append("persisted schedule receipt digest drift")
+        try:
+            persisted_receipt = ScheduleActivationReceipt.model_validate_json(
+                receipt_path.read_bytes()
+            )
+        except ValueError:
+            errors.append("persisted schedule receipt is malformed")
+        else:
+            if persisted_receipt != receipt:
+                errors.append("persisted schedule receipt differs from in-memory receipt")
     expected_receipt_sha = sha256_bytes(
         canonical_json_bytes(receipt) + b"\n"
     )
@@ -273,11 +349,43 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
 
 def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     errors: list[str] = []
-    if item.case.bundle.provenance.runner_digest != item.runner_digest:
+    manifest = item.plan.manifest
+    provenance = item.case.bundle.provenance
+    if provenance.runner_digest != item.runner_digest:
         errors.append("runner_digest does not match active backend")
+    if provenance.manifest_digest != item.plan.manifest_digest:
+        errors.append("manifest digest drift")
+    expected_backend_digest = manifest.execution.backend.digest or item.runner_digest
+    if provenance.backend_digest != expected_backend_digest:
+        errors.append("backend digest drift")
+    if provenance.benchmark_digest != manifest.benchmark.artifact_digest:
+        errors.append("benchmark digest drift")
+    if provenance.subject_digest != manifest.subject.artifact_digest:
+        errors.append("subject digest drift")
+    environment_spec = manifest.execution.backend.environment
+    environment_receipt = provenance.environment_receipt
+    if environment_spec is not None:
+        if environment_receipt is None:
+            errors.append("EnvironmentReceipt missing")
+        elif environment_receipt.spec_digest != canonical_digest(environment_spec):
+            errors.append("environment spec_digest drift")
+    elif environment_receipt is not None:
+        errors.append("undeclared EnvironmentReceipt")
     bundle_path = Path(item.case.bundle_path)
-    if not bundle_path.is_file() or sha256_file(bundle_path) != item.case.bundle_digest:
-        errors.append("evidence bundle digest does not match bundle bytes")
+    if not bundle_path.is_file():
+        errors.append("evidence bundle path is missing")
+    else:
+        if sha256_file(bundle_path) != item.case.bundle_digest:
+            errors.append("evidence bundle digest does not match bundle bytes")
+        try:
+            persisted_bundle = EvidenceBundle.model_validate_json(
+                bundle_path.read_bytes()
+            )
+        except ValueError:
+            errors.append("persisted evidence bundle is malformed")
+        else:
+            if persisted_bundle != item.case.bundle:
+                errors.append("persisted evidence bundle differs from in-memory bundle")
     bundle = item.case.bundle
     refs = [
         *bundle.output_refs,
@@ -375,15 +483,6 @@ def _evaluate_claim(
             f"{item.plan.manifest.metadata.run_id}: {reason}"
             for reason in binding_errors
         )
-        if receipt is not None and receipt.protocol_digest != canonical_digest(protocol):
-            protocol_reasons.append(
-                f"{item.plan.manifest.metadata.run_id}: schedule protocol digest drift"
-            )
-        elif receipt is not None and not receipt.schedule_valid:
-            protocol_reasons.append(
-                f"{item.plan.manifest.metadata.run_id}: "
-                + "; ".join(receipt.mismatch_reasons)
-            )
     protocol_gate = (
         _invalid("; ".join(sorted(set(protocol_reasons))))
         if protocol_reasons
@@ -408,33 +507,6 @@ def _evaluate_claim(
             )
         else:
             positive_isolation_observations += 1
-        provenance = bundle.provenance
-        if provenance.manifest_digest != item.plan.manifest_digest:
-            isolation_errors.append(f"{item.case.case_id}: manifest digest drift")
-        expected_backend_digest = (
-            item.plan.manifest.execution.backend.digest or item.runner_digest
-        )
-        if provenance.backend_digest != expected_backend_digest:
-            isolation_errors.append(f"{item.case.case_id}: backend digest drift")
-        if provenance.benchmark_digest != item.plan.manifest.benchmark.artifact_digest:
-            isolation_errors.append(f"{item.case.case_id}: benchmark digest drift")
-        if provenance.subject_digest != item.plan.manifest.subject.artifact_digest:
-            isolation_errors.append(f"{item.case.case_id}: subject digest drift")
-        environment_spec = item.plan.manifest.execution.backend.environment
-        environment_receipt = provenance.environment_receipt
-        if environment_spec is not None:
-            if environment_receipt is None:
-                isolation_errors.append(
-                    f"{item.case.case_id}: EnvironmentReceipt missing"
-                )
-            elif environment_receipt.spec_digest != canonical_digest(environment_spec):
-                isolation_errors.append(
-                    f"{item.case.case_id}: environment spec_digest drift"
-                )
-        elif environment_receipt is not None:
-            isolation_errors.append(
-                f"{item.case.case_id}: undeclared EnvironmentReceipt"
-            )
     if isolation_errors:
         isolation_gate = _invalid("; ".join(isolation_errors))
     elif len(items) != expected_run_count:
@@ -575,7 +647,7 @@ def evaluate_run_report(
     experiment_id: str,
     experiment_digest: str,
     completed: Iterable[CompletedRun],
-    expected_run_count: int,
+    expected_run_ids: tuple[str, ...],
     control_id: str,
     treatment_id: str,
     deterministic_conformance: bool,
@@ -586,6 +658,31 @@ def evaluate_run_report(
     items = list(completed)
     if not items:
         raise ValueError("cannot report an experiment with no completed runs")
+    expected_duplicates = sorted(
+        run_id for run_id, count in Counter(expected_run_ids).items() if count > 1
+    )
+    if expected_duplicates:
+        raise ValueError(
+            f"expected plan contains duplicate run ids: {expected_duplicates}"
+        )
+    observed_run_ids = tuple(
+        item.plan.manifest.metadata.run_id for item in items
+    )
+    observed_duplicates = sorted(
+        run_id for run_id, count in Counter(observed_run_ids).items() if count > 1
+    )
+    expected_set = set(expected_run_ids)
+    observed_set = set(observed_run_ids)
+    missing = sorted(expected_set - observed_set)
+    unexpected = sorted(observed_set - expected_set)
+    if observed_duplicates or missing or unexpected:
+        raise ValueError(
+            "report plan coverage mismatch: "
+            f"{len(items)} of {len(expected_run_ids)} planned runs present; "
+            f"missing={missing}; unexpected={unexpected}; "
+            f"duplicates={observed_duplicates}"
+        )
+    expected_run_count = len(expected_run_ids)
     if any(
         item.plan.manifest.metadata.test_override is not None
         or item.case.bundle.provenance.test_override is not None
@@ -622,9 +719,9 @@ def evaluate_run_report(
             + "; ".join(integrity_errors)
         )
     statuses = [item.case.bundle.status for item in items]
-    scores = [score for item in items if (score := _score(item)) is not None]
+    metric, scores = _exploratory_metric_scores(items)
     observations = (
-        Observation(metric="exact_match", value=mean(scores), n_runs=len(scores)),
+        Observation(metric=metric, value=mean(scores), n_runs=len(scores)),
     ) if scores else ()
     lineage = tuple(
         LineageRef(

@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
+from MagentaBench.runner.evidence import artifact_ref, atomic_write_json, sha256_file
 from MagentaBench.runner.gates import _evaluate_claim
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
@@ -18,11 +19,51 @@ from MagentaBench.schemas import (
     NetworkObservation,
     NetworkObservationMode,
     RunStatus,
+    ScheduleActivationReceipt,
 )
 
 ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "fake-sweep.toml"
 EXPECTED_RUNS = 8
+
+
+def _with_bundle(item, bundle):
+    atomic_write_json(item.case.bundle_path, bundle)
+    bundle_ref = artifact_ref(item.case.bundle_path)
+    case = dataclasses.replace(
+        item.case,
+        bundle=bundle,
+        bundle_digest=sha256_file(item.case.bundle_path),
+    )
+    metric = item.plan.manifest.benchmark.authoritative_reward_metric
+    reward_value = (
+        None
+        if bundle.verifier_evidence is None
+        else bundle.verifier_evidence.metrics.get(metric)
+    )
+    attempts = tuple(
+        attempt.model_copy(
+            update={
+                "evidence_bundle_ref": bundle_ref,
+                "status": bundle.status,
+                "reward_metric": metric if reward_value is not None else None,
+                "reward_value": reward_value,
+            }
+        )
+        for attempt in item.schedule_receipt.attempts
+    )
+    receipt = ScheduleActivationReceipt.model_validate(
+        item.schedule_receipt.model_copy(
+            update={"attempts": attempts}
+        ).model_dump(mode="json")
+    )
+    atomic_write_json(item.schedule_receipt_path, receipt)
+    return dataclasses.replace(
+        item,
+        case=case,
+        schedule_receipt=receipt,
+        schedule_receipt_sha256=sha256_file(item.schedule_receipt_path),
+    )
 
 
 def _completed(tmp_path: Path):
@@ -33,18 +74,13 @@ def _completed(tmp_path: Path):
         egress_attempted=True,
         egress_succeeded=False,
     )
-    return tuple(
-        dataclasses.replace(
-            item,
-            case=dataclasses.replace(
-                item.case,
-                bundle=item.case.bundle.model_copy(
-                    update={"network_observation": isolation_observation}
-                ),
-            ),
+    completed = []
+    for item in runs:
+        bundle = item.case.bundle.model_copy(
+            update={"network_observation": isolation_observation}
         )
-        for item in runs
-    )
+        completed.append(_with_bundle(item, bundle))
+    return tuple(completed)
 
 
 def _claim(items, *, expected_run_count: int = EXPECTED_RUNS):
@@ -63,8 +99,7 @@ def _claim(items, *, expected_run_count: int = EXPECTED_RUNS):
 def _restatus(item, status: RunStatus):
     """Return a copy of a CompletedRun whose bundle carries a new status."""
     bundle = item.case.bundle.model_copy(update={"status": status})
-    case = dataclasses.replace(item.case, bundle=bundle)
-    return dataclasses.replace(item, case=case)
+    return _with_bundle(item, bundle)
 
 
 def test_complete_plan_scores_every_run(tmp_path: Path) -> None:
@@ -84,12 +119,10 @@ def test_missing_positive_isolation_observation_invalidates_isolation(
     items = list(_completed(tmp_path))
     item = items[0]
     bundle = item.case.bundle.model_copy(update={"network_observation": None})
-    items[0] = dataclasses.replace(
-        item,
-        case=dataclasses.replace(item.case, bundle=bundle),
-    )
+    items[0] = _with_bundle(item, bundle)
     report = _claim(items)
     isolation = report.gates[GateName.isolation_valid]
+    assert report.gates[GateName.protocol_valid].valid is True
     assert isolation.valid is False
     assert "NetworkObservation missing" in isolation.reason
 
@@ -130,6 +163,7 @@ def test_all_no_output_reports_scoring_unverified(tmp_path: Path) -> None:
     report = _claim(items)
     scoring = report.gates[GateName.scoring_valid]
 
+    assert report.gates[GateName.protocol_valid].valid is True
     assert scoring.valid is False
     assert "no execution-valid bundle was scored" in scoring.reason
     assert report.claim_eligible is False
@@ -147,11 +181,10 @@ def test_deterministic_statistics_require_scores(tmp_path: Path) -> None:
                 "verifier_evidence": None,
             }
         )
-        no_scores.append(
-            dataclasses.replace(item, case=dataclasses.replace(item.case, bundle=bundle))
-        )
+        no_scores.append(_with_bundle(item, bundle))
     report = _claim(no_scores)
     statistics = report.gates[GateName.statistics_valid]
+    assert report.gates[GateName.protocol_valid].valid is True
     assert statistics.valid is False
     assert "verifier scores" in statistics.reason
 
@@ -163,6 +196,7 @@ def test_scoring_counts_only_execution_valid_bundles(tmp_path: Path) -> None:
 
     report = _claim(mutated)
     scoring = report.gates[GateName.scoring_valid]
+    assert report.gates[GateName.protocol_valid].valid is True
 
     # The plan is complete, so the completeness branch does not fire, and at
     # least one bundle scored, so the empty-set branch does not fire either.

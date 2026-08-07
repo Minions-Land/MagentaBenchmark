@@ -293,6 +293,33 @@ def test_whole_harness_scope_rejects_non_subject_vary_path(tmp_path: Path) -> No
         Compiler(ROOT).compile(experiment)
 
 
+def test_fake_exact_verifier_rejects_misdeclared_authoritative_metric(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "metric-project"
+    shutil.copytree(ROOT / "registries", project / "registries")
+    shutil.copytree(
+        ROOT / "MagentaBench/conformance",
+        project / "MagentaBench/conformance",
+    )
+    benchmark_path = project / "registries/benchmarks/fake-exact.toml"
+    benchmark_text = benchmark_path.read_text(encoding="utf-8")
+    assert 'authoritative_reward_metric = "exact_match"' in benchmark_text
+    benchmark_path.write_text(
+        benchmark_text.replace(
+            'authoritative_reward_metric = "exact_match"',
+            'authoritative_reward_metric = "overall"',
+        ),
+        encoding="utf-8",
+    )
+    experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
+    with pytest.raises(
+        CompilationError,
+        match="fake.exact.v1 requires authoritative_reward_metric='exact_match'",
+    ):
+        Compiler(project).compile(experiment)
+
+
 def _project_with_protocol_edit(
     tmp_path: Path, old: str, new: str
 ) -> tuple[Path, Path]:

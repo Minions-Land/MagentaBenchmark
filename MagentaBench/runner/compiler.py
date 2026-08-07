@@ -563,6 +563,14 @@ class Compiler:
             raise CompilationError(
                 f"unknown benchmark adapter combination: {benchmark_pair!r}"
             )
+        if (
+            benchmark.adapter == "fake"
+            and benchmark.verifier == "fake.exact.v1"
+            and benchmark.authoritative_reward_metric != "exact_match"
+        ):
+            raise CompilationError(
+                "fake.exact.v1 requires authoritative_reward_metric='exact_match'"
+            )
         if benchmark.adapter == "aosebench" and (
             benchmark.task_root != "benchmark/tasks"
             or benchmark.input_contract != "/app/instruction.md; /app/data:ro"
