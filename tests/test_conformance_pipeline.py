@@ -177,7 +177,17 @@ def test_interrupted_resume_records_cross_run_checkpoint_lineage(
         Pipeline(project, records).run(experiment, stop_after=3)
 
     _activate_save_and_resume(project)
-    resumed = Pipeline(project, records).run(experiment, resume=True)
+    resumed_pipeline = Pipeline(project, records)
+    scheduler_calls: list[str] = []
+    real_execute = resumed_pipeline.scheduler.execute
+
+    def counted_execute(*args, **kwargs):
+        scheduler_calls.append(args[0].manifest.metadata.run_id)
+        return real_execute(*args, **kwargs)
+
+    resumed_pipeline.scheduler.execute = counted_execute
+    resumed = resumed_pipeline.run(experiment, resume=True)
+    assert len(scheduler_calls) == 5
     assert len(resumed.runs) == 8
     assert all(
         item.schedule_receipt.declared_checkpoint_policy == "save"
