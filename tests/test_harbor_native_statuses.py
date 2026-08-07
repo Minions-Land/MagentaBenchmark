@@ -12,7 +12,7 @@ EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shi
 
 
 def test_native_harbor_shapes_cover_current_runtime_statuses(tmp_path: Path) -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     fixtures = {
         "pass": {"verifier_result": {"rewards": {"score": 1.0}}},
         "verified_fail": {"verifier_result": {"rewards": {"score": 0.0}}},

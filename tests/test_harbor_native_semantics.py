@@ -12,7 +12,7 @@ EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shi
 
 
 def _run():
-    return Compiler(ROOT).compile(EXPERIMENT)[0]
+    return Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
 
 
 def test_invented_top_level_outcome_cannot_create_verifier_evidence(

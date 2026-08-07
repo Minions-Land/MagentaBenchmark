@@ -14,7 +14,7 @@ EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shi
 
 
 def test_native_trial_results_are_separated_by_attempt(tmp_path: Path) -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     root = tmp_path / "harbor-results"
     root.mkdir()
     payload = {
@@ -51,13 +51,13 @@ def test_native_trial_results_are_separated_by_attempt(tmp_path: Path) -> None:
 
 
 def test_harbor_case_traversal_is_rejected(tmp_path: Path) -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     with pytest.raises(HarborConfigurationError, match="invalid case id"):
         parse_harbor_result(run, result_root=tmp_path, case_id="../escape")
 
 
 def test_harbor_symlink_artifact_escape_is_rejected(tmp_path: Path) -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     root = tmp_path / "harbor-results"
     root.mkdir()
     (root / "result.json").write_text(
