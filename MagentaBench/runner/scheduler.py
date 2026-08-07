@@ -508,6 +508,8 @@ class Scheduler:
             mismatch_reasons.append("best_of_n requires benchmark reward evidence")
         if not selected:
             mismatch_reasons.append("no selected candidate")
+        if protocol.checkpoint_policy in {"save", "save_and_resume"}:
+            mismatch_reasons.append("checkpoint receipt finalization pending")
         schedule_valid = (
             not mismatch_reasons
             and observed_max_concurrency <= protocol.parallelism

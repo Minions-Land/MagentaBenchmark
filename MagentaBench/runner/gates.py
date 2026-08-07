@@ -420,6 +420,7 @@ def _evaluate_claim(
     )
 
     scoring_errors: list[str] = []
+    scored_bundles = 0
     for item in items:
         bundle = item.case.bundle
         if bundle.status == RunStatus.verifier_error:
@@ -427,6 +428,7 @@ def _evaluate_claim(
         elif bundle.status == RunStatus.unsupported:
             scoring_errors.append(f"{bundle.run_id}: unsupported scoring semantics")
         elif bundle.status in _EXECUTION_VALID:
+            scored_bundles += 1
             if bundle.verifier_evidence is None or bundle.verifier_evidence.score is None:
                 scoring_errors.append(f"{bundle.run_id}: verifier evidence missing")
             elif bundle.status == RunStatus.pass_ and not bundle.verifier_evidence.passed:
@@ -442,11 +444,20 @@ def _evaluate_claim(
                 scoring_errors.append(
                     f"{bundle.run_id}: authoritative verifier semantics are undeclared"
                 )
-    scoring_gate = (
-        _invalid("; ".join(scoring_errors))
-        if scoring_errors
-        else _valid("every verifiable output has exact-verifier evidence")
-    )
+    if scoring_errors:
+        scoring_gate = _invalid("; ".join(scoring_errors))
+    elif scored_bundles == 0:
+        # No bundle reached an execution-valid status, so every scoring branch
+        # above was skipped. Reporting agreement here would assert verification
+        # over an empty set; state that nothing was scored instead.
+        scoring_gate = _invalid(
+            "no execution-valid bundle was scored; scoring is unverified"
+        )
+    else:
+        scoring_gate = _valid(
+            f"every verifiable output has exact-verifier evidence "
+            f"({scored_bundles} scored)"
+        )
 
     pairs, pair_error = _subject_pairs(items, control_id, treatment_id)
     statistics_reasons: list[str] = []

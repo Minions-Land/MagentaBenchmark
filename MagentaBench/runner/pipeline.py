@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from MagentaBench.schemas import (
+    ArtifactRef,
+    CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
     RunPurpose,
@@ -19,7 +21,7 @@ from MagentaBench.schemas import (
 
 from .backend.fake import CaseExecution, EvidenceDriftError, FakeBackend
 from .compiler import CompiledRun, Compiler, canonical_json_bytes, sha256_bytes
-from .evidence import atomic_write_bytes, atomic_write_json, sha256_file
+from .evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
 from .gates import CompletedRun, _receipt_binding_errors, evaluate_run_report
 from .scheduler import ScheduleResult, Scheduler
 
@@ -106,6 +108,8 @@ class Pipeline:
                     "verifier_digest": self._verifier_digest(run),
                     "subject_digest": run.manifest.subject.artifact_digest,
                     "backend_digest": run.manifest.execution.backend.digest,
+                    "checkpoint_policy": run.manifest.execution.protocol.checkpoint_policy,
+                    "manifest_identity": run.manifest.identity_data(),
                     "factors": dict(run.factor_values),
                 }
                 for run in runs
@@ -223,17 +227,31 @@ class Pipeline:
     @staticmethod
     def _record_checkpoint_save(
         schedule: ScheduleResult,
-        checkpoint_path: Path,
+        save_artifact_path: Path,
         completion_sequence: int,
+        *,
+        checkpoint_load_ref: CheckpointLoadReceipt | None = None,
+        ancestor_schedule_receipt_ref: ArtifactRef | None = None,
     ) -> ScheduleResult:
         save_receipt = CheckpointSaveReceipt(
-            written_digest=sha256_file(checkpoint_path),
-            size_bytes=checkpoint_path.stat().st_size,
+            written_digest=sha256_file(save_artifact_path),
+            size_bytes=save_artifact_path.stat().st_size,
             write_completion_sequence=completion_sequence,
-            path=str(checkpoint_path.resolve()),
+            path=str(save_artifact_path.resolve()),
+        )
+        remaining_mismatches = tuple(
+            reason
+            for reason in schedule.receipt.mismatch_reasons
+            if reason != "checkpoint receipt finalization pending"
         )
         receipt = schedule.receipt.model_copy(
-            update={"checkpoint_save_ref": save_receipt}
+            update={
+                "checkpoint_save_ref": save_receipt,
+                "checkpoint_load_ref": checkpoint_load_ref,
+                "ancestor_schedule_receipt_ref": ancestor_schedule_receipt_ref,
+                "schedule_valid": not remaining_mismatches,
+                "mismatch_reasons": remaining_mismatches,
+            }
         )
         receipt = ScheduleActivationReceipt.model_validate(
             receipt.model_dump(mode="json")
@@ -521,10 +539,14 @@ class Pipeline:
                 },
             }
             if protocol.checkpoint_policy in {"save", "save_and_resume"}:
-                atomic_write_json(checkpoint_path, checkpoint)
-                self._validate_checkpoint(checkpoint_path, plan_path, compiled)
+                save_artifact_path = (
+                    experiment_dir
+                    / "checkpoint_saves"
+                    / f"{len(completed):04d}-{run.manifest.metadata.run_id}.json"
+                )
+                atomic_write_json(save_artifact_path, checkpoint)
                 schedule = self._record_checkpoint_save(
-                    schedule, checkpoint_path, len(completed)
+                    schedule, save_artifact_path, len(completed)
                 )
                 completed[-1] = replace(
                     completed[-1],

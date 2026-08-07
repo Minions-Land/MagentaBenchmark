@@ -188,7 +188,7 @@ def test_schedule_receipt_identity_mutations_are_rejected(tmp_path: Path) -> Non
     assert receipt is not None
 
     changed_run = receipt.model_copy(update={"run_id": "forged-run"})
-    changed_seed = receipt.model_copy(update={"order_seed": receipt.order_seed + 1})
+    changed_seed = receipt.model_copy(update={"order_seed": 1})
     changed_order = receipt.model_copy(
         update={"observed_case_order": ("fabricated-case",)}
     )
@@ -271,11 +271,12 @@ def _project_with_checkpoint_policy(tmp_path: Path, policy: str) -> tuple[Path, 
     )
     protocol_path = project / "registries/protocols/fake-deterministic.toml"
     protocol_text = protocol_path.read_text(encoding="utf-8")
-    protocol_text = _replace_required(
-        protocol_text,
-        'checkpoint_policy = "disabled"',
-        f'checkpoint_policy = "{policy}"',
-    )
+    if policy != "disabled":
+        protocol_text = _replace_required(
+            protocol_text,
+            'checkpoint_policy = "disabled"',
+            f'checkpoint_policy = "{policy}"',
+        )
     protocol_path.write_text(protocol_text, encoding="utf-8")
     experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
     return project, experiment
