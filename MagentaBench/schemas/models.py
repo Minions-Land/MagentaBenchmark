@@ -1166,6 +1166,7 @@ class EvidenceBundle(StrictModel):
     log_refs: tuple[ArtifactRef, ...] = ()
     verifier_evidence: VerifierEvidence | None = None
     usage: UsageRecord | None = None
+    network_observation: NetworkObservation | None = None
     provenance: ProvenanceRecord
 
     @model_validator(mode="after")

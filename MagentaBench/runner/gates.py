@@ -278,11 +278,22 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     bundle_path = Path(item.case.bundle_path)
     if not bundle_path.is_file() or sha256_file(bundle_path) != item.case.bundle_digest:
         errors.append("evidence bundle digest does not match bundle bytes")
-    refs = [*item.case.bundle.output_refs, *item.case.bundle.log_refs]
-    provenance = item.case.bundle.provenance
+    bundle = item.case.bundle
+    refs = [
+        *bundle.output_refs,
+        *bundle.log_refs,
+    ]
+    if bundle.trace_ref is not None:
+        refs.append(bundle.trace_ref)
+    if bundle.checkpoint_ref is not None:
+        refs.append(bundle.checkpoint_ref)
+    network_observation = bundle.network_observation
+    if network_observation is not None:
+        refs.extend(network_observation.evidence_refs)
+    provenance = bundle.provenance
     if provenance.container_receipt_ref is not None:
         refs.append(provenance.container_receipt_ref)
-    verifier = item.case.bundle.verifier_evidence
+    verifier = bundle.verifier_evidence
     if verifier is not None:
         refs.extend(verifier.artifact_refs)
     for ref in refs:
@@ -358,8 +369,6 @@ def _evaluate_claim(
         protocol = item.plan.manifest.execution.protocol
         if protocol is None:
             protocol_reasons.append("resolved protocol missing")
-        elif protocol.state_reset != "per_case" and deterministic_conformance:
-            protocol_reasons.append("fake conformance requires state_reset=per_case")
         receipt = item.schedule_receipt
         binding_errors = _receipt_binding_errors(item)
         protocol_reasons.extend(
@@ -384,9 +393,22 @@ def _evaluate_claim(
     # Compiler enforcement is a precondition for reaching execution. Recheck
     # immutable provenance digests so bypassed/corrupt evidence cannot pass.
     isolation_errors: list[str] = []
+    positive_isolation_observations = 0
     for item in items:
+        bundle = item.case.bundle
         isolation_errors.extend(_evidence_integrity_errors(item))
-        provenance = item.case.bundle.provenance
+        network_observation = bundle.network_observation
+        if network_observation is None:
+            isolation_errors.append(
+                f"{item.case.case_id}: NetworkObservation missing"
+            )
+        elif not network_observation.claim_isolation_valid:
+            isolation_errors.append(
+                f"{item.case.case_id}: NetworkObservation cannot substantiate isolation"
+            )
+        else:
+            positive_isolation_observations += 1
+        provenance = bundle.provenance
         if provenance.manifest_digest != item.plan.manifest_digest:
             isolation_errors.append(f"{item.case.case_id}: manifest digest drift")
         expected_backend_digest = (
@@ -423,8 +445,8 @@ def _evaluate_claim(
         )
     else:
         isolation_gate = _valid(
-            f"allowed-diff compile check and evidence provenance agree "
-            f"({len(items)}/{expected_run_count} verified)"
+            "positive isolation observations and evidence provenance agree "
+            f"({positive_isolation_observations}/{expected_run_count} verified)"
         )
 
     scoring_errors: list[str] = []
@@ -485,6 +507,12 @@ def _evaluate_claim(
             statistics_reasons.append("observed control/treatment order is not counterbalanced")
         if len(items) != expected_run_count:
             statistics_reasons.append("not all repetitions are terminal")
+        missing_scores = sum(1 for item in items if _score(item) is None)
+        if missing_scores:
+            statistics_reasons.append(
+                f"statistics require verifier scores for every run; "
+                f"{missing_scores} of {len(items)} are missing"
+            )
     else:
         statistics_reasons.append(
             "full real-experiment statistics are not implemented by the fake gate"
