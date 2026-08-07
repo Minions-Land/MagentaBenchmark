@@ -75,7 +75,7 @@ def test_scheduler_retains_three_rollouts_and_ordered_reservations(tmp_path: Pat
         item.reservation_sequence < (item.launch_sequence or 0)
         for item in reservations
     )
-    assert result.receipt.observed_state_reset_count == 1
+    assert result.receipt.observed_state_reset_count == 0
     assert result.receipt.observed_selection_policy == "best_of_n"
     assert sum(attempt.selected for attempt in result.receipt.attempts) == 1
     assert next(

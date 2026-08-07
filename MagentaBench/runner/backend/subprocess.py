@@ -149,8 +149,10 @@ class SubprocessBackend:
         return self.workspace_root / run.manifest.metadata.run_id / (case_id or task.task_id)
 
     @staticmethod
-    def reset_state(case_id: str, policy: str) -> None:
-        """Each scheduled subprocess attempt receives a fresh workspace."""
+    def reset_state(case_id: str, policy: str) -> dict[str, str]:
+        """Receipt that each scheduled subprocess attempt gets a fresh workspace."""
+
+        return {"case_id": case_id, "policy": policy, "mechanism": "fresh_workspace"}
 
     def _provenance(
         self, run: CompiledRun, workspace: Path, executable: str
