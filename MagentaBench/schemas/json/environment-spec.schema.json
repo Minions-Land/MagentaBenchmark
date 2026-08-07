@@ -2,16 +2,34 @@
   "$defs": {
     "MountSpec": {
       "additionalProperties": false,
-      "description": "A host-to-runtime mount declaration for an execution environment.",
+      "description": "A content-addressed host-to-runtime mount declaration.",
       "properties": {
         "container_path": {
           "minLength": 1,
           "title": "Container Path",
           "type": "string"
         },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
         "host_path": {
           "minLength": 1,
           "title": "Host Path",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
           "type": "string"
         },
         "read_only": {
@@ -22,6 +40,7 @@
       },
       "required": [
         "host_path",
+        "name",
         "container_path"
       ],
       "title": "MountSpec",

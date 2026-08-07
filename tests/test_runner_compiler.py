@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
 
 from MagentaBench.runner.compiler import (
     CompilationError,
+    CompiledRun,
     Compiler,
     IsolationViolation,
     canonical_manifest_json,
@@ -16,6 +18,18 @@ from MagentaBench.runner.compiler import (
 
 ROOT = Path(__file__).parents[1]
 EXPERIMENTS = ROOT / "MagentaBench" / "conformance" / "experiments"
+
+
+def test_compiled_run_is_manifest_derived_and_rejects_legacy_kwargs() -> None:
+    run = Compiler(ROOT).compile(EXPERIMENTS / "fake-sweep.toml")[0]
+    assert run.canonical_json == canonical_manifest_json(run.manifest)
+    assert run.manifest_digest == __import__("hashlib").sha256(
+        run.canonical_json
+    ).hexdigest()
+    assert run.factor_values == run.manifest.metadata.factors
+    for field in ("canonical_json", "wire_json", "manifest_digest", "factor_values"):
+        with pytest.raises(TypeError):
+            CompiledRun(run.manifest, **{field: None})
 
 
 def test_same_toml_compiles_to_byte_identical_manifests_and_digests() -> None:
@@ -33,9 +47,8 @@ def test_same_toml_compiles_to_byte_identical_manifests_and_digests() -> None:
         run.manifest_digest == run.manifest.canonical_digest() for run in first
     )
     assert [run.factor_values for run in first] == [
-        {"execution.seed": seed, "repetition": repetition, "subject": subject}
-        for seed in (11, 29)
-        for repetition in (0, 1)
+        {"repetition": repetition, "subject": subject}
+        for repetition in (0, 1, 2, 3)
         for subject in ("fake.control", "fake.treatment")
     ]
     assert [run.manifest.metadata.run_id for run in first] == [
@@ -103,8 +116,19 @@ def test_forbidden_diff_is_rejected_and_audited_before_execution(tmp_path: Path)
 
 
 def test_deterministic_conformance_protocol_rejects_non_fake_subject() -> None:
-    with pytest.raises(CompilationError, match="only for fake subjects"):
+    with pytest.raises(CompilationError, match="all-fake exploratory mechanism-validation"):
         Compiler(ROOT).compile(EXPERIMENTS / "fake-protocol-real-subject.toml")
+
+
+def test_unobserved_model_activation_is_rejected(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
+        encoding="utf-8"
+    )
+    source = source.replace('model = "none"', 'model = "provider/model"')
+    experiment = tmp_path / "unobserved-model.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="ModelActivationReceipt"):
+        Compiler(ROOT).compile(experiment)
 
 
 def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None:
@@ -115,7 +139,7 @@ def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None
     )
     experiment = tmp_path / "unknown-claim-mode.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError, match="unsupported claim_mode: 'invented'"):
+    with pytest.raises(CompilationError, match=r"unknown \[experiment\] fields"):
         Compiler(ROOT).compile(experiment)
 
 
@@ -136,7 +160,6 @@ def test_experiment_design_is_required_without_fallback(tmp_path: Path) -> None:
     [
         ("component", "AssemblySidecarRef"),
         ("model", "ModelActivationReceipt"),
-        ("schedule", "ScheduleActivationReceipt"),
         ("checkpoint", "CheckpointLoadReceipt"),
         ("evolver", "EvolutionRunEvidence"),
         ("meta_evolver", "NestedIsolationReceipt"),
@@ -157,27 +180,17 @@ def test_inactive_scopes_name_the_missing_evidence_class(
         Compiler(ROOT).compile(experiment)
 
 
-def test_schedule_diagnostic_names_identity_execution_mismatch(tmp_path: Path) -> None:
+def test_schedule_scope_rejects_without_native_case_set_path(tmp_path: Path) -> None:
     source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
         encoding="utf-8"
     )
     source = source.replace('scope = "whole_harness"', 'scope = "schedule"')
-    experiment = tmp_path / "blocked-schedule-diagnostic.toml"
+    experiment = tmp_path / "blocked-schedule.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError) as caught:
+    with pytest.raises(CompilationError, match="CaseSetActivationReceipt"):
         Compiler(ROOT).compile(experiment)
-    message = str(caught.value)
-    assert "ScheduleActivationReceipt" in message
-    assert "identity-bearing in the manifest digest" in message
-    assert "not honored by the runner" in message
-    for field in (
-        "rollouts_per_case",
-        "parallelism",
-        "case_order",
-        "candidate_selection",
-        "state_reset",
-    ):
-        assert field in message
+
+
 
 
 def _whole_harness_experiment(*, vary: str) -> str:
@@ -186,9 +199,12 @@ id = "aose-whole-harness-compile"
 benchmark = "aosebench.biomnibench-da.v1"
 subject = "aose.dryrun.true"
 protocol = "aose.zero-cost-dryrun.v1"
-claim_mode = "one_factor"
-control = "aose.dryrun.true"
-treatment = "aose.dryrun.echo"
+
+[experiment.contrast]
+mode = "one_factor"
+control_id = "aose.dryrun.true"
+treatment_id = "aose.dryrun.echo"
+counterbalanced = false
 allowed_diff = [
   "subject.artifact_digest",
   "subject.emits_trace",
@@ -203,8 +219,7 @@ vary = [{vary}]
 
 [execution]
 backend = "aose.docker.immutable"
-model = "none/zero-cost"
-seed = 0
+model = "none"
 
 [execution.budget]
 max_tokens = 0
@@ -228,12 +243,8 @@ def test_whole_harness_scope_accepts_exact_subject_contrast(tmp_path: Path) -> N
     )
     experiment = tmp_path / "whole-harness.toml"
     experiment.write_text(_whole_harness_experiment(vary=vary), encoding="utf-8")
-    runs = Compiler(ROOT).compile(experiment)
-    assert {run.manifest.subject.id for run in runs} == {
-        "aose.dryrun.true",
-        "aose.dryrun.echo",
-    }
-    assert all(run.manifest.claim_design.scope.value == "whole_harness" for run in runs)
+    with pytest.raises(CompilationError, match="runtime support is not active"):
+        Compiler(ROOT).compile(experiment)
 
 
 def test_whole_harness_scope_rejects_non_subject_vary_path(tmp_path: Path) -> None:
@@ -243,6 +254,43 @@ def test_whole_harness_scope_rejects_non_subject_vary_path(tmp_path: Path) -> No
     )
     with pytest.raises(CompilationError, match=r"only subject\.\* vary paths"):
         Compiler(ROOT).compile(experiment)
+
+
+def _project_with_protocol_edit(
+    tmp_path: Path, old: str, new: str
+) -> tuple[Path, Path]:
+    project = tmp_path / "protocol-project"
+    shutil.copytree(ROOT / "registries", project / "registries")
+    shutil.copytree(
+        ROOT / "MagentaBench/conformance",
+        project / "MagentaBench/conformance",
+    )
+    protocol_path = project / "registries/protocols/fake-deterministic.toml"
+    text = protocol_path.read_text(encoding="utf-8")
+    if old not in text:
+        raise AssertionError(f"protocol edit target not present: {old!r}")
+    replaced = text.replace(old, new)
+    assert replaced != text
+    protocol_path.write_text(replaced, encoding="utf-8")
+    return project, project / "MagentaBench/conformance/experiments/fake-sweep.toml"
+
+
+def test_adaptive_budget_requires_activation_receipt(tmp_path: Path) -> None:
+    project, experiment = _project_with_protocol_edit(
+        tmp_path, "adaptive_budget = false", "adaptive_budget = true"
+    )
+    with pytest.raises(CompilationError, match="AdaptiveBudgetReceipt"):
+        Compiler(project).compile(experiment)
+
+
+def test_unknown_candidate_selection_requires_activation_receipt(
+    tmp_path: Path,
+) -> None:
+    project, experiment = _project_with_protocol_edit(
+        tmp_path, 'candidate_selection = "single"', 'candidate_selection = "invented"'
+    )
+    with pytest.raises(CompilationError, match="CandidateSelectionReceipt"):
+        Compiler(project).compile(experiment)
 
 
 def test_claim_design_cannot_vary_across_expanded_runs(tmp_path: Path) -> None:

@@ -35,6 +35,7 @@ from MagentaBench.schemas import (
     ClaimReport,
     ClaimScope,
     ExecutionSpec,
+    ExperimentContrast,
     GateName,
     GateResult,
     ObservationReport,
@@ -72,12 +73,25 @@ class IsolationViolation(CompilationError):
 
 @dataclass(frozen=True)
 class CompiledRun:
-    """One expanded run and its canonical experiment identity."""
+    """Verified run value; every derived identity comes from the manifest."""
 
     manifest: ResolvedBmpManifest
-    canonical_json: bytes
-    manifest_digest: str
-    factor_values: Mapping[str, Any]
+
+    @property
+    def canonical_json(self) -> bytes:
+        return canonical_manifest_json(self.manifest)
+
+    @property
+    def wire_json(self) -> bytes:
+        return canonical_json_bytes(self.manifest)
+
+    @property
+    def manifest_digest(self) -> str:
+        return sha256_bytes(self.canonical_json)
+
+    @property
+    def factor_values(self) -> Mapping[str, Any]:
+        return self.manifest.metadata.factors
 
 
 def _jsonable(value: Any) -> Any:
@@ -105,8 +119,7 @@ def sha256_bytes(data: bytes) -> str:
 def manifest_identity_dict(manifest: ResolvedBmpManifest) -> dict[str, Any]:
     """Return the schema-defined identity projection for ``manifest``."""
 
-    excluded = ResolvedBmpManifest.IDENTITY_EXCLUDE
-    return manifest.model_dump(mode="json", exclude=excluded)
+    return manifest.identity_data()
 
 
 def canonical_manifest_json(manifest: ResolvedBmpManifest) -> bytes:
@@ -238,11 +251,8 @@ class Compiler:
             "benchmark",
             "subject",
             "protocol",
-            "claim_mode",
-            "control",
-            "treatment",
+            "contrast",
             "allowed_diff",
-            "counterbalance",
             "design",
         }
     )
@@ -253,8 +263,14 @@ class Compiler:
         "backend": ("backends", BackendSpec),
     }
 
-    def __init__(self, project_root: str | os.PathLike[str]) -> None:
+    def __init__(
+        self,
+        project_root: str | os.PathLike[str],
+        *,
+        allow_test_override: bool = False,
+    ) -> None:
         self.project_root = Path(project_root).resolve()
+        self.allow_test_override = allow_test_override
         self.registry_root = self.project_root / "registries"
         self._registry_cache: dict[tuple[str, str], tuple[Any, Path]] = {}
 
@@ -282,6 +298,12 @@ class Compiler:
         directory = self.registry_root / directory_name
         for path in sorted(directory.glob("*.toml")):
             raw = self._load_toml(path)
+            unexpected_sections = sorted(set(raw) - {kind})
+            if unexpected_sections:
+                raise CompilationError(
+                    f"registry {path} contains unexpected sections: "
+                    f"{unexpected_sections}"
+                )
             section = raw.get(kind)
             if not isinstance(section, dict) or section.get("id") != entry_id:
                 continue
@@ -332,33 +354,82 @@ class Compiler:
         ClaimScope.conformance: "FakeConformanceEvidence",
         ClaimScope.whole_harness: "WholeHarnessArtifactEvidence",
     }
-    _ACTIVE_SCOPES = frozenset({ClaimScope.conformance, ClaimScope.whole_harness})
+    # Conformance is the only intended-reachable scope and remains subject to
+    # an end-to-end Pipeline proof; every research claim scope is inactive.
+    _ACTIVE_SCOPES = frozenset({ClaimScope.conformance})
+    _SCHEDULER_ADAPTER = "magentabench.scheduler"
+    _BACKEND_DEFAULT_KEYS = {
+        "fake": frozenset(),
+        "subprocess": frozenset(),
+        "aose-docker": frozenset(),
+        "harbor": frozenset(
+            {
+                "agent_kwargs",
+                "agent_timeout_multiplier",
+                "environment_type",
+            }
+        ),
+        "harbor-shim": frozenset(
+            {
+                "agent_kwargs",
+                "agent_override",
+                "agent_timeout_multiplier",
+                "environment_type",
+            }
+        ),
+    }
+    _NONE_MODELS = frozenset({"none", "none/deterministic", "none/echo"})
+    _SCHEDULE_VARY_PATHS = frozenset(
+        {
+            "execution.protocol.rollouts_per_case",
+            "execution.protocol.parallelism",
+            "execution.protocol.case_order",
+            "execution.protocol.candidate_selection",
+            "execution.protocol.state_reset",
+            "execution.protocol.checkpoint_policy",
+            "execution.budget.max_tokens",
+            "execution.budget.max_wall_seconds",
+            "execution.budget.max_cost",
+        }
+    )
 
-    @classmethod
     def _validate_subject_evidence_for_scope(
-        cls, manifest: ResolvedBmpManifest
+        self, manifest: ResolvedBmpManifest
     ) -> None:
         """Reject attribution scopes unsupported by frozen subject evidence."""
 
         scope = manifest.claim_design.scope
         subject = manifest.subject
+        if scope == ClaimScope.schedule:
+            raise CompilationError(
+                "schedule scope requires missing native subprocess schedule tuple "
+                "and CaseSetActivationReceipt with Pipeline multi-case loading"
+            )
+        if (
+            scope == ClaimScope.conformance
+            and not self.allow_test_override
+            and not (
+                manifest.benchmark.kind == "task_suite"
+                and manifest.benchmark.adapter == "fake"
+                and manifest.subject.kind == "fake"
+                and manifest.subject.adapter == "fake"
+                and manifest.execution.backend.adapter == "fake"
+                and manifest.execution.protocol is not None
+                and manifest.execution.protocol.kind == "mechanism_validation"
+                and manifest.benchmark.verifier == "fake.exact.v1"
+            )
+        ):
+            raise CompilationError(
+                "conformance tuple requires missing PipelineAdapterActivationReceipt"
+            )
         legal_scopes = SUBJECT_KIND_SCOPE_MATRIX.get(subject.kind, frozenset())
-        proof_type = cls._SCOPE_PROOF_TYPES[scope]
+        proof_type = self._SCOPE_PROOF_TYPES[scope]
         if scope not in legal_scopes:
             raise CompilationError(
                 f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
                 f"requires missing evidence class {proof_type}"
             )
-        if scope == ClaimScope.schedule:
-            raise CompilationError(
-                "claim scope 'schedule' requires missing evidence class "
-                "ScheduleActivationReceipt: protocol fields rollouts_per_case, "
-                "parallelism, case_order, candidate_selection, and state_reset "
-                "are identity-bearing in the manifest digest but are not honored "
-                "by the runner, so distinct manifests execute identically; Phase "
-                "3b must honor them and emit their observed values"
-            )
-        if scope not in cls._ACTIVE_SCOPES:
+        if scope not in self._ACTIVE_SCOPES:
             raise CompilationError(
                 f"claim scope {scope.value!r} requires missing evidence class "
                 f"{proof_type}; runtime support is not active"
@@ -381,6 +452,13 @@ class Compiler:
         factor_values: Mapping[str, Any],
         run_index: int,
     ) -> CompiledRun:
+        unexpected_sections = sorted(
+            set(declaration) - {"experiment", "execution", "factors"}
+        )
+        if unexpected_sections:
+            raise CompilationError(
+                f"unknown top-level TOML sections: {unexpected_sections}"
+            )
         experiment = declaration.get("experiment")
         execution_raw = declaration.get("execution")
         if not isinstance(experiment, dict) or not isinstance(execution_raw, dict):
@@ -390,7 +468,6 @@ class Compiler:
             raise CompilationError(
                 f"unknown [experiment] fields: {unknown_experiment_keys}"
             )
-
         required = ("id", "benchmark", "subject", "protocol")
         missing = [name for name in required if not experiment.get(name)]
         if missing:
@@ -404,24 +481,230 @@ class Compiler:
             claim_design = ClaimDesign.model_validate(design_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
+        contrast_raw = experiment.get("contrast")
+        if contrast_raw is None:
+            control_id = experiment.get("control")
+            treatment_id = experiment.get("treatment")
+            if control_id and treatment_id:
+                contrast_raw = {
+                    "mode": "one_factor",
+                    "control_id": control_id,
+                    "treatment_id": treatment_id,
+                    "counterbalanced": bool(experiment.get("counterbalance", False)),
+                }
+            else:
+                contrast_raw = {
+                    "mode": "all_arms",
+                    "counterbalanced": False,
+                }
+        try:
+            contrast = ExperimentContrast.model_validate(contrast_raw)
+        except pydantic.ValidationError as exc:
+            raise CompilationError(f"invalid [experiment.contrast]: {exc}") from exc
 
         try:
             execution = ExecutionSpec.model_validate(execution_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [execution]: {exc}") from exc
+        if execution.model not in self._NONE_MODELS:
+            raise CompilationError(
+                "execution model requires missing evidence class ModelActivationReceipt"
+            )
+        unsupported_override_fields = sorted(
+            set(execution.backend_overrides) - {"defaults"}
+        )
+        if unsupported_override_fields:
+            raise CompilationError(
+                "backend_overrides contains unbound backend identity fields: "
+                f"{unsupported_override_fields}"
+            )
         benchmark = self._benchmark_artifact(str(experiment["benchmark"]))
         subject = self._subject_artifact(str(experiment["subject"]))
         backend, _ = self._lookup("backend", execution.backend)
         protocol, _ = self._lookup("protocol", str(experiment["protocol"]))
-
-        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
-        if deterministic and subject.kind != "fake":
+        adapter_model = {
+            "fake": "none/deterministic",
+            "subprocess": "none/echo",
+            "aose-docker": "none",
+            "harbor": "none/echo",
+            "harbor-shim": "none/echo",
+        }.get(backend.adapter)
+        if execution.model != adapter_model:
             raise CompilationError(
-                "deterministic_conformance is permitted only for fake subjects"
+                f"model sentinel {execution.model!r} is not activated by "
+                f"backend adapter {backend.adapter!r}; ModelActivationReceipt missing"
             )
-        if subject.kind == "fake" and not deterministic:
+        expected_reset_policy = {
+            "fake": "never",
+            "subprocess": "per_rollout",
+            "aose-docker": "never",
+            "harbor": "never",
+            "harbor-shim": "never",
+        }.get(backend.adapter)
+        if protocol.state_reset != expected_reset_policy:
             raise CompilationError(
-                "fake subjects require deterministic_conformance=true"
+                f"state_reset {protocol.state_reset!r} is not activated by "
+                f"backend adapter {backend.adapter!r}; StateResetReceipt missing"
+            )
+
+        benchmark_pair = (benchmark.kind, benchmark.adapter)
+        if benchmark_pair not in {
+            ("task_suite", "fake"),
+            ("tool_agent_suite", "aosebench"),
+        }:
+            raise CompilationError(
+                f"unknown benchmark adapter combination: {benchmark_pair!r}"
+            )
+        if benchmark.adapter == "aosebench" and (
+            benchmark.task_root != "benchmark/tasks"
+            or benchmark.input_contract != "/app/instruction.md; /app/data:ro"
+            or tuple(benchmark.output_contract)
+            != ("/app/trace.md", "/app/answer.txt")
+            or benchmark.evaluator != "aosebench.rubric-judge"
+        ):
+            raise CompilationError("AOSE benchmark native task contract mismatch")
+        if subject.kind == "fake":
+            subject_combo = (subject.kind, subject.adapter, None)
+        else:
+            subject_combo = (
+                subject.kind,
+                subject.adapter,
+                getattr(subject, "interface", None),
+            )
+        if subject_combo not in {
+            ("fake", "fake", None),
+            ("opaque_agent", "fake", "task_to_output"),
+            ("opaque_agent", "cli-agent", "aosebench-container-v1"),
+        }:
+            raise CompilationError(
+                f"unknown subject adapter/interface combination: {subject_combo!r}"
+            )
+
+        if (
+            claim_design.scope == ClaimScope.schedule
+            and backend.adapter not in {"fake", "subprocess"}
+        ):
+            raise CompilationError(
+                f"backend adapter {backend.adapter!r} requires missing "
+                "BackendScheduleActivationReceipt for schedule scope"
+            )
+        kind_scope_matrix = {
+            "mechanism_validation": {
+                RunPurpose.exploratory: {
+                    ClaimScope.conformance,
+                    ClaimScope.whole_harness,
+                },
+            },
+            "test_time_scaling": {
+                RunPurpose.exploratory: {
+                    ClaimScope.schedule,
+                    ClaimScope.conformance,
+                },
+                RunPurpose.claim: {ClaimScope.schedule},
+            },
+            "benchmark_evaluation": {
+                RunPurpose.exploratory: {
+                    ClaimScope.whole_harness,
+                    ClaimScope.model,
+                    ClaimScope.conformance,
+                },
+                RunPurpose.claim: {
+                    ClaimScope.whole_harness,
+                    ClaimScope.model,
+                },
+            },
+        }
+        permitted_scopes = kind_scope_matrix.get(protocol.kind, {}).get(
+            claim_design.purpose, set()
+        )
+        if claim_design.scope not in permitted_scopes:
+            raise CompilationError(
+                f"protocol kind {protocol.kind!r} does not permit purpose "
+                f"{claim_design.purpose.value!r} with scope "
+                f"{claim_design.scope.value!r}"
+            )
+        if protocol.adapter != self._SCHEDULER_ADAPTER:
+            raise CompilationError(
+                "protocol adapter does not match active scheduler: "
+                f"declared {protocol.adapter!r}, active {self._SCHEDULER_ADAPTER!r}; "
+                "ProtocolActivationReceipt missing"
+            )
+        if backend.environment is not None:
+            raise CompilationError(
+                f"backend adapter {backend.adapter!r} requires missing "
+                "EnvironmentActivationReceipt"
+            )
+        allowed_default_keys = self._BACKEND_DEFAULT_KEYS.get(backend.adapter)
+        if allowed_default_keys is None:
+            raise CompilationError(
+                f"backend adapter {backend.adapter!r} has no declared defaults read-set"
+            )
+        unknown_default_keys = sorted(
+            set(backend.defaults) - allowed_default_keys
+        )
+        override_defaults = execution.backend_overrides.get("defaults", {})
+        if not isinstance(override_defaults, Mapping):
+            raise CompilationError("backend_overrides.defaults must be a table/object")
+        unknown_default_keys.extend(
+            sorted(set(override_defaults) - allowed_default_keys)
+        )
+        if unknown_default_keys:
+            raise CompilationError(
+                "backend defaults contain keys not read by the active adapter: "
+                f"{sorted(set(unknown_default_keys))}"
+            )
+        if protocol.case_order != "seeded_random" and execution.seed is not None:
+            raise CompilationError(
+                "execution.seed is forbidden unless case_order='seeded_random'"
+            )
+        if protocol.case_order == "seeded_random" and execution.seed is None:
+            raise CompilationError(
+                "execution.seed is required for case_order='seeded_random'"
+            )
+        if protocol.checkpoint_policy == "resume":
+            raise CompilationError(
+                "checkpoint_policy='resume' requires CheckpointLoadReceipt; "
+                "receipt type not yet defined"
+            )
+        if bool(getattr(protocol, "adaptive_budget", False)):
+            raise CompilationError(
+                "protocol adaptive_budget=true requires missing evidence class "
+                "AdaptiveBudgetReceipt"
+            )
+        selection = getattr(protocol, "candidate_selection", None)
+        if selection not in {None, "single", "exact", "best_of_n"}:
+            raise CompilationError(
+                f"candidate_selection {selection!r} requires missing evidence class "
+                "CandidateSelectionReceipt"
+            )
+        if selection in {"single", "exact"} and protocol.rollouts_per_case != 1:
+            raise CompilationError(
+                f"candidate_selection {selection!r} requires rollouts_per_case=1"
+            )
+        if selection == "exact" and benchmark.scoring_kind.value != "binary":
+            raise CompilationError(
+                "candidate_selection='exact' requires binary benchmark scoring "
+                "and ExactSelectionReceipt"
+            )
+        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
+        deterministic_allowed = (
+            protocol.kind == "mechanism_validation"
+            and claim_design.purpose == RunPurpose.exploratory
+            and claim_design.scope == ClaimScope.conformance
+            and benchmark.adapter == "fake"
+            and subject.kind == "fake"
+            and subject.adapter == "fake"
+            and backend.adapter == "fake"
+            and benchmark.verifier == "fake.exact.v1"
+        )
+        if deterministic and not deterministic_allowed:
+            raise CompilationError(
+                "deterministic_conformance requires the all-fake exploratory "
+                "mechanism-validation conformance path"
+            )
+        if backend.adapter == "fake" and subject.kind == "fake" and not deterministic:
+            raise CompilationError(
+                "all-fake conformance requires deterministic_conformance=true"
             )
 
         allowed_raw = experiment.get("allowed_diff", ())
@@ -447,16 +730,11 @@ class Compiler:
             subject=subject,
             execution=resolved_execution,
             claim_design=claim_design,
+            contrast=contrast,
             metadata=metadata,
         )
         self._validate_subject_evidence_for_scope(manifest)
-        canonical = canonical_manifest_json(manifest)
-        return CompiledRun(
-            manifest=manifest,
-            canonical_json=canonical,
-            manifest_digest=sha256_bytes(canonical),
-            factor_values=dict(factor_values),
-        )
+        return CompiledRun(manifest=manifest)
 
     @staticmethod
     def _pair_key(run: CompiledRun) -> bytes:
@@ -487,6 +765,16 @@ class Compiler:
                 raise CompilationError(
                     "whole_harness scope permits only subject.* vary paths; "
                     f"forbidden: {forbidden}"
+                )
+        if design.scope == ClaimScope.schedule:
+            forbidden = [
+                path for path in design.vary
+                if path not in Compiler._SCHEDULE_VARY_PATHS
+            ]
+            if forbidden:
+                raise CompilationError(
+                    "schedule scope contains non-schedule vary paths: "
+                    f"{forbidden}"
                 )
 
     @classmethod
@@ -519,8 +807,8 @@ class Compiler:
         declaration: Mapping[str, Any],
         runs: list[CompiledRun],
     ) -> None:
-        experiment = declaration["experiment"]
-        if experiment.get("claim_mode") != "one_factor":
+        contrast = runs[0].manifest.contrast
+        if contrast.mode != "one_factor":
             for run in runs:
                 self._validate_scope_vary_declaration(run.manifest.claim_design)
                 if run.manifest.claim_design.vary:
@@ -528,8 +816,8 @@ class Compiler:
                         "declared vary paths require explicit comparison arms"
                     )
             return
-        control_id = experiment.get("control")
-        treatment_id = experiment.get("treatment")
+        control_id = contrast.control_id
+        treatment_id = contrast.treatment_id
         if not control_id or not treatment_id:
             raise CompilationError(
                 "one_factor experiment requires control and treatment subject ids"
@@ -575,20 +863,20 @@ class Compiler:
             raise CompilationError(
                 f"unknown [experiment] fields: {unknown_experiment_keys}"
             )
-        claim_mode = experiment.get("claim_mode")
-        if claim_mode not in {None, "one_factor"}:
-            raise CompilationError(f"unsupported claim_mode: {claim_mode!r}")
+        contrast_decl = experiment.get("contrast") or {}
+        if not isinstance(contrast_decl, dict):
+            raise CompilationError("[experiment.contrast] must be a table")
 
         factors = declaration.get("factors")
         if factors is not None and not isinstance(factors, dict):
             raise CompilationError("[factors] must be a table")
         base = {key: value for key, value in declaration.items() if key != "factors"}
 
-        # A one-factor declaration may omit a redundant subject axis.
-        if experiment.get("claim_mode") == "one_factor":
-            if not experiment.get("control") or not experiment.get("treatment"):
+        # A one-factor contrast may omit a redundant subject axis.
+        if contrast_decl.get("mode") == "one_factor":
+            if not contrast_decl.get("control_id") or not contrast_decl.get("treatment_id"):
                 raise CompilationError(
-                    "one_factor experiment requires control and treatment subject ids"
+                    "one_factor contrast requires control_id and treatment_id"
                 )
             has_subject_axis = isinstance(factors, dict) and any(
                 key in {"subject", "experiment.subject"} for key in factors
@@ -596,7 +884,7 @@ class Compiler:
             if not has_subject_axis:
                 factors = dict(factors or {})
                 factors = {
-                    "subject": [experiment.get("control"), experiment.get("treatment")],
+                    "subject": [contrast_decl["control_id"], contrast_decl["treatment_id"]],
                     **factors,
                 }
 

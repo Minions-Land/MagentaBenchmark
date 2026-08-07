@@ -4,11 +4,4 @@ kind = "container"
 adapter = "aose-docker"
 bmp_version = "0.1"
 image = "sha256:8b54d62b3ff7fb4521b4291d5c0622d54c25333786996e8d807c66d2d748c222"
-executable = "/usr/bin/docker"
-version = "26.1.3"
 digest = "8b54d62b3ff7fb4521b4291d5c0622d54c25333786996e8d807c66d2d748c222"
-
-[backend.defaults]
-network_mode = "none"
-data_mount = "read_only"
-judge_enabled = false

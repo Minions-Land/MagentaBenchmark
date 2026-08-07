@@ -1,0 +1,122 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "JournalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "const": "harnessx-journal-v2",
+          "title": "Format",
+          "type": "string"
+        },
+        "run_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Run Ids",
+          "type": "array"
+        },
+        "segment_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Segment Refs",
+          "type": "array"
+        },
+        "session_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Session Id",
+          "type": "string"
+        },
+        "session_index_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "state_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "State Refs",
+          "type": "array"
+        },
+        "trace_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Trace Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "format",
+        "session_id",
+        "run_ids",
+        "segment_refs",
+        "trace_refs",
+        "state_refs",
+        "session_index_ref"
+      ],
+      "title": "JournalRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "journal": {
+      "$ref": "#/$defs/JournalRecord"
+    },
+    "namespace": {
+      "minLength": 1,
+      "title": "Namespace",
+      "type": "string"
+    },
+    "setup_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Setup Refs",
+      "type": "array"
+    },
+    "state_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "State Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "namespace",
+    "setup_refs",
+    "state_refs",
+    "journal"
+  ],
+  "title": "WorkspaceRecord",
+  "type": "object"
+}

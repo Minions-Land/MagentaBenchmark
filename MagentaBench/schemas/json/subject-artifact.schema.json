@@ -55,9 +55,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -89,15 +97,20 @@
           "minLength": 1,
           "title": "Source",
           "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
+          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
-        "adapter",
-        "commit"
+        "adapter"
       ],
       "title": "AssemblySubjectArtifact",
       "type": "object"
@@ -122,9 +135,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -146,6 +167,11 @@
           "title": "Source",
           "type": "string"
         },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
+          "type": "string"
+        },
         "target": {
           "const": "harness",
           "title": "Target",
@@ -155,10 +181,10 @@
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
         "adapter",
-        "commit",
         "target"
       ],
       "title": "EvolverSubjectArtifact",
@@ -244,9 +270,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -268,6 +302,11 @@
           "title": "Source",
           "type": "string"
         },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
+          "type": "string"
+        },
         "target": {
           "const": "evolver",
           "title": "Target",
@@ -277,10 +316,10 @@
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
         "adapter",
-        "commit",
         "target"
       ],
       "title": "MetaEvolverSubjectArtifact",
@@ -306,9 +345,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -335,19 +382,39 @@
           "title": "Kind",
           "type": "string"
         },
+        "launch_argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Argv"
+        },
         "source": {
           "minLength": 1,
           "title": "Source",
+          "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
           "type": "string"
         }
       },
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
         "adapter",
-        "commit",
         "entrypoint",
         "interface"
       ],

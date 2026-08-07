@@ -1,5 +1,14 @@
 {
   "$defs": {
+    "ScoringKind": {
+      "description": "Benchmark-owned verdict semantics.\n\nContinuous scoring supports metric/effect claims but not pass-rate claims;\ndownstream compilation must reject pass-rate estimands without a threshold.",
+      "enum": [
+        "binary",
+        "continuous"
+      ],
+      "title": "ScoringKind",
+      "type": "string"
+    },
     "TaskSuiteBenchmarkArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -14,6 +23,17 @@
           "type": "string"
         },
         "authoritative_reward_metric": {
+          "minLength": 1,
+          "title": "Authoritative Reward Metric",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
           "anyOf": [
             {
               "minLength": 1,
@@ -24,18 +44,7 @@
             }
           ],
           "default": null,
-          "title": "Authoritative Reward Metric"
-        },
-        "bmp_version": {
-          "const": "0.1",
-          "default": "0.1",
-          "title": "Bmp Version",
-          "type": "string"
-        },
-        "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "title": "Commit"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -59,9 +68,17 @@
           "default": null,
           "title": "Reward Pass Value"
         },
+        "scoring_kind": {
+          "$ref": "#/$defs/ScoringKind"
+        },
         "source": {
           "minLength": 1,
           "title": "Source",
+          "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
           "type": "string"
         },
         "task_manifest": {
@@ -78,12 +95,14 @@
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
         "adapter",
-        "commit",
         "task_manifest",
-        "verifier"
+        "verifier",
+        "scoring_kind",
+        "authoritative_reward_metric"
       ],
       "title": "TaskSuiteBenchmarkArtifact",
       "type": "object"
@@ -102,6 +121,17 @@
           "type": "string"
         },
         "authoritative_reward_metric": {
+          "minLength": 1,
+          "title": "Authoritative Reward Metric",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
           "anyOf": [
             {
               "minLength": 1,
@@ -112,18 +142,7 @@
             }
           ],
           "default": null,
-          "title": "Authoritative Reward Metric"
-        },
-        "bmp_version": {
-          "const": "0.1",
-          "default": "0.1",
-          "title": "Bmp Version",
-          "type": "string"
-        },
-        "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "title": "Commit"
         },
         "evaluator": {
           "minLength": 1,
@@ -165,9 +184,17 @@
           "default": null,
           "title": "Reward Pass Value"
         },
+        "scoring_kind": {
+          "$ref": "#/$defs/ScoringKind"
+        },
         "source": {
           "minLength": 1,
           "title": "Source",
+          "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
           "type": "string"
         },
         "task_root": {
@@ -179,14 +206,16 @@
       "required": [
         "artifact_digest",
         "source",
+        "source_content_digest",
         "id",
         "kind",
         "adapter",
-        "commit",
         "task_root",
         "input_contract",
         "output_contract",
-        "evaluator"
+        "evaluator",
+        "scoring_kind",
+        "authoritative_reward_metric"
       ],
       "title": "ToolAgentSuiteBenchmarkArtifact",
       "type": "object"

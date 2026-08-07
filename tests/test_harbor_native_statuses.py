@@ -11,7 +11,7 @@ ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "harbor-shim-smoke.toml"
 
 
-def test_native_harbor_shapes_cover_all_bmp_statuses(tmp_path: Path) -> None:
+def test_native_harbor_shapes_cover_current_runtime_statuses(tmp_path: Path) -> None:
     run = Compiler(ROOT).compile(EXPERIMENT)[0]
     fixtures = {
         "pass": {"verifier_result": {"rewards": {"score": 1.0}}},
@@ -55,4 +55,4 @@ def test_native_harbor_shapes_cover_all_bmp_statuses(tmp_path: Path) -> None:
             reward_pass_value=1.0,
         )
         observed.add(case.bundle.status.value)
-    assert observed == set(RunStatus.__members__[name].value for name in RunStatus.__members__)
+    assert observed == {status.value for status in RunStatus if status != RunStatus.scored}

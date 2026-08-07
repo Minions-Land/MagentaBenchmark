@@ -15,6 +15,7 @@ from MagentaBench.runner.compiler import (
     sha256_bytes,
 )
 from MagentaBench.runner.pipeline import Pipeline
+from MagentaBench.runner.scheduler import Scheduler
 from MagentaBench.schemas import (
     Budget,
     EnvironmentReceipt,
@@ -41,12 +42,7 @@ def _with_timeout(run: CompiledRun, seconds: float) -> CompiledRun:
     execution = run.manifest.execution.model_copy(update={"budget": budget})
     manifest = run.manifest.model_copy(update={"execution": execution})
     canonical = canonical_manifest_json(manifest)
-    return replace(
-        run,
-        manifest=manifest,
-        canonical_json=canonical,
-        manifest_digest=sha256_bytes(canonical),
-    )
+    return replace(run, manifest=manifest)
 
 
 def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> None:
@@ -54,7 +50,9 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
     workspaces = tmp_path / "workspaces"
     backend = SubprocessBackend(records, workspace_root=workspaces)
 
-    result = Pipeline(ROOT, records, backend=backend).run(EXPERIMENT)
+    result = Pipeline(
+        ROOT, records, backend=backend, allow_test_override=True
+    ).run(EXPERIMENT)
 
     statuses = [item.case.bundle.status for item in result.runs]
     assert statuses == [
@@ -86,11 +84,12 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
 def test_subprocess_timeout_is_classified_and_keeps_failure_workspace(
     tmp_path: Path,
 ) -> None:
-    run = _with_timeout(Compiler(ROOT).compile(EXPERIMENT)[0], 0.01)
+    run = _with_timeout(Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0], 0.01)
     backend = SubprocessBackend(
         tmp_path / "records",
         workspace_root=tmp_path / "workspaces",
         keep_workspace_on_failure=True,
+        allow_test_override=True,
     )
 
     result = backend.execute(
@@ -127,7 +126,7 @@ def test_environment_receipt_is_carried_into_evidence_provenance(
         build_duration_seconds=0.0,
         built_at="2026-08-06T16:00:00+00:00",
     )
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     backend = SubprocessBackend(
         tmp_path / "records",
         workspace_root=tmp_path / "workspaces",
@@ -168,7 +167,7 @@ def test_subprocess_environment_does_not_inherit_secrets(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("BMP_SECRET_TOKEN", "must-not-leak")
-    run = Compiler(ROOT).compile(EXPERIMENT)[1]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[1]
     backend = SubprocessBackend(
         tmp_path / "records", workspace_root=tmp_path / "workspaces"
     )
@@ -185,3 +184,46 @@ def test_subprocess_environment_does_not_inherit_secrets(
     assert result.bundle.status == RunStatus.pass_
     assert result.bundle.verifier_evidence is not None
     assert result.bundle.verifier_evidence.details["actual"] == "BMP_OK"
+
+
+def test_subprocess_scheduler_uses_distinct_attempt_namespaces(tmp_path: Path) -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    protocol = run.manifest.execution.protocol.model_copy(
+        update={
+            "rollouts_per_case": 2,
+            "parallelism": 2,
+            "candidate_selection": "best_of_n",
+            "checkpoint_policy": "disabled",
+        }
+    )
+    execution = run.manifest.execution.model_copy(update={"protocol": protocol})
+    manifest = run.manifest.model_copy(update={"execution": execution})
+    canonical = canonical_manifest_json(manifest)
+    run = replace(run, manifest=manifest)
+    backend = SubprocessBackend(
+        tmp_path / "records", workspace_root=tmp_path / "work"
+    )
+    task = backend._load_task(run)
+
+    def attempt_runner(attempt):
+        return backend.execute(
+            run,
+            task,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+            attempt_budget=attempt.allocation,
+            remaining_wall_seconds=attempt.remaining_wall_seconds,
+        )
+
+    result = Scheduler(record_root=tmp_path / "records").execute(
+        run,
+        [task],
+        attempt_runner=attempt_runner,
+        reset_state=backend.reset_state,
+        receipt_path=tmp_path / "schedule_activation_receipt.json",
+    )
+    assert result.receipt.observed_attempt_count == 2
+    assert result.receipt.observed_max_concurrency == 2
+    assert len({item.attempt_id for item in result.receipt.attempts}) == 2
+    assert all(item.evidence_bundle_ref.path for item in result.receipt.attempts)
+    assert len(list((tmp_path / "records").rglob("evidence_bundle.json"))) == 2

@@ -84,25 +84,12 @@
     },
     "PackageRecord": {
       "additionalProperties": false,
-      "description": "Installed package provenance captured by an environment builder.",
+      "description": "Installed package name/version observed by an environment builder.\n\nA package wheel hash is not yet verified by the environment builder; add it\nwhen the builder provides content-addressed install receipts.",
       "properties": {
         "name": {
           "minLength": 1,
           "title": "Name",
           "type": "string"
-        },
-        "sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sha256"
         },
         "version": {
           "minLength": 1,
@@ -154,6 +141,17 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "container_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "distribution": {
           "anyOf": [
@@ -288,6 +286,7 @@
       "enum": [
         "pass",
         "verified_fail",
+        "scored",
         "no_output",
         "invalid_output",
         "timeout",
@@ -303,6 +302,32 @@
     "UsageRecord": {
       "additionalProperties": false,
       "properties": {
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read Tokens"
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write Tokens"
+        },
         "cost": {
           "anyOf": [
             {
@@ -396,8 +421,16 @@
           "type": "object"
         },
         "passed": {
-          "title": "Passed",
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passed"
         },
         "score": {
           "anyOf": [
@@ -418,8 +451,7 @@
         }
       },
       "required": [
-        "verifier",
-        "passed"
+        "verifier"
       ],
       "title": "VerifierEvidence",
       "type": "object"

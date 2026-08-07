@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 import shutil
 from typing import Any
+import threading
 
 try:
     import tomllib
@@ -48,9 +49,18 @@ class EvidenceDriftError(RuntimeError):
 class FakeBackend:
     """Execute fake cases and materialize complete, hash-linked evidence."""
 
-    def __init__(self, record_root: str | Path, *, runner_digest: str | None = None) -> None:
+    adapter = "fake"
+
+    def __init__(
+        self,
+        record_root: str | Path,
+        *,
+        allow_test_task_override: bool = False,
+    ) -> None:
         self.record_root = Path(record_root).resolve()
-        self.runner_digest = runner_digest or self._runtime_digest()
+        self.runner_digest = self._runtime_digest()
+        self.allow_test_task_override = allow_test_task_override
+        self._manifest_write_lock = threading.Lock()
 
     @staticmethod
     def _runtime_digest() -> str:
@@ -58,6 +68,7 @@ class FakeBackend:
         paths = (
             package_root / "runner" / "compiler.py",
             package_root / "runner" / "pipeline.py",
+            package_root / "runner" / "scheduler.py",
             package_root / "runner" / "gates.py",
             package_root / "runner" / "evidence.py",
             package_root / "runner" / "backend" / "fake.py",
@@ -133,6 +144,10 @@ class FakeBackend:
             output_filename=str(task["output"]),
         )
 
+    @staticmethod
+    def reset_state(case_id: str, policy: str) -> None:
+        """Fake subjects are stateless; invoking the hook is the reset receipt."""
+
     def _provenance(self, run: CompiledRun) -> ProvenanceRecord:
         backend = run.manifest.execution.backend
         return ProvenanceRecord(
@@ -140,7 +155,7 @@ class FakeBackend:
             runner_digest=self.runner_digest,
             benchmark_digest=run.manifest.benchmark.artifact_digest,
             subject_digest=run.manifest.subject.artifact_digest,
-            backend_digest=backend.digest,
+            backend_digest=backend.digest or self.runner_digest,
             trace_emission_claimed=bool(
                 getattr(run.manifest.subject, "emits_trace", False)
             ),
@@ -148,22 +163,43 @@ class FakeBackend:
             distribution="magentabench",
             version="0.1.0",
             backend_kind="fake",
-            network_mode=None,
+            network_mode=str(
+                backend.defaults.get("network_mode", backend.defaults.get("network", "none"))
+            ),
             workspace_namespace=None,
         )
 
-    def execute(self, run: CompiledRun, task: FakeTask | None = None) -> CaseExecution:
-        task = task or self._load_task(run)
+    def execute(
+        self,
+        run: CompiledRun,
+        task: FakeTask | None = None,
+        *,
+        case_id: str | None = None,
+        execution_run_id: str | None = None,
+        attempt_budget: Any | None = None,
+        remaining_wall_seconds: float | None = None,
+    ) -> CaseExecution:
+        registered_task = self._load_task(run)
+        task = task or registered_task
+        if task != registered_task and not self.allow_test_task_override:
+            raise ValueError(
+                f"task {task.task_id!r} is not registered by benchmark "
+                f"{run.manifest.benchmark.id!r}"
+            )
+        evidence_case_id = case_id or task.task_id
         run_dir = self.run_directory(run)
-        case_dir = run_dir / "cases" / task.task_id
+        case_dir = run_dir / "cases" / evidence_case_id
         if case_dir.exists():
             shutil.rmtree(case_dir)
         case_dir.mkdir(parents=True, exist_ok=False)
 
-        atomic_write_bytes(run_dir / "resolved_manifest.json", run.canonical_json + b"\n")
+        manifest_path = run_dir / "resolved_manifest.json"
+        with self._manifest_write_lock:
+            if not manifest_path.exists():
+                atomic_write_bytes(manifest_path, run.wire_json + b"\n")
         atomic_write_json(
             case_dir / "input.json",
-            {"case_id": task.task_id, "instruction": task.instruction},
+            {"case_id": evidence_case_id, "instruction": task.instruction},
         )
         stdout_path = case_dir / "stdout.log"
         stderr_path = case_dir / "stderr.log"
@@ -237,7 +273,7 @@ class FakeBackend:
         receipt_path = case_dir / "subject_receipt.json"
         atomic_write_json(receipt_path, receipt_data)
         status_path = case_dir / "status.json"
-        atomic_write_json(status_path, {"case_id": task.task_id, "status": status.value})
+        atomic_write_json(status_path, {"case_id": evidence_case_id, "status": status.value})
 
         # Hash logs only after all injected error messages have been persisted.
         log_refs = (
@@ -248,7 +284,7 @@ class FakeBackend:
             *extra_logs,
         )
         bundle = EvidenceBundle(
-            run_id=run.manifest.metadata.run_id,
+            run_id=execution_run_id or run.manifest.metadata.run_id,
             status=status,
             output_refs=output_refs,
             log_refs=log_refs,
@@ -291,7 +327,9 @@ class FakeBackend:
             "runner_digest": expected_runner_digest,
             "benchmark_digest": run.manifest.benchmark.artifact_digest,
             "subject_digest": run.manifest.subject.artifact_digest,
-            "backend_digest": run.manifest.execution.backend.digest,
+            "backend_digest": (
+                run.manifest.execution.backend.digest or expected_runner_digest
+            ),
         }
         actual = {name: getattr(provenance, name) for name in expected}
         drift = [name for name in expected if actual[name] != expected[name]]

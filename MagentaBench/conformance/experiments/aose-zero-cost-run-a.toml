@@ -11,8 +11,7 @@ vary = []
 
 [execution]
 backend = "aose.docker.immutable"
-model = "none/zero-cost"
-seed = 0
+model = "none"
 
 [execution.budget]
 max_tokens = 0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -59,6 +60,9 @@ def test_aosebench_docker_command_uses_readonly_contract(tmp_path: Path, monkeyp
         instruction_path=task_dir / "instruction.md",
         rubric_path=task_dir / "tests" / "rubric.txt",
         task_config=tomllib.loads((task_dir / "task.toml").read_text()),
+        instruction_digest=hashlib.sha256(
+            (task_dir / "instruction.md").read_bytes()
+        ).hexdigest(),
         data_path=data,
     )
     monkeypatch.setenv("OPENAI_API_KEY", "secret-value")

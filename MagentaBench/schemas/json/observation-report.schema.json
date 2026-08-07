@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
     "LineageRef": {
       "additionalProperties": false,
       "properties": {
@@ -15,20 +43,22 @@
           "default": null,
           "title": "Case Id"
         },
-        "evidence_bundle_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Evidence Bundle Sha256",
-          "type": "string"
+        "evidence_bundle_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "run_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Run Id",
           "type": "string"
+        },
+        "schedule_receipt_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         }
       },
       "required": [
         "run_id",
-        "evidence_bundle_sha256"
+        "evidence_bundle_ref",
+        "schedule_receipt_ref"
       ],
       "title": "LineageRef",
       "type": "object"
@@ -63,6 +93,7 @@
       "enum": [
         "pass",
         "verified_fail",
+        "scored",
         "no_output",
         "invalid_output",
         "timeout",
@@ -119,6 +150,17 @@
       "const": "exploratory",
       "title": "Purpose",
       "type": "string"
+    },
+    "record_index_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

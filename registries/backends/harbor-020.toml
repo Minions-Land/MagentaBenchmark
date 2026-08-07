@@ -9,4 +9,3 @@ digest = "998eb086b23784f317a336d2cf6d306896ea1cb6fc8998806b2ecacba2ebad7c"
 
 [backend.defaults]
 environment_type = "docker"
-network_mode = "none"

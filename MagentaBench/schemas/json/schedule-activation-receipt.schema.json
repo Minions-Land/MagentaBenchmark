@@ -1,0 +1,734 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AttemptAllocation": {
+      "additionalProperties": false,
+      "description": "Per-rollout cap reserved from a case allocation before launch.",
+      "properties": {
+        "allocated": {
+          "$ref": "#/$defs/BudgetAllocation"
+        },
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "case_allocation_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Allocation Id",
+          "type": "string"
+        },
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "launch_sequence": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Sequence"
+        },
+        "launched": {
+          "title": "Launched",
+          "type": "boolean"
+        },
+        "reservation_sequence": {
+          "minimum": 0,
+          "title": "Reservation Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "case_allocation_id",
+        "case_id",
+        "allocated",
+        "reservation_sequence",
+        "launched"
+      ],
+      "title": "AttemptAllocation",
+      "type": "object"
+    },
+    "AttemptExecution": {
+      "additionalProperties": false,
+      "description": "One launched scheduler attempt; unlaunched slots have no execution record.",
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "attempt_index": {
+          "minimum": 0,
+          "title": "Attempt Index",
+          "type": "integer"
+        },
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "debit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BudgetDebit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidence_bundle_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reward_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Metric"
+        },
+        "reward_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Value"
+        },
+        "selected": {
+          "title": "Selected",
+          "type": "boolean"
+        },
+        "selection_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection Reason"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "case_id",
+        "attempt_index",
+        "status",
+        "evidence_bundle_ref",
+        "debit",
+        "selected"
+      ],
+      "title": "AttemptExecution",
+      "type": "object"
+    },
+    "BudgetAllocation": {
+      "additionalProperties": false,
+      "description": "Pre-launch token/cost allocation; wall time remains global.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "title": "BudgetAllocation",
+      "type": "object"
+    },
+    "BudgetDebit": {
+      "additionalProperties": false,
+      "description": "Measured leaf usage and returned unused cap at completion.",
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "budget_exceeded": {
+          "default": false,
+          "title": "Budget Exceeded",
+          "type": "boolean"
+        },
+        "child_run_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Child Run Id",
+          "type": "string"
+        },
+        "completion_sequence": {
+          "minimum": 1,
+          "title": "Completion Sequence",
+          "type": "integer"
+        },
+        "released": {
+          "$ref": "#/$defs/BudgetAllocation"
+        },
+        "spent": {
+          "$ref": "#/$defs/UsageRecord"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "child_run_id",
+        "completion_sequence",
+        "spent",
+        "released"
+      ],
+      "title": "BudgetDebit",
+      "type": "object"
+    },
+    "BudgetLedger": {
+      "additionalProperties": false,
+      "description": "Planned allocation hierarchy plus derived aggregate usage.",
+      "properties": {
+        "aborted_at_exhaustion": {
+          "title": "Aborted At Exhaustion",
+          "type": "boolean"
+        },
+        "aborted_children": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Aborted Children",
+          "type": "array"
+        },
+        "attempt_allocations": {
+          "items": {
+            "$ref": "#/$defs/AttemptAllocation"
+          },
+          "title": "Attempt Allocations",
+          "type": "array"
+        },
+        "case_allocations": {
+          "items": {
+            "$ref": "#/$defs/CaseAllocation"
+          },
+          "title": "Case Allocations",
+          "type": "array"
+        },
+        "global_elapsed_wall_seconds": {
+          "minimum": 0,
+          "title": "Global Elapsed Wall Seconds",
+          "type": "number"
+        },
+        "parent_overhead": {
+          "$ref": "#/$defs/UsageRecord"
+        },
+        "reconciles_exactly": {
+          "title": "Reconciles Exactly",
+          "type": "boolean"
+        },
+        "total_usage": {
+          "$ref": "#/$defs/UsageRecord"
+        }
+      },
+      "required": [
+        "case_allocations",
+        "attempt_allocations",
+        "aborted_at_exhaustion",
+        "aborted_children",
+        "total_usage",
+        "parent_overhead",
+        "global_elapsed_wall_seconds",
+        "reconciles_exactly"
+      ],
+      "title": "BudgetLedger",
+      "type": "object"
+    },
+    "CaseAllocation": {
+      "additionalProperties": false,
+      "description": "Per-case cap allocated before dividing it among attempts.",
+      "properties": {
+        "allocated": {
+          "$ref": "#/$defs/BudgetAllocation"
+        },
+        "allocation_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Allocation Id",
+          "type": "string"
+        },
+        "attempt_count": {
+          "minimum": 1,
+          "title": "Attempt Count",
+          "type": "integer"
+        },
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "allocation_id",
+        "allocated",
+        "attempt_count"
+      ],
+      "title": "CaseAllocation",
+      "type": "object"
+    },
+    "CheckpointLoadReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "loaded_checkpoint_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Loaded Checkpoint Digest",
+          "type": "string"
+        },
+        "resolved_plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Resolved Plan Digest",
+          "type": "string"
+        },
+        "schedule_receipt_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Schedule Receipt Digest",
+          "type": "string"
+        },
+        "selected_bundle_digests": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Selected Bundle Digests",
+          "type": "array"
+        }
+      },
+      "required": [
+        "loaded_checkpoint_digest",
+        "resolved_plan_digest",
+        "schedule_receipt_digest",
+        "selected_bundle_digests"
+      ],
+      "title": "CheckpointLoadReceipt",
+      "type": "object"
+    },
+    "CheckpointSaveReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "write_completion_sequence": {
+          "minimum": 1,
+          "title": "Write Completion Sequence",
+          "type": "integer"
+        },
+        "written_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Written Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "written_digest",
+        "size_bytes",
+        "write_completion_sequence",
+        "path"
+      ],
+      "title": "CheckpointSaveReceipt",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read Tokens"
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write Tokens"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "wall_clock_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Seconds"
+        }
+      },
+      "title": "UsageRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Declared schedule compared with measured scheduler activation.",
+  "properties": {
+    "ancestor_schedule_receipt_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "attempts": {
+      "items": {
+        "$ref": "#/$defs/AttemptExecution"
+      },
+      "title": "Attempts",
+      "type": "array"
+    },
+    "budget_ledger": {
+      "$ref": "#/$defs/BudgetLedger"
+    },
+    "checkpoint_load_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CheckpointLoadReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "checkpoint_save_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CheckpointSaveReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "declared_candidate_selection": {
+      "minLength": 1,
+      "title": "Declared Candidate Selection",
+      "type": "string"
+    },
+    "declared_case_order": {
+      "enum": [
+        "fixed",
+        "seeded_random",
+        "random"
+      ],
+      "title": "Declared Case Order",
+      "type": "string"
+    },
+    "declared_checkpoint_policy": {
+      "enum": [
+        "disabled",
+        "save",
+        "resume",
+        "save_and_resume"
+      ],
+      "title": "Declared Checkpoint Policy",
+      "type": "string"
+    },
+    "declared_parallelism": {
+      "minimum": 1,
+      "title": "Declared Parallelism",
+      "type": "integer"
+    },
+    "declared_rollouts_per_case": {
+      "minimum": 1,
+      "title": "Declared Rollouts Per Case",
+      "type": "integer"
+    },
+    "declared_state_reset": {
+      "enum": [
+        "per_case",
+        "per_rollout",
+        "never"
+      ],
+      "title": "Declared State Reset",
+      "type": "string"
+    },
+    "global_deadline_at": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Global Deadline At"
+    },
+    "mismatch_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Mismatch Reasons",
+      "type": "array"
+    },
+    "observed_attempt_count": {
+      "minimum": 0,
+      "title": "Observed Attempt Count",
+      "type": "integer"
+    },
+    "observed_case_order": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Observed Case Order",
+      "type": "array"
+    },
+    "observed_max_concurrency": {
+      "minimum": 0,
+      "title": "Observed Max Concurrency",
+      "type": "integer"
+    },
+    "observed_selection_policy": {
+      "minLength": 1,
+      "title": "Observed Selection Policy",
+      "type": "string"
+    },
+    "observed_state_reset_count": {
+      "minimum": 0,
+      "title": "Observed State Reset Count",
+      "type": "integer"
+    },
+    "order_seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Order Seed"
+    },
+    "pipeline_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Pipeline Digest",
+      "type": "string"
+    },
+    "protocol_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Protocol Digest",
+      "type": "string"
+    },
+    "reservation_policy": {
+      "const": "equal_division_per_case",
+      "title": "Reservation Policy",
+      "type": "string"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "schedule_valid": {
+      "title": "Schedule Valid",
+      "type": "boolean"
+    },
+    "scheduler_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Scheduler Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "protocol_digest",
+    "scheduler_digest",
+    "pipeline_digest",
+    "reservation_policy",
+    "declared_rollouts_per_case",
+    "observed_attempt_count",
+    "declared_parallelism",
+    "observed_max_concurrency",
+    "declared_case_order",
+    "observed_case_order",
+    "declared_state_reset",
+    "observed_state_reset_count",
+    "declared_candidate_selection",
+    "observed_selection_policy",
+    "declared_checkpoint_policy",
+    "attempts",
+    "budget_ledger",
+    "schedule_valid",
+    "mismatch_reasons"
+  ],
+  "title": "ScheduleActivationReceipt",
+  "type": "object"
+}

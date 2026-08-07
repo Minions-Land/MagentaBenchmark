@@ -21,9 +21,17 @@
           "type": "object"
         },
         "digest": {
-          "minLength": 1,
-          "title": "Digest",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Digest"
         },
         "environment": {
           "anyOf": [
@@ -73,17 +81,23 @@
           "type": "string"
         },
         "version": {
-          "minLength": 1,
-          "title": "Version",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
         }
       },
       "required": [
         "id",
         "kind",
-        "adapter",
-        "version",
-        "digest"
+        "adapter"
       ],
       "title": "BackendSpec",
       "type": "object"
@@ -133,6 +147,40 @@
         }
       },
       "title": "Budget",
+      "type": "object"
+    },
+    "CredentialRef": {
+      "additionalProperties": false,
+      "description": "Identity-bearing credential digest; secret values are never serialized.",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "secret": {
+          "const": true,
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "source_file": {
+          "minLength": 1,
+          "title": "Source File",
+          "type": "string"
+        },
+        "value_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Value Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value_sha256",
+        "secret",
+        "source_file"
+      ],
+      "title": "CredentialRef",
       "type": "object"
     },
     "EnvironmentSpec": {
@@ -195,16 +243,34 @@
     },
     "MountSpec": {
       "additionalProperties": false,
-      "description": "A host-to-runtime mount declaration for an execution environment.",
+      "description": "A content-addressed host-to-runtime mount declaration.",
       "properties": {
         "container_path": {
           "minLength": 1,
           "title": "Container Path",
           "type": "string"
         },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Sha256"
+        },
         "host_path": {
           "minLength": 1,
           "title": "Host Path",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
           "type": "string"
         },
         "read_only": {
@@ -215,6 +281,7 @@
       },
       "required": [
         "host_path",
+        "name",
         "container_path"
       ],
       "title": "MountSpec",
@@ -252,16 +319,13 @@
           "default": null
         },
         "candidate_selection": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
+          "enum": [
+            "single",
+            "exact",
+            "best_of_n"
           ],
-          "default": null,
-          "title": "Candidate Selection"
+          "title": "Candidate Selection",
+          "type": "string"
         },
         "case_order": {
           "default": "fixed",
@@ -295,7 +359,11 @@
           "type": "string"
         },
         "kind": {
-          "minLength": 1,
+          "enum": [
+            "test_time_scaling",
+            "mechanism_validation",
+            "benchmark_evaluation"
+          ],
           "title": "Kind",
           "type": "string"
         },
@@ -325,14 +393,53 @@
       "required": [
         "id",
         "kind",
-        "adapter"
+        "adapter",
+        "candidate_selection"
       ],
       "title": "ProtocolSpec",
+      "type": "object"
+    },
+    "ProviderBinding": {
+      "additionalProperties": false,
+      "description": "Resolved provider, transport, model, and credential identity.",
+      "properties": {
+        "base_url": {
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "credential_ref": {
+          "$ref": "#/$defs/CredentialRef"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "wire_api": {
+          "minLength": 1,
+          "title": "Wire Api",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "base_url",
+        "wire_api",
+        "model_id",
+        "credential_ref"
+      ],
+      "title": "ProviderBinding",
       "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "Execution contract with registry references inlined.",
+  "description": "Execution contract with registry references inlined.\n\nprovider_binding is optional only until the CLI-agent adapter resolves it;\na model-scope claim MUST compile-reject when provider_binding is None.",
   "properties": {
     "backend": {
       "$ref": "#/$defs/BackendSpec"
@@ -356,15 +463,33 @@
       ],
       "default": null
     },
+    "provider_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "seed": {
-      "title": "Seed",
-      "type": "integer"
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
     }
   },
   "required": [
     "backend",
     "model",
-    "seed",
     "budget"
   ],
   "title": "ResolvedExecutionSpec",

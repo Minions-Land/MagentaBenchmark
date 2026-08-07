@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "NetworkEndpointRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "minLength": 1,
+          "title": "Host",
+          "type": "string"
+        },
+        "outcome": {
+          "minLength": 1,
+          "title": "Outcome",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "protocol": {
+          "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$",
+          "title": "Protocol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "host",
+        "port",
+        "outcome"
+      ],
+      "title": "NetworkEndpointRecord",
+      "type": "object"
+    },
+    "NetworkObservationMode": {
+      "enum": [
+        "active_probe",
+        "connection_log",
+        "unobservable"
+      ],
+      "title": "NetworkObservationMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Observed network behavior without embedded request or credential data.\n\nREQUIRED-IN-STEP-2: a claim with allow_internet=false must require an\nactive probe proving egress_succeeded=false; unobservable fails isolation.",
+  "properties": {
+    "declared_allow_internet": {
+      "title": "Declared Allow Internet",
+      "type": "boolean"
+    },
+    "egress_attempted": {
+      "title": "Egress Attempted",
+      "type": "boolean"
+    },
+    "egress_succeeded": {
+      "title": "Egress Succeeded",
+      "type": "boolean"
+    },
+    "evidence_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "mode": {
+      "$ref": "#/$defs/NetworkObservationMode"
+    },
+    "reached_endpoints": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/NetworkEndpointRecord"
+      },
+      "title": "Reached Endpoints",
+      "type": "array"
+    }
+  },
+  "required": [
+    "declared_allow_internet",
+    "mode",
+    "egress_attempted",
+    "egress_succeeded"
+  ],
+  "title": "NetworkObservation",
+  "type": "object"
+}

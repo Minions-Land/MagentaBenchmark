@@ -21,9 +21,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -50,8 +58,7 @@
         "id",
         "kind",
         "adapter",
-        "source",
-        "commit"
+        "source"
       ],
       "title": "AssemblySubjectSpec",
       "type": "object"
@@ -71,9 +78,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -106,7 +121,6 @@
         "kind",
         "adapter",
         "source",
-        "commit",
         "target"
       ],
       "title": "EvolverSubjectSpec",
@@ -182,9 +196,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -217,7 +239,6 @@
         "kind",
         "adapter",
         "source",
-        "commit",
         "target"
       ],
       "title": "MetaEvolverSubjectSpec",
@@ -238,9 +259,17 @@
           "type": "string"
         },
         "commit": {
-          "minLength": 1,
-          "title": "Commit",
-          "type": "string"
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
         },
         "emits_trace": {
           "default": false,
@@ -267,6 +296,21 @@
           "title": "Kind",
           "type": "string"
         },
+        "launch_argv": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Argv"
+        },
         "source": {
           "minLength": 1,
           "title": "Source",
@@ -278,7 +322,6 @@
         "kind",
         "adapter",
         "source",
-        "commit",
         "entrypoint",
         "interface"
       ],

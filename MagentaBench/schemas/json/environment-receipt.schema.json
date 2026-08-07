@@ -2,25 +2,12 @@
   "$defs": {
     "PackageRecord": {
       "additionalProperties": false,
-      "description": "Installed package provenance captured by an environment builder.",
+      "description": "Installed package name/version observed by an environment builder.\n\nA package wheel hash is not yet verified by the environment builder; add it\nwhen the builder provides content-addressed install receipts.",
       "properties": {
         "name": {
           "minLength": 1,
           "title": "Name",
           "type": "string"
-        },
-        "sha256": {
-          "anyOf": [
-            {
-              "pattern": "^[0-9a-f]{64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Sha256"
         },
         "version": {
           "minLength": 1,

@@ -10,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Annotated, Any, ClassVar, Literal, Mapping, Union
+from urllib.parse import urlsplit
 
 from pydantic import (
     BaseModel,
@@ -30,6 +31,7 @@ BMP_VERSION = "0.1"
 ID_PATTERN = r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$"
 ADAPTER_PATTERN = r"^[A-Za-z][A-Za-z0-9_.-]*$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
+OCI_SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 SECRET_KEY_PATTERN = re.compile(
     r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL",
     re.IGNORECASE,
@@ -84,10 +86,10 @@ class RegistryEntry(StrictModel):
 
 
 class SourceRegistryEntry(RegistryEntry):
-    """Registry declaration backed by a pinned code or content source."""
+    """Registry declaration backed by a code or content source."""
 
     source: str = Field(min_length=1)
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
 
 
 class ArtifactRef(StrictModel):
@@ -104,21 +106,241 @@ class ArtifactRef(StrictModel):
             raise ValueError("artifact path must be absolute")
         return value
 
+    def identity_data(self) -> dict[str, int | str]:
+        return {"sha256": self.sha256, "size_bytes": self.size_bytes}
+
+
+class EnvironmentBindingRef(StrictModel):
+    """Environment value identity without serializing the value itself."""
+
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    value_digest: str = Field(pattern=SHA256_PATTERN)
+    secret: bool
+    source_name: str = Field(pattern=ID_PATTERN)
+
+
+class ResourceSpec(StrictModel):
+    """Task resources, separate from Python environment requirements.
+
+    REQUIRED-IN-STEP-2: claim runs must reject a missing docker_image_digest.
+    """
+
+    build_timeout_sec: float = Field(gt=0, strict=True)
+    docker_image: str = Field(min_length=1)
+    docker_image_digest: str | None = Field(default=None, pattern=OCI_SHA256_PATTERN)
+    cpus: int = Field(gt=0, strict=True)
+    memory_mb: int = Field(gt=0, strict=True)
+    storage_mb: int = Field(gt=0, strict=True)
+    gpus: int = Field(ge=0, strict=True)
+    allow_internet: bool
+    mcp_servers: tuple[str, ...] = ()
+    env: tuple[EnvironmentBindingRef, ...] = ()
+    agent_timeout_sec: float = Field(gt=0, strict=True)
+    verifier_timeout_sec: float = Field(gt=0, strict=True)
+
+    @property
+    def claim_image_identity_valid(self) -> bool:
+        """Whether this image is immutable enough for a claim run."""
+
+        return self.docker_image_digest is not None
+
+    @model_validator(mode="after")
+    def names_are_unique(self) -> "ResourceSpec":
+        if any(not server.strip() for server in self.mcp_servers):
+            raise ValueError("mcp_servers must contain non-empty names")
+        if len(set(self.mcp_servers)) != len(self.mcp_servers):
+            raise ValueError("mcp_servers must be unique")
+        env_names = [binding.name for binding in self.env]
+        if len(set(env_names)) != len(env_names):
+            raise ValueError("environment binding names must be unique")
+        return self
+
+
+class CredentialRef(StrictModel):
+    """Identity-bearing credential digest; secret values are never serialized."""
+
+    name: str = Field(pattern=ID_PATTERN)
+    value_sha256: str = Field(pattern=SHA256_PATTERN)
+    secret: Literal[True]
+    source_file: str = Field(min_length=1)
+
+    def identity_data(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "value_sha256": self.value_sha256,
+            "secret": self.secret,
+        }
+
+
+class ProviderBinding(StrictModel):
+    """Resolved provider, transport, model, and credential identity."""
+
+    provider_id: str = Field(pattern=ID_PATTERN)
+    base_url: str = Field(min_length=1)
+    wire_api: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    credential_ref: CredentialRef
+
+    @field_validator("base_url")
+    @classmethod
+    def base_url_is_secret_free_http_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("base_url must be an absolute HTTP(S) URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("base_url must not contain credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("base_url must not contain a query string or fragment")
+        return value
+
+
+class NetworkObservationMode(str, Enum):
+    active_probe = "active_probe"
+    connection_log = "connection_log"
+    unobservable = "unobservable"
+
+
+class NetworkEndpointRecord(StrictModel):
+    protocol: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9+.-]*$")
+    host: str = Field(min_length=1)
+    port: int = Field(ge=1, le=65535, strict=True)
+    outcome: str = Field(min_length=1)
+
+    @field_validator("host")
+    @classmethod
+    def host_contains_no_url_or_credentials(cls, value: str) -> str:
+        if (
+            any(character.isspace() for character in value)
+            or any(marker in value for marker in ("://", "/", "?", "#", "@", "="))
+        ):
+            raise ValueError("network endpoint host must not contain URL data or credentials")
+        return value
+
+    @field_validator("outcome")
+    @classmethod
+    def outcome_contains_no_url_or_credentials(cls, value: str) -> str:
+        if any(marker in value for marker in ("://", "?", "@", "=")):
+            raise ValueError("network endpoint outcome must not contain URL or credential data")
+        return value
+
+
+class NetworkObservation(StrictModel):
+    """Observed network behavior without embedded request or credential data.
+
+    REQUIRED-IN-STEP-2: a claim with allow_internet=false must require an
+    active probe proving egress_succeeded=false; unobservable fails isolation.
+    """
+
+    declared_allow_internet: bool
+    mode: NetworkObservationMode
+    egress_attempted: bool
+    egress_succeeded: bool
+    reached_endpoints: tuple[NetworkEndpointRecord, ...] = ()
+    evidence_refs: tuple[ArtifactRef, ...] = ()
+
+    @property
+    def claim_isolation_valid(self) -> bool:
+        """Whether this observation can substantiate claim-run isolation."""
+
+        if self.mode == NetworkObservationMode.unobservable:
+            return False
+        if not self.declared_allow_internet:
+            return (
+                self.mode == NetworkObservationMode.active_probe
+                and self.egress_attempted
+                and not self.egress_succeeded
+            )
+        return True
+
+    @model_validator(mode="after")
+    def observation_is_coherent(self) -> "NetworkObservation":
+        if self.egress_succeeded and not self.egress_attempted:
+            raise ValueError("successful egress requires an egress attempt")
+        if self.mode == NetworkObservationMode.active_probe and not self.egress_attempted:
+            raise ValueError("active_probe requires egress_attempted=true")
+        if self.mode == NetworkObservationMode.unobservable and (
+            self.egress_attempted or self.egress_succeeded or self.reached_endpoints
+        ):
+            raise ValueError("unobservable network mode cannot claim observed activity")
+        return self
+
+
+class JournalRecord(StrictModel):
+    format: Literal["harnessx-journal-v2"]
+    session_id: str = Field(pattern=ID_PATTERN)
+    run_ids: tuple[str, ...]
+    segment_refs: tuple[ArtifactRef, ...]
+    trace_refs: tuple[ArtifactRef, ...]
+    state_refs: tuple[ArtifactRef, ...]
+    session_index_ref: ArtifactRef
+
+    @field_validator("run_ids")
+    @classmethod
+    def run_ids_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("journal run_ids must be valid BMP ids")
+        if len(set(values)) != len(values):
+            raise ValueError("journal run_ids must be unique")
+        return values
+
+
+class SystemPromptRecord(StrictModel):
+    step_id: str = Field(pattern=ID_PATTERN)
+    prompt_ref: ArtifactRef
+
+
+class WorkspaceRecord(StrictModel):
+    namespace: str = Field(min_length=1)
+    setup_refs: tuple[ArtifactRef, ...]
+    state_refs: tuple[ArtifactRef, ...]
+    journal: JournalRecord
+
+
+class ScoringKind(str, Enum):
+    """Benchmark-owned verdict semantics.
+
+    Continuous scoring supports metric/effect claims but not pass-rate claims;
+    downstream compilation must reject pass-rate estimands without a threshold.
+    """
+
+    binary = "binary"
+    continuous = "continuous"
+
+
+def _validate_scoring_semantics(
+    scoring_kind: ScoringKind,
+    authoritative_reward_metric: str | None,
+    reward_pass_value: float | None,
+) -> None:
+    if authoritative_reward_metric is None:
+        raise ValueError("authoritative_reward_metric is required")
+    if scoring_kind == ScoringKind.binary and reward_pass_value is None:
+        raise ValueError("binary scoring requires reward_pass_value")
+    if scoring_kind == ScoringKind.continuous and reward_pass_value is not None:
+        raise ValueError("continuous scoring forbids reward_pass_value")
+
 
 class TaskSuiteBenchmarkSpec(SourceRegistryEntry):
     kind: Literal["task_suite"]
     task_manifest: str = Field(min_length=1)
     verifier: str = Field(min_length=1)
     # Benchmark-owned scoring semantics; never configure these on a backend.
-    authoritative_reward_metric: str | None = Field(default=None, min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
     reward_pass_value: float | None = None
+
+    @field_validator("task_manifest")
+    @classmethod
+    def task_manifest_is_relative(cls, value: str) -> str:
+        return _validate_logical_relative_path(value, field_name="task_manifest")
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "TaskSuiteBenchmarkSpec":
-        if (self.authoritative_reward_metric is None) != (self.reward_pass_value is None):
-            raise ValueError(
-                "authoritative_reward_metric and reward_pass_value must be provided together"
-            )
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
         return self
 
 
@@ -129,15 +351,22 @@ class ToolAgentSuiteBenchmarkSpec(SourceRegistryEntry):
     output_contract: tuple[str, ...] = Field(min_length=1)
     evaluator: str = Field(min_length=1)
     # Benchmark-owned scoring semantics; never configure these on a backend.
-    authoritative_reward_metric: str | None = Field(default=None, min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
     reward_pass_value: float | None = None
+
+    @field_validator("task_root")
+    @classmethod
+    def task_root_is_relative(cls, value: str) -> str:
+        return _validate_logical_relative_path(value, field_name="task_root")
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "ToolAgentSuiteBenchmarkSpec":
-        if (self.authoritative_reward_metric is None) != (self.reward_pass_value is None):
-            raise ValueError(
-                "authoritative_reward_metric and reward_pass_value must be provided together"
-            )
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
         return self
 
 
@@ -156,6 +385,7 @@ class ArtifactIdentity(StrictModel):
 
 class AbsoluteSourceArtifact(ArtifactIdentity):
     source: str = Field(min_length=1)
+    source_content_digest: str = Field(pattern=SHA256_PATTERN)
 
     @field_validator("source")
     @classmethod
@@ -170,18 +400,25 @@ class TaskSuiteBenchmarkArtifact(AbsoluteSourceArtifact):
     kind: Literal["task_suite"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     task_manifest: str = Field(min_length=1)
     verifier: str = Field(min_length=1)
-    authoritative_reward_metric: str | None = Field(default=None, min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
     reward_pass_value: float | None = None
+
+    @field_validator("task_manifest")
+    @classmethod
+    def task_manifest_is_relative(cls, value: str) -> str:
+        return _validate_logical_relative_path(value, field_name="task_manifest")
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "TaskSuiteBenchmarkArtifact":
-        if (self.authoritative_reward_metric is None) != (self.reward_pass_value is None):
-            raise ValueError(
-                "authoritative_reward_metric and reward_pass_value must be provided together"
-            )
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
         return self
 
 
@@ -190,20 +427,27 @@ class ToolAgentSuiteBenchmarkArtifact(AbsoluteSourceArtifact):
     kind: Literal["tool_agent_suite"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     task_root: str = Field(min_length=1)
     input_contract: str = Field(min_length=1)
     output_contract: tuple[str, ...] = Field(min_length=1)
     evaluator: str = Field(min_length=1)
-    authoritative_reward_metric: str | None = Field(default=None, min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
     reward_pass_value: float | None = None
+
+    @field_validator("task_root")
+    @classmethod
+    def task_root_is_relative(cls, value: str) -> str:
+        return _validate_logical_relative_path(value, field_name="task_root")
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "ToolAgentSuiteBenchmarkArtifact":
-        if (self.authoritative_reward_metric is None) != (self.reward_pass_value is None):
-            raise ValueError(
-                "authoritative_reward_metric and reward_pass_value must be provided together"
-            )
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
         return self
 
 
@@ -241,8 +485,18 @@ class AssemblySubjectSpec(SourceRegistryEntry):
 class OpaqueAgentSubjectSpec(SourceRegistryEntry):
     kind: Literal["opaque_agent"]
     entrypoint: str = Field(min_length=1)
+    launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+
+    @model_validator(mode="after")
+    def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectSpec":
+        if self.launch_argv is not None:
+            if not self.launch_argv or any(not item for item in self.launch_argv):
+                raise ValueError("launch_argv must contain non-empty arguments")
+            if self.launch_argv[0] != self.entrypoint:
+                raise ValueError("launch_argv[0] must equal entrypoint")
+        return self
 
 
 class EvolverSubjectSpec(SourceRegistryEntry):
@@ -298,7 +552,7 @@ class AssemblySubjectArtifact(AbsoluteSourceArtifact):
     kind: Literal["hcp_harness"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     assembly_profile: str = Field(default="default", min_length=1)
     sidecar_ref: AssemblySidecarRef | None = None
     emits_trace: bool = False
@@ -309,10 +563,20 @@ class OpaqueAgentSubjectArtifact(AbsoluteSourceArtifact):
     kind: Literal["opaque_agent"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     entrypoint: str = Field(min_length=1)
+    launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+
+    @model_validator(mode="after")
+    def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectArtifact":
+        if self.launch_argv is not None:
+            if not self.launch_argv or any(not item for item in self.launch_argv):
+                raise ValueError("launch_argv must contain non-empty arguments")
+            if self.launch_argv[0] != self.entrypoint:
+                raise ValueError("launch_argv[0] must equal entrypoint")
+        return self
 
 
 class EvolverSubjectArtifact(AbsoluteSourceArtifact):
@@ -320,7 +584,7 @@ class EvolverSubjectArtifact(AbsoluteSourceArtifact):
     kind: Literal["evolver"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     target: Literal["harness"]
     emits_trace: bool = False
 
@@ -330,7 +594,7 @@ class MetaEvolverSubjectArtifact(AbsoluteSourceArtifact):
     kind: Literal["meta_evolver"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str = Field(min_length=1)
+    commit: str | None = Field(default=None, min_length=1)
     target: Literal["evolver"]
     emits_trace: bool = False
 
@@ -382,9 +646,11 @@ class Budget(StrictModel):
 
 
 class MountSpec(StrictModel):
-    """A host-to-runtime mount declaration for an execution environment."""
+    """A content-addressed host-to-runtime mount declaration."""
 
     host_path: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    content_sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
     container_path: str = Field(min_length=1)
     read_only: bool = True
 
@@ -394,6 +660,14 @@ class MountSpec(StrictModel):
         if not Path(value).is_absolute():
             raise ValueError("mount paths must be absolute")
         return value
+
+    def identity_data(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "container_path": self.container_path,
+            "read_only": self.read_only,
+            "content_sha256": self.content_sha256,
+        }
 
 
 class EnvironmentSpec(StrictModel):
@@ -433,11 +707,14 @@ class EnvironmentSpec(StrictModel):
 
 
 class PackageRecord(StrictModel):
-    """Installed package provenance captured by an environment builder."""
+    """Installed package name/version observed by an environment builder.
+
+    A package wheel hash is not yet verified by the environment builder; add it
+    when the builder provides content-addressed install receipts.
+    """
 
     name: str = Field(min_length=1)
     version: str = Field(min_length=1)
-    sha256: str | None = Field(default=None, pattern=SHA256_PATTERN)
 
 
 class EnvironmentReceipt(StrictModel):
@@ -482,8 +759,8 @@ class BackendSpec(RegistryEntry):
 
     image: str | None = Field(default=None, min_length=1)
     executable: str | None = Field(default=None, min_length=1)
-    version: str = Field(min_length=1)
-    digest: str = Field(min_length=1)
+    version: str | None = Field(default=None, min_length=1)
+    digest: str | None = Field(default=None, min_length=1)
     # Warning: never use for API keys or secrets; names only.
     defaults: Mapping[str, Any] = Field(default_factory=dict)
     environment: EnvironmentSpec | None = None
@@ -494,20 +771,89 @@ class BackendSpec(RegistryEntry):
         return _reject_secret_like_keys(value, field_name="BackendSpec.defaults")
 
     @model_validator(mode="after")
-    def has_launch_target(self) -> "BackendSpec":
-        if self.image is None and self.executable is None:
-            raise ValueError("backend requires image or executable")
+    def adapter_fields_match_read_set(self) -> "BackendSpec":
+        expected_kind = {
+            "harbor": "local",
+            "harbor-shim": "local",
+            "subprocess": "local",
+            "fake": "local",
+            "aose-docker": "container",
+        }.get(self.adapter)
+        if expected_kind is not None and self.kind != expected_kind:
+            raise ValueError(
+                f"backend adapter {self.adapter!r} requires kind={expected_kind!r}"
+            )
+        if self.adapter in {"harbor", "harbor-shim"}:
+            if self.executable is None or self.version is None or self.digest is None:
+                raise ValueError("harbor requires executable, version, and digest")
+            if self.image is not None:
+                raise ValueError("harbor forbids backend image; task identity owns images")
+            if self.adapter == "harbor" and re.fullmatch(SHA256_PATTERN, self.digest) is None:
+                raise ValueError("harbor digest must be lowercase SHA-256")
+        elif self.adapter == "subprocess":
+            if self.executable is None or self.digest is None:
+                raise ValueError("subprocess requires executable and digest")
+            if re.fullmatch(SHA256_PATTERN, self.digest) is None:
+                raise ValueError("subprocess digest must be lowercase SHA-256")
+            if self.image is not None or self.version is not None:
+                raise ValueError("subprocess forbids image and version")
+        elif self.adapter == "aose-docker":
+            if self.image is None or self.digest is None:
+                raise ValueError("aose-docker requires image and digest")
+            if re.fullmatch(OCI_SHA256_PATTERN, self.image) is None or re.fullmatch(SHA256_PATTERN, self.digest) is None:
+                raise ValueError("aose-docker image/digest must be lowercase SHA-256")
+            if self.executable is not None or self.version is not None:
+                raise ValueError("aose-docker forbids executable and version")
+            if self.image.removeprefix("sha256:") != self.digest:
+                raise ValueError("aose-docker image and digest must identify the same image")
+        elif self.adapter == "fake":
+            if any(
+                value is not None
+                for value in (self.image, self.executable, self.version, self.digest)
+            ):
+                raise ValueError("fake forbids image, executable, version, and digest")
         return self
+
+
+def _validate_logical_relative_path(value: str, *, field_name: str) -> str:
+    normalized = value.replace("\\", "/")
+    parts = normalized.split("/")
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
+        raise ValueError(f"{field_name} must be a normalized relative path")
+    return normalized
+
+
+def _validate_execution_model_name(value: str) -> str:
+    if value.startswith("none/") and value not in {
+        "none/deterministic",
+        "none/echo",
+    }:
+        raise ValueError(
+            "model none/* suffix must be one of none/deterministic or none/echo"
+        )
+    return value
+
+
+ProtocolKind = Literal[
+    "test_time_scaling",
+    "mechanism_validation",
+    "benchmark_evaluation",
+]
 
 
 class ProtocolSpec(RegistryEntry):
     """Execution schedule defaults resolved before local execution overrides."""
 
+    kind: ProtocolKind
     rollouts_per_case: int = Field(default=1, ge=1)
     parallelism: int = Field(default=1, ge=1)
     case_order: Literal["fixed", "seeded_random", "random"] = "fixed"
     adaptive_budget: bool = False
-    candidate_selection: str | None = None
+    candidate_selection: Literal["single", "exact", "best_of_n"]
     state_reset: Literal["per_case", "per_rollout", "never"] = "per_case"
     budget: Budget | None = None
     checkpoint_policy: Literal["disabled", "save", "resume", "save_and_resume"] = "disabled"
@@ -519,8 +865,14 @@ class ExecutionSpec(StrictModel):
 
     backend: str = Field(pattern=ID_PATTERN)
     model: str = Field(min_length=1)
-    seed: int
-    budget: Budget
+    seed: int | None = None
+    budget: Budget | None = None
+
+    @field_validator("model")
+    @classmethod
+    def model_name_is_closed(cls, value: str) -> str:
+        return _validate_execution_model_name(value)
+
     # Warning: never use for API keys or secrets; names only.
     backend_overrides: Mapping[str, Any] = Field(default_factory=dict)
 
@@ -534,13 +886,32 @@ class ExecutionSpec(StrictModel):
 
 
 class ResolvedExecutionSpec(StrictModel):
-    """Execution contract with registry references inlined."""
+    """Execution contract with registry references inlined.
+
+    provider_binding is optional only until the CLI-agent adapter resolves it;
+    a model-scope claim MUST compile-reject when provider_binding is None.
+    """
 
     backend: BackendSpec
     model: str = Field(min_length=1)
-    seed: int
+    provider_binding: ProviderBinding | None = None
+    seed: int | None = None
     budget: Budget
     protocol: ProtocolSpec | None = None
+
+    @field_validator("model")
+    @classmethod
+    def model_name_is_closed(cls, value: str) -> str:
+        return _validate_execution_model_name(value)
+
+    @model_validator(mode="after")
+    def seed_matches_case_order(self) -> "ResolvedExecutionSpec":
+        case_order = None if self.protocol is None else self.protocol.case_order
+        if case_order == "seeded_random" and self.seed is None:
+            raise ValueError("seed is required when case_order=seeded_random")
+        if case_order != "seeded_random" and self.seed is not None:
+            raise ValueError("seed is forbidden unless case_order=seeded_random")
+        return self
 
 
 class ClaimScope(str, Enum):
@@ -604,6 +975,28 @@ SUBJECT_KIND_SCOPE_MATRIX: Mapping[str, frozenset[ClaimScope]] = MappingProxyTyp
 })
 
 
+class ExperimentContrast(StrictModel):
+    mode: Literal["one_factor", "all_arms"]
+    control_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    treatment_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    counterbalanced: bool
+
+    @model_validator(mode="after")
+    def contrast_shape_matches_mode(self) -> "ExperimentContrast":
+        if self.mode == "one_factor":
+            if self.control_id is None or self.treatment_id is None:
+                raise ValueError("one_factor contrast requires control_id and treatment_id")
+            if self.control_id == self.treatment_id:
+                raise ValueError("control_id and treatment_id must be distinct")
+        elif (
+            self.control_id is not None
+            or self.treatment_id is not None
+            or self.counterbalanced
+        ):
+            raise ValueError("all_arms contrast forbids arm filtering and counterbalancing")
+        return self
+
+
 class ClaimDesign(StrictModel):
     """Identity-bearing declaration of a run's attribution and purpose."""
 
@@ -645,6 +1038,7 @@ class ResolvedBmpManifest(StrictModel):
     subject: SubjectArtifact
     execution: ResolvedExecutionSpec
     claim_design: ClaimDesign
+    contrast: ExperimentContrast
     metadata: ResolvedManifestMetadata
     created_at: str | None = None
     wall_clock_start: str | None = None
@@ -653,10 +1047,28 @@ class ResolvedBmpManifest(StrictModel):
     resume_count: int = Field(default=0, ge=0)
     runner_invocation_id: str | None = None
 
-    def canonical_digest(self) -> str:
+    def identity_data(self) -> dict[str, Any]:
         data = self.model_dump(mode="json", exclude=self.IDENTITY_EXCLUDE)
+        data["benchmark"].pop("source", None)
+        data["subject"].pop("source", None)
+        environment = data["execution"]["backend"].get("environment")
+        source_environment = self.execution.backend.environment
+        if environment is not None and source_environment is not None:
+            environment["mounts"] = [
+                mount.identity_data() for mount in source_environment.mounts
+            ]
+        binding = data["execution"].get("provider_binding")
+        source_binding = self.execution.provider_binding
+        if binding is not None and source_binding is not None:
+            binding["credential_ref"] = source_binding.credential_ref.identity_data()
+        source_script_ref = getattr(self.subject, "script_ref", None)
+        if source_script_ref is not None:
+            data["subject"]["script_ref"] = source_script_ref.identity_data()
+        return data
+
+    def canonical_digest(self) -> str:
         canonical = json.dumps(
-            data,
+            self.identity_data(),
             sort_keys=True,
             ensure_ascii=False,
             allow_nan=False,
@@ -668,6 +1080,7 @@ class ResolvedBmpManifest(StrictModel):
 class RunStatus(str, Enum):
     pass_ = "pass"
     verified_fail = "verified_fail"
+    scored = "scored"
     no_output = "no_output"
     invalid_output = "invalid_output"
     timeout = "timeout"
@@ -680,7 +1093,7 @@ class RunStatus(str, Enum):
 
 class VerifierEvidence(StrictModel):
     verifier: str = Field(min_length=1)
-    passed: bool
+    passed: bool | None = None
     score: float | None = None
     metrics: Mapping[str, float] = Field(default_factory=dict)
     artifact_refs: tuple[ArtifactRef, ...] = ()
@@ -696,6 +1109,8 @@ class VerifierEvidence(StrictModel):
 class UsageRecord(StrictModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    cache_write_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
     cost: float | None = Field(default=None, ge=0)
     wall_clock_seconds: float | None = Field(default=None, ge=0)
@@ -729,6 +1144,7 @@ class ProvenanceRecord(StrictModel):
     network_mode: str | None = Field(default=None, min_length=1)
     workspace_namespace: str | None = Field(default=None, min_length=1)
     environment_receipt: EnvironmentReceipt | None = None
+    container_receipt_ref: ArtifactRef | None = None
 
     @model_validator(mode="after")
     def no_equals_in_direct_strings(self) -> "ProvenanceRecord":
@@ -754,25 +1170,471 @@ class EvidenceBundle(StrictModel):
 
     @model_validator(mode="after")
     def validate_status_evidence(self) -> "EvidenceBundle":
-        if self.status in (RunStatus.pass_, RunStatus.verified_fail):
+        scored_statuses = {
+            RunStatus.pass_,
+            RunStatus.verified_fail,
+            RunStatus.scored,
+        }
+        if self.status in scored_statuses:
             if not self.output_refs:
                 raise ValueError(f"status {self.status.value!r} requires output_refs")
             if self.verifier_evidence is None:
                 raise ValueError(f"status {self.status.value!r} requires verifier_evidence")
-        if (
-            self.status == RunStatus.pass_
-            and self.verifier_evidence is not None
-            and not self.verifier_evidence.passed
+        if self.status == RunStatus.pass_ and (
+            self.verifier_evidence is None or self.verifier_evidence.passed is not True
         ):
             raise ValueError("status 'pass' requires verifier_evidence.passed=true")
-        if (
-            self.status == RunStatus.verified_fail
-            and self.verifier_evidence is not None
-            and self.verifier_evidence.passed
+        if self.status == RunStatus.verified_fail and (
+            self.verifier_evidence is None or self.verifier_evidence.passed is not False
         ):
             raise ValueError("status 'verified_fail' requires verifier_evidence.passed=false")
+        if self.status == RunStatus.scored and (
+            self.verifier_evidence is None
+            or self.verifier_evidence.passed is not None
+            or self.verifier_evidence.score is None
+        ):
+            raise ValueError(
+                "status 'scored' requires a score and no binary passed verdict"
+            )
         if self.provenance.trace_emission_claimed and self.trace_ref is None:
             raise ValueError("trace_ref is required when the subject claims trace emission")
+        return self
+
+
+class BudgetAllocation(StrictModel):
+    """Pre-launch token/cost allocation; wall time remains global."""
+
+    max_tokens: int | None = Field(default=None, ge=0, strict=True)
+    max_cost: float | None = Field(default=None, ge=0, strict=True)
+
+def _allocation_sums(total: BudgetAllocation, parts: tuple[BudgetAllocation, ...]) -> bool:
+    for field_name in ("max_tokens", "max_cost"):
+        value = getattr(total, field_name)
+        values = [getattr(part, field_name) for part in parts]
+        if value is None:
+            if any(item is not None for item in values):
+                return False
+        elif any(item is None for item in values) or value != sum(values):
+            return False
+    return True
+
+
+class CaseAllocation(StrictModel):
+    """Per-case cap allocated before dividing it among attempts."""
+
+    case_id: str = Field(pattern=ID_PATTERN)
+    allocation_id: str = Field(pattern=ID_PATTERN)
+    allocated: BudgetAllocation
+    attempt_count: int = Field(ge=1, strict=True)
+
+
+class AttemptContext(StrictModel):
+    """Scheduler-derived context passed atomically to one backend attempt."""
+
+    case_id: str = Field(pattern=ID_PATTERN)
+    execution_run_id: str = Field(pattern=ID_PATTERN)
+    attempt_index: int = Field(ge=0, strict=True)
+    attempt_budget: BudgetAllocation
+    remaining_global_budget: BudgetAllocation
+    remaining_wall_seconds: float | None = Field(default=None, ge=0, strict=True)
+
+    @model_validator(mode="after")
+    def attempt_fits_remaining_budget(self) -> "AttemptContext":
+        for field_name in ("max_tokens", "max_cost"):
+            attempt = getattr(self.attempt_budget, field_name)
+            remaining = getattr(self.remaining_global_budget, field_name)
+            if attempt is not None and (remaining is None or attempt > remaining):
+                raise ValueError(
+                    f"attempt {field_name} must not exceed remaining global budget"
+                )
+        return self
+
+
+class AttemptAllocation(StrictModel):
+    """Per-rollout cap reserved from a case allocation before launch."""
+
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    case_allocation_id: str = Field(pattern=ID_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    allocated: BudgetAllocation
+    reservation_sequence: int = Field(ge=0, strict=True)
+    launched: bool
+    launch_sequence: int | None = Field(default=None, ge=1, strict=True)
+
+    @model_validator(mode="after")
+    def reservation_precedes_launch(self) -> "AttemptAllocation":
+        if self.launched and self.launch_sequence is None:
+            raise ValueError("launched attempt allocation requires launch_sequence")
+        if not self.launched and self.launch_sequence is not None:
+            raise ValueError("unlaunched attempt allocation must not have launch_sequence")
+        if self.launched and self.reservation_sequence >= self.launch_sequence:
+            raise ValueError("attempt allocation must be reserved before launch")
+        return self
+
+
+class BudgetDebit(StrictModel):
+    """Measured leaf usage and returned unused cap at completion."""
+
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    child_run_id: str = Field(pattern=ID_PATTERN)
+    completion_sequence: int = Field(ge=1, strict=True)
+    spent: UsageRecord
+    released: BudgetAllocation
+    budget_exceeded: bool = False
+
+
+class AttemptExecution(StrictModel):
+    """One launched scheduler attempt; unlaunched slots have no execution record."""
+
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    attempt_index: int = Field(ge=0, strict=True)
+    status: RunStatus
+    evidence_bundle_ref: ArtifactRef | None
+    debit: BudgetDebit | None
+    selected: bool
+    selection_reason: str | None = None
+    reward_value: float | None = None
+    reward_metric: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def launched_attempt_has_evidence(self) -> "AttemptExecution":
+        if self.evidence_bundle_ref is None:
+            raise ValueError("launched attempts require evidence_bundle_ref")
+        if self.debit is None:
+            raise ValueError("launched attempts require a budget debit")
+        if self.debit.attempt_id != self.attempt_id:
+            raise ValueError("attempt debit must match attempt_id")
+        if self.debit.budget_exceeded and self.status != RunStatus.agent_error:
+            raise ValueError("budget-exceeded attempts require agent_error status")
+        if (self.reward_value is None) != (self.reward_metric is None):
+            raise ValueError("reward_value and reward_metric must be provided together")
+        return self
+
+
+_USAGE_LEDGER_FIELDS = ("total_tokens", "cost")
+
+
+def _usage_reconciles(total: UsageRecord, parts: tuple[UsageRecord, ...]) -> bool:
+    for field_name in _USAGE_LEDGER_FIELDS:
+        total_value = getattr(total, field_name)
+        part_values = [getattr(part, field_name) for part in parts]
+        if total_value is None or any(value is None for value in part_values):
+            return False
+        if total_value != sum(part_values):
+            return False
+    return True
+
+
+class BudgetLedger(StrictModel):
+    """Planned allocation hierarchy plus derived aggregate usage."""
+
+    case_allocations: tuple[CaseAllocation, ...]
+    attempt_allocations: tuple[AttemptAllocation, ...]
+    aborted_at_exhaustion: bool
+    aborted_children: tuple[str, ...]
+    total_usage: UsageRecord
+    parent_overhead: UsageRecord
+    global_elapsed_wall_seconds: float = Field(ge=0, strict=True)
+    reconciles_exactly: bool
+
+    @model_validator(mode="after")
+    def validate_ledger(self) -> "BudgetLedger":
+        if self.total_usage.wall_clock_seconds is not None:
+            raise ValueError(
+                "BudgetLedger.total_usage must not sum attempt wall-clock seconds"
+            )
+        allocation_ids = [item.allocation_id for item in self.case_allocations]
+        case_ids = [item.case_id for item in self.case_allocations]
+        if len(set(allocation_ids)) != len(allocation_ids):
+            raise ValueError("case allocation ids must be unique")
+        if len(set(case_ids)) != len(case_ids):
+            raise ValueError("case allocations must be unique per case")
+        attempt_ids = [item.attempt_id for item in self.attempt_allocations]
+        reservation_sequences = [
+            item.reservation_sequence for item in self.attempt_allocations
+        ]
+        launch_sequences = [
+            item.launch_sequence for item in self.attempt_allocations if item.launched
+        ]
+        if len(set(attempt_ids)) != len(attempt_ids):
+            raise ValueError("attempt allocation ids must be unique")
+        if (
+            len(set(reservation_sequences)) != len(reservation_sequences)
+            or reservation_sequences != sorted(reservation_sequences)
+        ):
+            raise ValueError("attempt reservation sequences must increase monotonically")
+        if (
+            len(set(launch_sequences)) != len(launch_sequences)
+            or launch_sequences != sorted(launch_sequences)
+        ):
+            raise ValueError("attempt launch sequences must increase monotonically")
+        case_by_allocation_id = {
+            item.allocation_id: item for item in self.case_allocations
+        }
+        attempts_by_case_allocation: dict[str, list[AttemptAllocation]] = {}
+        for item in self.attempt_allocations:
+            parent = case_by_allocation_id.get(item.case_allocation_id)
+            if parent is None or parent.case_id != item.case_id:
+                raise ValueError("attempt allocations must reference their case allocation")
+            attempts_by_case_allocation.setdefault(item.case_allocation_id, []).append(item)
+        for parent in self.case_allocations:
+            children = attempts_by_case_allocation.get(parent.allocation_id, [])
+            if len(children) != parent.attempt_count or not _allocation_sums(
+                parent.allocated,
+                tuple(child.allocated for child in children),
+            ):
+                raise ValueError("attempt allocations must exactly divide the case allocation")
+        unlaunched_attempt_ids = {
+            item.attempt_id for item in self.attempt_allocations if not item.launched
+        }
+        if len(set(self.aborted_children)) != len(self.aborted_children):
+            raise ValueError("aborted child ids must be unique")
+        if set(self.aborted_children) != unlaunched_attempt_ids:
+            raise ValueError("aborted children must equal unlaunched attempt allocations")
+        if bool(self.aborted_children) != self.aborted_at_exhaustion:
+            raise ValueError("aborted_at_exhaustion must exactly reflect aborted children")
+        return self
+
+
+class CheckpointSaveReceipt(StrictModel):
+    written_digest: str = Field(pattern=SHA256_PATTERN)
+    size_bytes: int = Field(ge=0, strict=True)
+    write_completion_sequence: int = Field(ge=1, strict=True)
+    path: str = Field(min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def path_is_absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("checkpoint save path must be absolute")
+        return value
+
+
+class CheckpointLoadReceipt(StrictModel):
+    loaded_checkpoint_digest: str = Field(pattern=SHA256_PATTERN)
+    resolved_plan_digest: str = Field(pattern=SHA256_PATTERN)
+    schedule_receipt_digest: str = Field(pattern=SHA256_PATTERN)
+    selected_bundle_digests: tuple[str, ...]
+
+    @field_validator("selected_bundle_digests")
+    @classmethod
+    def selected_digests_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(re.fullmatch(SHA256_PATTERN, value) is None for value in values):
+            raise ValueError("selected bundle digests must be SHA-256 values")
+        if len(set(values)) != len(values):
+            raise ValueError("selected bundle digests must be unique")
+        return values
+
+
+class ScheduleActivationReceipt(StrictModel):
+    """Declared schedule compared with measured scheduler activation."""
+
+    run_id: str = Field(pattern=ID_PATTERN)
+    protocol_digest: str = Field(pattern=SHA256_PATTERN)
+    scheduler_digest: str = Field(pattern=SHA256_PATTERN)
+    pipeline_digest: str = Field(pattern=SHA256_PATTERN)
+    reservation_policy: Literal["equal_division_per_case"]
+    global_deadline_at: str | None = Field(default=None, min_length=1)
+    declared_rollouts_per_case: int = Field(ge=1, strict=True)
+    observed_attempt_count: int = Field(ge=0, strict=True)
+    declared_parallelism: int = Field(ge=1, strict=True)
+    observed_max_concurrency: int = Field(ge=0, strict=True)
+    declared_case_order: Literal["fixed", "seeded_random", "random"]
+    observed_case_order: tuple[str, ...]
+    declared_state_reset: Literal["per_case", "per_rollout", "never"]
+    observed_state_reset_count: int = Field(ge=0, strict=True)
+    declared_candidate_selection: str = Field(min_length=1)
+    observed_selection_policy: str = Field(min_length=1)
+    declared_checkpoint_policy: Literal[
+        "disabled", "save", "resume", "save_and_resume"
+    ]
+    checkpoint_save_ref: CheckpointSaveReceipt | None = None
+    checkpoint_load_ref: CheckpointLoadReceipt | None = None
+    ancestor_schedule_receipt_ref: ArtifactRef | None = None
+    order_seed: int | None = None
+    attempts: tuple[AttemptExecution, ...]
+    budget_ledger: BudgetLedger
+    schedule_valid: bool
+    mismatch_reasons: tuple[str, ...]
+
+    @field_validator("global_deadline_at")
+    @classmethod
+    def deadline_is_timezone_aware_iso8601(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("global_deadline_at must be an ISO 8601 timestamp") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+            raise ValueError("global_deadline_at must be timezone-aware UTC")
+        return value
+
+    @model_validator(mode="after")
+    def validate_schedule_receipt(self) -> "ScheduleActivationReceipt":
+        policy = self.declared_checkpoint_policy
+        if self.schedule_valid:
+            if policy == "resume":
+                raise ValueError("checkpoint_policy=resume requires CheckpointLoadReceipt")
+            if policy == "disabled" and (
+                self.checkpoint_save_ref is not None or self.checkpoint_load_ref is not None
+            ):
+                raise ValueError("disabled checkpoint policy forbids save/load receipts")
+            if policy == "save" and (
+                self.checkpoint_save_ref is None or self.checkpoint_load_ref is not None
+            ):
+                raise ValueError(
+                    "save checkpoint policy requires save ref and forbids load ref"
+                )
+            if policy == "save_and_resume" and (
+                self.checkpoint_save_ref is None
+                or self.checkpoint_load_ref is None
+                or self.ancestor_schedule_receipt_ref is None
+            ):
+                raise ValueError(
+                    "save_and_resume requires save/load refs and ancestor schedule lineage"
+                )
+        if (
+            self.checkpoint_load_ref is not None
+            and self.ancestor_schedule_receipt_ref is not None
+            and self.checkpoint_load_ref.schedule_receipt_digest
+            != self.ancestor_schedule_receipt_ref.sha256
+        ):
+            raise ValueError("checkpoint load schedule digest must match ancestor receipt")
+        if self.declared_case_order == "seeded_random" and self.order_seed is None:
+            raise ValueError("order_seed is required for seeded_random case order")
+        if self.declared_case_order != "seeded_random" and self.order_seed is not None:
+            raise ValueError("order_seed is forbidden for non-seeded case order")
+        if self.observed_attempt_count != len(self.attempts):
+            raise ValueError("observed_attempt_count must equal launched attempts")
+        attempt_ids = [item.attempt_id for item in self.attempts]
+        if len(set(attempt_ids)) != len(attempt_ids):
+            raise ValueError("attempt execution ids must be unique")
+        slots = [(item.case_id, item.attempt_index) for item in self.attempts]
+        if len(set(slots)) != len(slots):
+            raise ValueError("attempt execution slots must be unique")
+        if any(index >= self.declared_rollouts_per_case for _, index in slots):
+            raise ValueError("attempt_index exceeds declared rollouts per case")
+        allocation_by_id = {
+            item.attempt_id: item
+            for item in self.budget_ledger.attempt_allocations
+        }
+        launched_ids = {
+            item.attempt_id
+            for item in self.budget_ledger.attempt_allocations
+            if item.launched
+        }
+        unlaunched_ids = {
+            item.attempt_id
+            for item in self.budget_ledger.attempt_allocations
+            if not item.launched
+        }
+        if set(attempt_ids) != launched_ids:
+            raise ValueError("launched allocations and attempt executions must match exactly")
+        if set(self.budget_ledger.aborted_children) != unlaunched_ids:
+            raise ValueError("aborted children must equal unlaunched attempt allocations")
+        child_run_ids: list[str] = []
+        completion_sequences: list[int] = []
+        spent_records: list[UsageRecord] = []
+        for attempt in self.attempts:
+            allocation = allocation_by_id[attempt.attempt_id]
+            if allocation.case_id != attempt.case_id:
+                raise ValueError("attempt execution case must match its allocation")
+            if attempt.debit is None:
+                raise ValueError("launched attempt execution requires a debit")
+            child_run_ids.append(attempt.debit.child_run_id)
+            completion_sequences.append(attempt.debit.completion_sequence)
+            spent_records.append(attempt.debit.spent)
+            if attempt.debit.completion_sequence <= (allocation.launch_sequence or 0):
+                raise ValueError("attempt debit completion must follow launch")
+            if not attempt.debit.budget_exceeded:
+                cap = allocation.allocated
+                released = attempt.debit.released
+                if cap.max_tokens is not None and (
+                    attempt.debit.spent.total_tokens is None
+                    or released.max_tokens is None
+                    or attempt.debit.spent.total_tokens + released.max_tokens
+                    != cap.max_tokens
+                ):
+                    raise ValueError("spent plus released tokens must equal allocated cap")
+                if cap.max_cost is not None and (
+                    attempt.debit.spent.cost is None
+                    or released.max_cost is None
+                    or attempt.debit.spent.cost + released.max_cost != cap.max_cost
+                ):
+                    raise ValueError("spent plus released cost must equal allocated cap")
+        if len(set(child_run_ids)) != len(child_run_ids):
+            raise ValueError("attempt debit child run ids must be unique")
+        if len(set(completion_sequences)) != len(completion_sequences):
+            raise ValueError("attempt debit completion sequences must be unique")
+        all_sequences = [
+            item.reservation_sequence for item in self.budget_ledger.attempt_allocations
+        ] + [
+            item.launch_sequence
+            for item in self.budget_ledger.attempt_allocations
+            if item.launch_sequence is not None
+        ] + completion_sequences
+        if len(set(all_sequences)) != len(all_sequences):
+            raise ValueError("scheduler event sequences must be globally unique")
+        spent_ok = _usage_reconciles(
+            self.budget_ledger.total_usage,
+            (*tuple(spent_records), self.budget_ledger.parent_overhead),
+        )
+        if self.budget_ledger.reconciles_exactly != spent_ok:
+            raise ValueError("reconciles_exactly disagrees with spend arithmetic")
+
+        planned_by_case: dict[str, list[AttemptAllocation]] = {}
+        for allocation in self.budget_ledger.attempt_allocations:
+            planned_by_case.setdefault(allocation.case_id, []).append(allocation)
+        for case_id, allocations in planned_by_case.items():
+            if len(allocations) != self.declared_rollouts_per_case:
+                raise ValueError(f"case {case_id!r} does not retain every planned rollout")
+        launched_by_case = {
+            case_id: [item for item in allocations if item.launched]
+            for case_id, allocations in planned_by_case.items()
+        }
+        selected_counts = {
+            case_id: sum(
+                item.selected for item in self.attempts if item.case_id == case_id
+            )
+            for case_id in launched_by_case
+        }
+        cases_with_launches = {
+            case_id for case_id, allocations in launched_by_case.items() if allocations
+        }
+        if self.schedule_valid and any(
+            selected_counts[case_id] != 1 for case_id in cases_with_launches
+        ):
+            raise ValueError("every launched case requires exactly one selected attempt")
+
+        expected_reset_count = {
+            "per_case": len(cases_with_launches),
+            "per_rollout": len(launched_ids),
+            "never": 0,
+        }[self.declared_state_reset]
+        measured_mismatches: list[str] = []
+        if self.observed_max_concurrency > len(self.attempts):
+            raise ValueError("observed concurrency cannot exceed launched attempts")
+        if self.observed_max_concurrency > self.declared_parallelism:
+            measured_mismatches.append("observed concurrency exceeds declared parallelism")
+        if self.observed_state_reset_count != expected_reset_count:
+            measured_mismatches.append("observed state reset count differs from declaration")
+        if self.observed_selection_policy != self.declared_candidate_selection:
+            measured_mismatches.append("observed selection policy differs from declaration")
+        if self.budget_ledger.reconciles_exactly is False:
+            measured_mismatches.append("budget ledger does not reconcile exactly")
+        if any(
+            attempt.debit is not None and attempt.debit.budget_exceeded
+            for attempt in self.attempts
+        ):
+            measured_mismatches.append("attempt exceeded its budget allocation")
+        if unlaunched_ids:
+            measured_mismatches.append("budget exhausted before all attempts launched")
+        if self.schedule_valid and (self.mismatch_reasons or measured_mismatches):
+            raise ValueError("schedule_valid=true contradicts observed schedule mismatches")
+        if not self.schedule_valid and not self.mismatch_reasons:
+            raise ValueError("schedule_valid=false requires mismatch_reasons")
         return self
 
 
@@ -828,7 +1690,31 @@ class EffectEstimate(StrictModel):
 class LineageRef(StrictModel):
     run_id: str = Field(pattern=ID_PATTERN)
     case_id: str | None = None
-    evidence_bundle_sha256: str = Field(pattern=SHA256_PATTERN)
+    evidence_bundle_ref: ArtifactRef
+    schedule_receipt_ref: ArtifactRef
+
+
+class RecordIndex(StrictModel):
+    """Content-addressed source index used for standalone report verification."""
+
+    format: Literal["bmp-record-index-v1"]
+    experiment_id: str = Field(pattern=ID_PATTERN)
+    manifest_refs: tuple[ArtifactRef, ...]
+    aggregate_path: str = Field(min_length=1)
+
+    @field_validator("aggregate_path")
+    @classmethod
+    def aggregate_path_is_absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("record index aggregate_path must be absolute")
+        return value
+
+    @model_validator(mode="after")
+    def manifest_paths_are_unique(self) -> "RecordIndex":
+        paths = [ref.path for ref in self.manifest_refs]
+        if len(set(paths)) != len(paths):
+            raise ValueError("record index manifest refs must be unique")
+        return self
 
 
 class Observation(StrictModel):
@@ -846,6 +1732,7 @@ class ObservationReport(StrictModel):
     observations: tuple[Observation, ...] = ()
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
+    record_index_ref: ArtifactRef | None = None
 
     @field_validator("failure_breakdown")
     @classmethod
@@ -865,6 +1752,7 @@ class ClaimReport(StrictModel):
     effect: EffectEstimate | None = None
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
+    record_index_ref: ArtifactRef | None = None
 
     @field_validator("gates")
     @classmethod
@@ -917,6 +1805,9 @@ __all__ = [
     "BMP_VERSION",
     "IDENTITY_EXCLUDE",
     "ArtifactRef",
+    "AttemptAllocation",
+    "AttemptContext",
+    "AttemptExecution",
     "AssemblySubjectArtifact",
     "AssemblySubjectSpec",
     "BackendSpec",
@@ -925,38 +1816,59 @@ __all__ = [
     "BenchmarkSpec",
     "BenchmarkSpecAdapter",
     "Budget",
+    "BudgetAllocation",
+    "BudgetDebit",
+    "BudgetLedger",
+    "CaseAllocation",
+    "CheckpointLoadReceipt",
+    "CheckpointSaveReceipt",
     "ClaimDesign",
     "ClaimReport",
     "ClaimScope",
+    "CredentialRef",
     "EffectEstimate",
+    "EnvironmentBindingRef",
     "EnvironmentReceipt",
     "EnvironmentSpec",
     "EvidenceBundle",
     "ExecutionSpec",
+    "ExperimentContrast",
     "FakeSubjectArtifact",
     "FakeSubjectSpec",
     "GateName",
     "GateResult",
     "AssemblySidecarRef",
+    "JournalRecord",
     "LineageRef",
     "MountSpec",
+    "NetworkEndpointRecord",
+    "NetworkObservation",
+    "NetworkObservationMode",
     "Observation",
     "ObservationReport",
     "PackageRecord",
+    "ProtocolKind",
     "ProtocolSpec",
+    "ProviderBinding",
     "ProvenanceRecord",
+    "RecordIndex",
     "ResolvedBmpManifest",
     "ResolvedExecutionSpec",
     "ResolvedManifestMetadata",
+    "ResourceSpec",
     "RunPurpose",
     "RunReport",
     "RunReportAdapter",
     "RunStatus",
+    "ScheduleActivationReceipt",
+    "ScoringKind",
     "SUBJECT_KIND_SCOPE_MATRIX",
     "SubjectArtifact",
     "SubjectArtifactAdapter",
     "SubjectSpec",
     "SubjectSpecAdapter",
+    "SystemPromptRecord",
     "UsageRecord",
     "VerifierEvidence",
+    "WorkspaceRecord",
 ]

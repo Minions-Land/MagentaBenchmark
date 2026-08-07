@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+import json
+from math import isclose
+from pathlib import Path
 from statistics import mean
 from typing import Iterable, Mapping
 
 from MagentaBench.schemas import (
     ClaimReport,
     EffectEstimate,
+    EvidenceBundle,
     Observation,
     ObservationReport,
     GateName,
@@ -18,16 +22,25 @@ from MagentaBench.schemas import (
     RunPurpose,
     RunReport,
     RunStatus,
+    ScheduleActivationReceipt,
+    canonical_digest,
 )
 
 from .backend.fake import CaseExecution
-from .compiler import CompiledRun
+from .compiler import CompiledRun, canonical_json_bytes, sha256_bytes
+from .evidence import artifact_ref, sha256_file
 
 
 @dataclass(frozen=True)
 class CompletedRun:
     plan: CompiledRun
     case: CaseExecution
+    schedule_receipt: ScheduleActivationReceipt | None = None
+    schedule_receipt_path: Path | None = None
+    schedule_receipt_sha256: str | None = None
+    scheduler_digest: str | None = None
+    pipeline_digest: str | None = None
+    runner_digest: str | None = None
 
 
 _EXECUTION_VALID = frozenset({RunStatus.pass_, RunStatus.verified_fail})
@@ -111,6 +124,208 @@ def _score(item: CompletedRun) -> float | None:
     return None if evidence is None else evidence.score
 
 
+def _receipt_binding_errors(item: CompletedRun) -> list[str]:
+    receipt = item.schedule_receipt
+    if receipt is None:
+        return ["ScheduleActivationReceipt missing"]
+    manifest = item.plan.manifest
+    errors: list[str] = []
+    protocol = manifest.execution.protocol
+    if protocol is None:
+        return ["resolved protocol missing"]
+    effective_selection = protocol.candidate_selection
+    if receipt.run_id != manifest.metadata.run_id:
+        errors.append("schedule run_id does not match manifest")
+    if receipt.declared_rollouts_per_case != protocol.rollouts_per_case:
+        errors.append("declared rollouts do not match resolved protocol")
+    if receipt.declared_parallelism != protocol.parallelism:
+        errors.append("declared parallelism does not match resolved protocol")
+    if receipt.declared_case_order != protocol.case_order:
+        errors.append("declared case_order does not match resolved protocol")
+    if receipt.declared_state_reset != protocol.state_reset:
+        errors.append("declared state_reset does not match resolved protocol")
+    if receipt.declared_candidate_selection != effective_selection:
+        errors.append("declared candidate_selection does not match resolved protocol")
+    if receipt.declared_checkpoint_policy != protocol.checkpoint_policy:
+        errors.append("declared checkpoint_policy does not match resolved protocol")
+    if receipt.order_seed != manifest.execution.seed:
+        errors.append("schedule order_seed does not match execution seed")
+    if receipt.scheduler_digest != item.scheduler_digest:
+        errors.append("schedule scheduler_digest does not match active scheduler")
+    if receipt.pipeline_digest != item.pipeline_digest:
+        errors.append("schedule pipeline_digest does not match active pipeline")
+    allocated_case_ids = tuple(
+        allocation.case_id
+        for allocation in receipt.budget_ledger.case_allocations
+    )
+    if receipt.observed_attempt_count != len(receipt.attempts):
+        errors.append("observed attempt count does not match attempt executions")
+    launched_case_ids = {attempt.case_id for attempt in receipt.attempts}
+    expected_resets = {
+        "never": 0,
+        "per_case": len(launched_case_ids),
+        "per_rollout": len(receipt.attempts),
+    }[protocol.state_reset]
+    if receipt.observed_state_reset_count != expected_resets:
+        errors.append("observed state reset count does not match launched attempts")
+    if receipt.observed_selection_policy != effective_selection:
+        errors.append("observed candidate selection does not match resolved protocol")
+    if receipt.observed_case_order != allocated_case_ids:
+        errors.append("observed_case_order does not match case allocations")
+
+    budget = manifest.execution.budget
+    for field in ("max_tokens", "max_cost"):
+        declared = getattr(budget, field)
+        allocated = [
+            getattr(allocation.allocated, field)
+            for allocation in receipt.budget_ledger.case_allocations
+        ]
+        if declared is None:
+            if any(value is not None for value in allocated):
+                errors.append(f"root {field} allocation exceeds unbounded declaration")
+            continue
+        if any(value is None for value in allocated):
+            errors.append(f"root {field} allocation is incomplete")
+            continue
+        observed = sum(allocated)
+        equal = (
+            observed == declared
+            if field == "max_tokens"
+            else isclose(observed, declared, rel_tol=0.0, abs_tol=1e-12)
+        )
+        if not equal:
+            errors.append(f"root {field} allocations do not partition execution budget")
+
+    loaded_attempts: dict[str, EvidenceBundle] = {}
+    for attempt in receipt.attempts:
+        ref = attempt.evidence_bundle_ref
+        if ref is None:
+            errors.append(f"{attempt.attempt_id}: evidence bundle reference missing")
+            continue
+        path = Path(ref.path)
+        if (
+            not path.is_file()
+            or path.stat().st_size != ref.size_bytes
+            or sha256_file(path) != ref.sha256
+        ):
+            errors.append(f"{attempt.attempt_id}: evidence bundle reference drift")
+            continue
+        try:
+            bundle = EvidenceBundle.model_validate_json(path.read_bytes())
+        except ValueError:
+            errors.append(f"{attempt.attempt_id}: evidence bundle malformed")
+            continue
+        loaded_attempts[attempt.attempt_id] = bundle
+        if bundle.run_id != attempt.attempt_id:
+            errors.append(f"{attempt.attempt_id}: child_run_id binding drift")
+        if attempt.debit is None or attempt.debit.child_run_id != bundle.run_id:
+            errors.append(f"{attempt.attempt_id}: budget debit child_run_id drift")
+        elif attempt.debit.spent != bundle.usage:
+            errors.append(f"{attempt.attempt_id}: budget debit usage drift")
+        expected_status = (
+            RunStatus.agent_error
+            if attempt.debit is not None and attempt.debit.budget_exceeded
+            else bundle.status
+        )
+        if attempt.status != expected_status:
+            errors.append(f"{attempt.attempt_id}: attempt status drift")
+        reward_metric = manifest.benchmark.authoritative_reward_metric
+        score = (
+            None
+            if bundle.verifier_evidence is None
+            else bundle.verifier_evidence.metrics.get(reward_metric)
+        )
+        if (
+            attempt.reward_value != score
+            or attempt.reward_metric != (reward_metric if score is not None else None)
+        ):
+            errors.append(f"{attempt.attempt_id}: authoritative reward drift")
+
+    for case_id in allocated_case_ids:
+        candidates = [item for item in receipt.attempts if item.case_id == case_id]
+        if not candidates:
+            continue
+        if effective_selection == "best_of_n":
+            scored = [item for item in candidates if item.reward_value is not None]
+            expected_winner = (
+                None
+                if not scored
+                else max(
+                    scored,
+                    key=lambda item: (item.reward_value, -item.attempt_index),
+                ).attempt_id
+            )
+        else:
+            expected_winner = min(
+                candidates, key=lambda item: item.attempt_index
+            ).attempt_id
+        selected_ids = [item.attempt_id for item in candidates if item.selected]
+        if selected_ids != ([expected_winner] if expected_winner is not None else []):
+            errors.append(f"{case_id}: candidate selection lineage drift")
+
+    expected_receipt_sha = sha256_bytes(
+        canonical_json_bytes(receipt) + b"\n"
+    )
+    if item.schedule_receipt_sha256 != expected_receipt_sha:
+        errors.append("schedule receipt digest does not match receipt content")
+    return errors
+
+
+def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
+    errors: list[str] = []
+    if item.case.bundle.provenance.runner_digest != item.runner_digest:
+        errors.append("runner_digest does not match active backend")
+    bundle_path = Path(item.case.bundle_path)
+    if not bundle_path.is_file() or sha256_file(bundle_path) != item.case.bundle_digest:
+        errors.append("evidence bundle digest does not match bundle bytes")
+    refs = [*item.case.bundle.output_refs, *item.case.bundle.log_refs]
+    provenance = item.case.bundle.provenance
+    if provenance.container_receipt_ref is not None:
+        refs.append(provenance.container_receipt_ref)
+    verifier = item.case.bundle.verifier_evidence
+    if verifier is not None:
+        refs.extend(verifier.artifact_refs)
+    for ref in refs:
+        path = Path(ref.path)
+        if (
+            not path.is_file()
+            or path.stat().st_size != ref.size_bytes
+            or sha256_file(path) != ref.sha256
+        ):
+            errors.append(f"artifact reference digest drift: {ref.path}")
+
+    backend = item.plan.manifest.execution.backend
+    if backend.adapter == "subprocess":
+        if backend.executable is None or provenance.executable_digest is None:
+            errors.append("subprocess executable digest missing")
+        else:
+            executable = Path(backend.executable)
+            if (
+                not executable.is_file()
+                or sha256_file(executable) != provenance.executable_digest
+                or provenance.executable_digest != backend.digest
+            ):
+                errors.append("subprocess executable digest drift")
+    if provenance.backend_kind == "docker":
+        ref = provenance.container_receipt_ref
+        if ref is None:
+            errors.append("container receipt reference missing")
+        else:
+            try:
+                receipt = json.loads(Path(ref.path).read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                errors.append("container receipt is unreadable")
+            else:
+                if receipt.get("image_id") != provenance.image_digest:
+                    errors.append("container image digest cross-link drift")
+                if (
+                    receipt.get("agent_executable_sha256")
+                    != provenance.executable_digest
+                ):
+                    errors.append("container executable digest cross-link drift")
+    return errors
+
+
 def _evaluate_claim(
     *,
     experiment_id: str,
@@ -143,8 +358,23 @@ def _evaluate_claim(
         protocol = item.plan.manifest.execution.protocol
         if protocol is None:
             protocol_reasons.append("resolved protocol missing")
-        elif protocol.state_reset != "per_case":
+        elif protocol.state_reset != "per_case" and deterministic_conformance:
             protocol_reasons.append("fake conformance requires state_reset=per_case")
+        receipt = item.schedule_receipt
+        binding_errors = _receipt_binding_errors(item)
+        protocol_reasons.extend(
+            f"{item.plan.manifest.metadata.run_id}: {reason}"
+            for reason in binding_errors
+        )
+        if receipt is not None and receipt.protocol_digest != canonical_digest(protocol):
+            protocol_reasons.append(
+                f"{item.plan.manifest.metadata.run_id}: schedule protocol digest drift"
+            )
+        elif receipt is not None and not receipt.schedule_valid:
+            protocol_reasons.append(
+                f"{item.plan.manifest.metadata.run_id}: "
+                + "; ".join(receipt.mismatch_reasons)
+            )
     protocol_gate = (
         _invalid("; ".join(sorted(set(protocol_reasons))))
         if protocol_reasons
@@ -155,15 +385,34 @@ def _evaluate_claim(
     # immutable provenance digests so bypassed/corrupt evidence cannot pass.
     isolation_errors: list[str] = []
     for item in items:
+        isolation_errors.extend(_evidence_integrity_errors(item))
         provenance = item.case.bundle.provenance
         if provenance.manifest_digest != item.plan.manifest_digest:
             isolation_errors.append(f"{item.case.case_id}: manifest digest drift")
-        if provenance.backend_digest != item.plan.manifest.execution.backend.digest:
+        expected_backend_digest = (
+            item.plan.manifest.execution.backend.digest or item.runner_digest
+        )
+        if provenance.backend_digest != expected_backend_digest:
             isolation_errors.append(f"{item.case.case_id}: backend digest drift")
         if provenance.benchmark_digest != item.plan.manifest.benchmark.artifact_digest:
             isolation_errors.append(f"{item.case.case_id}: benchmark digest drift")
         if provenance.subject_digest != item.plan.manifest.subject.artifact_digest:
             isolation_errors.append(f"{item.case.case_id}: subject digest drift")
+        environment_spec = item.plan.manifest.execution.backend.environment
+        environment_receipt = provenance.environment_receipt
+        if environment_spec is not None:
+            if environment_receipt is None:
+                isolation_errors.append(
+                    f"{item.case.case_id}: EnvironmentReceipt missing"
+                )
+            elif environment_receipt.spec_digest != canonical_digest(environment_spec):
+                isolation_errors.append(
+                    f"{item.case.case_id}: environment spec_digest drift"
+                )
+        elif environment_receipt is not None:
+            isolation_errors.append(
+                f"{item.case.case_id}: undeclared EnvironmentReceipt"
+            )
     isolation_gate = (
         _invalid("; ".join(isolation_errors))
         if isolation_errors
@@ -251,7 +500,8 @@ def _evaluate_claim(
         LineageRef(
             run_id=item.case.bundle.run_id,
             case_id=item.case.case_id,
-            evidence_bundle_sha256=item.case.bundle_digest,
+            evidence_bundle_ref=artifact_ref(item.case.bundle_path),
+            schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
         )
         for item in items
     )
@@ -298,6 +548,19 @@ def evaluate_run_report(
             counterbalanced=counterbalanced,
         )
 
+    integrity_errors = [
+        error
+        for item in items
+        for error in (
+            *_evidence_integrity_errors(item),
+            *_receipt_binding_errors(item),
+        )
+    ]
+    if integrity_errors:
+        raise ValueError(
+            "exploratory evidence integrity failed: "
+            + "; ".join(integrity_errors)
+        )
     statuses = [item.case.bundle.status for item in items]
     scores = [score for item in items if (score := _score(item)) is not None]
     observations = (
@@ -307,7 +570,8 @@ def evaluate_run_report(
         LineageRef(
             run_id=item.case.bundle.run_id,
             case_id=item.case.case_id,
-            evidence_bundle_sha256=item.case.bundle_digest,
+            evidence_bundle_ref=artifact_ref(item.case.bundle_path),
+            schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
         )
         for item in items
     )

@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "path": {
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "write_completion_sequence": {
+      "minimum": 1,
+      "title": "Write Completion Sequence",
+      "type": "integer"
+    },
+    "written_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Written Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "written_digest",
+    "size_bytes",
+    "write_completion_sequence",
+    "path"
+  ],
+  "title": "CheckpointSaveReceipt",
+  "type": "object"
+}

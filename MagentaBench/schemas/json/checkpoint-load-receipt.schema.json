@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "loaded_checkpoint_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Loaded Checkpoint Digest",
+      "type": "string"
+    },
+    "resolved_plan_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Resolved Plan Digest",
+      "type": "string"
+    },
+    "schedule_receipt_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Schedule Receipt Digest",
+      "type": "string"
+    },
+    "selected_bundle_digests": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Selected Bundle Digests",
+      "type": "array"
+    }
+  },
+  "required": [
+    "loaded_checkpoint_digest",
+    "resolved_plan_digest",
+    "schedule_receipt_digest",
+    "selected_bundle_digests"
+  ],
+  "title": "CheckpointLoadReceipt",
+  "type": "object"
+}

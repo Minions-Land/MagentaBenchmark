@@ -7,3 +7,6 @@ source = "/opt/benchmarks/terminal-bench-2.1"
 commit = "5c8eadf1f393183288a000000000000000000000"
 task_manifest = "tasks/dataset.toml"
 verifier = "native"
+scoring_kind = "binary"
+authoritative_reward_metric = "reward"
+reward_pass_value = 1.0

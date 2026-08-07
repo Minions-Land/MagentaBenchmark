@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Content-addressed source index used for standalone report verification.",
+  "properties": {
+    "aggregate_path": {
+      "minLength": 1,
+      "title": "Aggregate Path",
+      "type": "string"
+    },
+    "experiment_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Experiment Id",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-record-index-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "manifest_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Manifest Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "experiment_id",
+    "manifest_refs",
+    "aggregate_path"
+  ],
+  "title": "RecordIndex",
+  "type": "object"
+}

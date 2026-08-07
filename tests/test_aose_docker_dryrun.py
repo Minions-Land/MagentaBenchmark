@@ -37,7 +37,7 @@ def test_real_zero_cost_aose_docker_contract(tmp_path: Path) -> None:
     if inspected.returncode != 0:
         pytest.skip("pinned BiomniBench-DA image is not cached")
 
-    compiler = Compiler(ROOT)
+    compiler = Compiler(ROOT, allow_test_override=True)
     experiments = ROOT / "MagentaBench/conformance/experiments"
     run_a = compiler.compile(experiments / "aose-zero-cost-run-a.toml")[0]
     run_b = compiler.compile(experiments / "aose-zero-cost-run-b.toml")[0]
@@ -46,17 +46,8 @@ def test_real_zero_cost_aose_docker_contract(tmp_path: Path) -> None:
         tmp_path / "records", workspace_root=tmp_path / "workspaces"
     )
 
-    a = backend.execute(run_a, task, agent_argv=("/usr/bin/true",))
-    fixed_writer = (
-        "from pathlib import Path;"
-        "Path('/app/trace.md').write_text('fixed trace\\n', encoding='utf-8');"
-        "Path('/app/answer.txt').write_text('fixed answer\\n', encoding='utf-8')"
-    )
-    b = backend.execute(
-        run_b,
-        task,
-        agent_argv=("/usr/bin/python3", "-c", fixed_writer),
-    )
+    a = backend.execute(run_a, task)
+    b = backend.execute(run_b, task)
     receipt_a = _receipt(a)
     receipt_b = _receipt(b)
 
@@ -85,7 +76,7 @@ def test_real_zero_cost_aose_docker_contract(tmp_path: Path) -> None:
     assert a.case.bundle.provenance.executable_digest == receipt_a["agent_executable_sha256"]
 
     assert b.case.bundle.status == RunStatus.unsupported
-    assert run_b.manifest.benchmark.authoritative_reward_metric is None
+    assert run_b.manifest.benchmark.authoritative_reward_metric == "overall"
     assert receipt_b["judge_invocations"] == 0
     assert len(b.case.bundle.output_refs) == 2
     assert {Path(ref.path).name for ref in b.case.bundle.output_refs} == {

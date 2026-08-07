@@ -62,7 +62,15 @@
       "type": "object"
     },
     "budget": {
-      "$ref": "#/$defs/Budget"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Budget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "model": {
       "minLength": 1,
@@ -70,15 +78,21 @@
       "type": "string"
     },
     "seed": {
-      "title": "Seed",
-      "type": "integer"
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
     }
   },
   "required": [
     "backend",
-    "model",
-    "seed",
-    "budget"
+    "model"
   ],
   "title": "ExecutionSpec",
   "type": "object"

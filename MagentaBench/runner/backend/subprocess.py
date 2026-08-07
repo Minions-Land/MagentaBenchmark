@@ -7,12 +7,14 @@ import os
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Mapping, Sequence
 
 from MagentaBench.adapters.fake import FakeTask, FakeVerifier, FakeVerifierError
 from MagentaBench.schemas import (
+    BudgetAllocation,
     EnvironmentReceipt,
     EvidenceBundle,
     ProvenanceRecord,
@@ -39,28 +41,42 @@ class SubprocessBackend:
     all outputs have been copied into the evidence directory.
     """
 
+    adapter = "subprocess"
+
     def __init__(
         self,
         record_root: str | Path,
         *,
         workspace_root: str | Path = "/tmp/bmp",
         keep_workspace_on_failure: bool = True,
-        runner_digest: str | None = None,
         environment_receipt: EnvironmentReceipt | None = None,
+        allow_test_override: bool = False,
     ) -> None:
         self.record_root = Path(record_root).resolve()
         self.environment_receipt = environment_receipt
         self.workspace_root = Path(workspace_root).resolve()
         self.keep_workspace_on_failure = keep_workspace_on_failure
-        self.runner_digest = runner_digest or self._runtime_digest()
+        self.allow_test_override = allow_test_override
+        self.runner_digest = self._runtime_digest()
+        self._manifest_write_lock = threading.Lock()
 
     @staticmethod
     def _runtime_digest() -> str:
-        path = Path(__file__).resolve()
+        package_root = Path(__file__).parents[2]
+        paths = tuple(sorted((
+            Path(__file__),
+            Path(__file__).with_name("fake.py"),
+            package_root / "runner" / "evidence.py",
+            package_root / "adapters" / "fake" / "task.py",
+            package_root / "adapters" / "fake" / "subject.py",
+            package_root / "adapters" / "fake" / "verifier.py",
+        )))
         digest = hashlib.sha256()
-        digest.update(path.name.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
+        for path in paths:
+            digest.update(str(path.relative_to(package_root)).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
         return digest.hexdigest()
 
     @staticmethod
@@ -83,8 +99,9 @@ class SubprocessBackend:
             raise SubprocessConfigurationError("subject entrypoint resolved to no command")
         return command
 
-    @staticmethod
-    def _child_environment(overrides: Mapping[str, str] | None = None) -> dict[str, str]:
+    def _child_environment(
+        self, overrides: Mapping[str, str] | None = None
+    ) -> dict[str, str]:
         # Inheritance is an allowlist: API keys and credentials such as
         # OPENAI_API_KEY, ANTHROPIC_API_KEY, AWS_*, AZURE_*, GOOGLE_*, tokens,
         # and arbitrary parent variables are always blocked unless the caller
@@ -94,6 +111,13 @@ class SubprocessBackend:
             name: os.environ[name] for name in inherited_names if name in os.environ
         }
         environment.setdefault("LANG", "C.UTF-8")
+        if self.environment_receipt is not None:
+            python_bin = Path(self.environment_receipt.python_executable).parent
+            environment_root = python_bin.parent
+            environment["VIRTUAL_ENV"] = str(environment_root)
+            environment["PATH"] = os.pathsep.join(
+                (str(python_bin), environment.get("PATH", ""))
+            ).rstrip(os.pathsep)
         if overrides:
             environment.update({str(key): str(value) for key, value in overrides.items()})
         return environment
@@ -119,8 +143,14 @@ class SubprocessBackend:
     def run_directory(self, run: CompiledRun) -> Path:
         return self.record_root / run.manifest.metadata.experiment_id / run.manifest_digest
 
-    def workspace_directory(self, run: CompiledRun, task: FakeTask) -> Path:
-        return self.workspace_root / run.manifest.metadata.run_id / task.task_id
+    def workspace_directory(
+        self, run: CompiledRun, task: FakeTask, *, case_id: str | None = None
+    ) -> Path:
+        return self.workspace_root / run.manifest.metadata.run_id / (case_id or task.task_id)
+
+    @staticmethod
+    def reset_state(case_id: str, policy: str) -> None:
+        """Each scheduled subprocess attempt receives a fresh workspace."""
 
     def _provenance(
         self, run: CompiledRun, workspace: Path, executable: str
@@ -137,6 +167,7 @@ class SubprocessBackend:
                 getattr(run.manifest.subject, "emits_trace", False)
             ),
             executable=str(Path(executable_path).resolve()),
+            executable_digest=sha256_file(Path(executable_path).resolve()),
             distribution="magentabench",
             version="0.1.0",
             backend_kind="subprocess",
@@ -152,8 +183,32 @@ class SubprocessBackend:
         *,
         command: Sequence[str] | None = None,
         environment: Mapping[str, str] | None = None,
+        case_id: str | None = None,
+        execution_run_id: str | None = None,
+        attempt_budget: BudgetAllocation | None = None,
+        remaining_wall_seconds: float | None = None,
     ) -> CaseExecution:
-        task = task or FakeBackend._load_task(run)
+        registered_task = FakeBackend._load_task(run)
+        task = task or registered_task
+        if task != registered_task:
+            raise SubprocessConfigurationError(
+                f"task {task.task_id!r} is not registered by benchmark "
+                f"{run.manifest.benchmark.id!r}"
+            )
+        has_test_override = command is not None or environment is not None
+        if has_test_override and not self.allow_test_override:
+            raise SubprocessConfigurationError(
+                "caller command/environment override requires "
+                "allow_test_override=true"
+            )
+        if has_test_override and (
+            run.manifest.claim_design.scope.value != "conformance"
+            or run.manifest.claim_design.purpose.value != "exploratory"
+        ):
+            raise SubprocessConfigurationError(
+                "caller command/environment override is restricted to "
+                "exploratory conformance"
+            )
         environment_spec = run.manifest.execution.backend.environment
         if environment_spec is not None and self.environment_receipt is None:
             raise SubprocessConfigurationError(
@@ -168,15 +223,33 @@ class SubprocessBackend:
         resolved_command = tuple(command) if command is not None else self._command(run)
         if not resolved_command or not resolved_command[0]:
             raise SubprocessConfigurationError("subprocess command must not be empty")
+        executable_path = Path(
+            shutil.which(resolved_command[0]) or resolved_command[0]
+        ).resolve()
+        backend = run.manifest.execution.backend
+        if not has_test_override:
+            if backend.executable is None or executable_path != Path(backend.executable).resolve():
+                raise SubprocessConfigurationError(
+                    "manifest backend executable does not match resolved command"
+                )
+            observed_digest = sha256_file(executable_path)
+            if observed_digest != backend.digest:
+                raise SubprocessConfigurationError(
+                    "subprocess executable digest does not match backend pin"
+                )
 
+        evidence_case_id = case_id or task.task_id
         run_dir = self.run_directory(run)
-        case_dir = run_dir / "cases" / task.task_id
+        case_dir = run_dir / "cases" / evidence_case_id
         if case_dir.exists():
             shutil.rmtree(case_dir)
         case_dir.mkdir(parents=True, exist_ok=False)
-        atomic_write_bytes(run_dir / "resolved_manifest.json", run.canonical_json + b"\n")
+        manifest_path = run_dir / "resolved_manifest.json"
+        with self._manifest_write_lock:
+            if not manifest_path.exists():
+                atomic_write_bytes(manifest_path, run.wire_json + b"\n")
 
-        workspace = self.workspace_directory(run, task)
+        workspace = self.workspace_directory(run, task, case_id=evidence_case_id)
         if workspace.exists():
             shutil.rmtree(workspace)
         workspace.mkdir(parents=True, exist_ok=False)
@@ -185,10 +258,14 @@ class SubprocessBackend:
         input_path.chmod(0o444)
         atomic_write_json(
             case_dir / "input.json",
-            {"case_id": task.task_id, "instruction": task.instruction},
+            {"case_id": evidence_case_id, "instruction": task.instruction},
         )
 
-        timeout = run.manifest.execution.budget.max_wall_seconds
+        timeout = (
+            remaining_wall_seconds
+            if remaining_wall_seconds is not None
+            else run.manifest.execution.budget.max_wall_seconds
+        )
         stdout = ""
         stderr = ""
         returncode: int | None = None
@@ -285,7 +362,7 @@ class SubprocessBackend:
             },
         )
         status_path = case_dir / "status.json"
-        atomic_write_json(status_path, {"case_id": task.task_id, "status": status.value})
+        atomic_write_json(status_path, {"case_id": evidence_case_id, "status": status.value})
         log_refs = (
             artifact_ref(stdout_path),
             artifact_ref(stderr_path),
@@ -294,12 +371,20 @@ class SubprocessBackend:
             *extra_logs,
         )
         bundle = EvidenceBundle(
-            run_id=run.manifest.metadata.run_id,
+            run_id=execution_run_id or run.manifest.metadata.run_id,
             status=status,
             output_refs=output_refs,
             log_refs=log_refs,
             verifier_evidence=verifier_evidence,
-            usage=UsageRecord(wall_clock_seconds=wall_seconds),
+            usage=UsageRecord(
+                input_tokens=0,
+                output_tokens=0,
+                cache_read_tokens=0,
+                cache_write_tokens=0,
+                total_tokens=0,
+                cost=0.0,
+                wall_clock_seconds=wall_seconds,
+            ),
             provenance=self._provenance(run, workspace, resolved_command[0]),
         )
         bundle_path = case_dir / "evidence_bundle.json"

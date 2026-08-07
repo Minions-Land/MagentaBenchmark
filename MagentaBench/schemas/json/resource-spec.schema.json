@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "EnvironmentBindingRef": {
+      "additionalProperties": false,
+      "description": "Environment value identity without serializing the value itself.",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Name",
+          "type": "string"
+        },
+        "secret": {
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "source_name": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Source Name",
+          "type": "string"
+        },
+        "value_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Value Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value_digest",
+        "secret",
+        "source_name"
+      ],
+      "title": "EnvironmentBindingRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Task resources, separate from Python environment requirements.\n\nREQUIRED-IN-STEP-2: claim runs must reject a missing docker_image_digest.",
+  "properties": {
+    "agent_timeout_sec": {
+      "exclusiveMinimum": 0,
+      "title": "Agent Timeout Sec",
+      "type": "number"
+    },
+    "allow_internet": {
+      "title": "Allow Internet",
+      "type": "boolean"
+    },
+    "build_timeout_sec": {
+      "exclusiveMinimum": 0,
+      "title": "Build Timeout Sec",
+      "type": "number"
+    },
+    "cpus": {
+      "exclusiveMinimum": 0,
+      "title": "Cpus",
+      "type": "integer"
+    },
+    "docker_image": {
+      "minLength": 1,
+      "title": "Docker Image",
+      "type": "string"
+    },
+    "docker_image_digest": {
+      "anyOf": [
+        {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Docker Image Digest"
+    },
+    "env": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EnvironmentBindingRef"
+      },
+      "title": "Env",
+      "type": "array"
+    },
+    "gpus": {
+      "minimum": 0,
+      "title": "Gpus",
+      "type": "integer"
+    },
+    "mcp_servers": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Mcp Servers",
+      "type": "array"
+    },
+    "memory_mb": {
+      "exclusiveMinimum": 0,
+      "title": "Memory Mb",
+      "type": "integer"
+    },
+    "storage_mb": {
+      "exclusiveMinimum": 0,
+      "title": "Storage Mb",
+      "type": "integer"
+    },
+    "verifier_timeout_sec": {
+      "exclusiveMinimum": 0,
+      "title": "Verifier Timeout Sec",
+      "type": "number"
+    }
+  },
+  "required": [
+    "build_timeout_sec",
+    "docker_image",
+    "cpus",
+    "memory_mb",
+    "storage_mb",
+    "gpus",
+    "allow_internet",
+    "agent_timeout_sec",
+    "verifier_timeout_sec"
+  ],
+  "title": "ResourceSpec",
+  "type": "object"
+}

@@ -69,16 +69,11 @@ def _shim_run(run: CompiledRun, shim: Path) -> CompiledRun:
     execution = run.manifest.execution.model_copy(update={"backend": backend})
     manifest = run.manifest.model_copy(update={"execution": execution})
     canonical = canonical_manifest_json(manifest)
-    return replace(
-        run,
-        manifest=manifest,
-        canonical_json=canonical,
-        manifest_digest=sha256_bytes(canonical),
-    )
+    return replace(run, manifest=manifest)
 
 
 def test_job_config_mapping_and_yaml_are_deterministic() -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     config = build_job_config(run, agent_name="echo", dataset_name="fake-task")
     assert config["agents"][0]["name"] == "echo"
     assert config["agents"][0]["model_name"] == "none/echo"
@@ -98,17 +93,13 @@ def test_magenta_subject_is_not_silently_substituted_by_pi() -> None:
 
 
 def test_real_harbor_rejects_runtime_agent_and_dataset_overrides() -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     backend = run.manifest.execution.backend.model_copy(
         update={"adapter": "harbor", "defaults": {}}
     )
     execution = run.manifest.execution.model_copy(update={"backend": backend})
     real_run = run.manifest.model_copy(update={"execution": execution})
-    real_run = replace(
-        run,
-        manifest=real_run,
-        canonical_json=canonical_manifest_json(real_run),
-    )
+    real_run = replace(run, manifest=real_run)
     with pytest.raises(HarborConfigurationError, match="solely"):
         build_job_config(real_run, agent_name="pi")
     with pytest.raises(HarborConfigurationError, match="solely"):
@@ -116,7 +107,7 @@ def test_real_harbor_rejects_runtime_agent_and_dataset_overrides() -> None:
 
 
 def test_harbor_shim_runs_full_toml_to_evidence_path(tmp_path: Path) -> None:
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     shim = _shim(tmp_path / "harbor-shim")
     run = _shim_run(run, shim)
     execution = HarborBackend(
@@ -141,7 +132,7 @@ def test_harbor_shim_runs_full_toml_to_evidence_path(tmp_path: Path) -> None:
 
 def test_harbor_nonzero_exit_emits_infra_evidence(tmp_path: Path) -> None:
     shim = _shim(tmp_path / "harbor-fail", fail=True)
-    run = _shim_run(Compiler(ROOT).compile(EXPERIMENT)[0], shim)
+    run = _shim_run(Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0], shim)
     execution = HarborBackend(
         tmp_path / "records", harbor_executable=shim, allow_test_shim=True
     ).run(run)
@@ -153,7 +144,7 @@ def test_harbor_rejects_relative_and_manifest_mismatched_executables(tmp_path: P
     with pytest.raises(HarborConfigurationError, match="absolute"):
         HarborBackend(tmp_path / "records", harbor_executable="harbor")
     shim = _shim(tmp_path / "harbor-shim")
-    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
     with pytest.raises(HarborConfigurationError, match="test-only"):
         HarborBackend(tmp_path / "records", harbor_executable=shim).run(
             run, agent_name="echo"

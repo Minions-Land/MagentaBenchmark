@@ -9,3 +9,5 @@ task_root = "benchmark/tasks"
 input_contract = "/app/instruction.md; /app/data:ro"
 output_contract = ["/app/trace.md", "/app/answer.txt"]
 evaluator = "aosebench.rubric-judge"
+scoring_kind = "continuous"
+authoritative_reward_metric = "overall"

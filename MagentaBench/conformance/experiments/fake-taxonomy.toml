@@ -13,7 +13,6 @@ vary = []
 [execution]
 backend = "fake.local"
 model = "none/deterministic"
-seed = 7
 
 [execution.budget]
 max_tokens = 0

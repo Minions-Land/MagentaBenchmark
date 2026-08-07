@@ -7,5 +7,6 @@ source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
 commit = "fake-benchmark-v1"
 task_manifest = "tasks.toml"
 verifier = "fake.exact.v1"
-authoritative_reward_metric = "score"
+scoring_kind = "binary"
+authoritative_reward_metric = "exact_match"
 reward_pass_value = 1.0

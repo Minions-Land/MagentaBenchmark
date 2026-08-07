@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -18,14 +20,12 @@ from .models import (
     BenchmarkSpec,
     BenchmarkSpecAdapter,
     Budget,
-    ClaimDesign,
     ClaimReport,
     EvidenceBundle,
     ExecutionSpec,
     ProtocolSpec,
     ResolvedBmpManifest,
     ResolvedExecutionSpec,
-    ResolvedManifestMetadata,
     SubjectArtifact,
     SubjectArtifactAdapter,
     SubjectSpec,
@@ -42,7 +42,7 @@ def canonical_data(value: BaseModel | Mapping[str, Any] | Sequence[Any]) -> Any:
     """Return the JSON-compatible canonical data used by BMP digests."""
 
     if isinstance(value, ResolvedBmpManifest):
-        return value.model_dump(mode="json", exclude=value.IDENTITY_EXCLUDE)
+        return value.identity_data()
     if isinstance(value, BaseModel):
         return value.model_dump(mode="json")
     if isinstance(value, Mapping):
@@ -69,6 +69,138 @@ def canonical_digest(value: BaseModel | Mapping[str, Any] | Sequence[Any]) -> st
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+_GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+
+
+def _declared_content_patterns(
+    spec: BenchmarkSpec | SubjectSpec,
+) -> tuple[str, ...]:
+    """Return required globs for the adapter-owned content closure."""
+
+    if spec.kind == "task_suite":
+        return (spec.task_manifest,)
+    if spec.kind == "tool_agent_suite":
+        root = spec.task_root.rstrip("/")
+        return (
+            f"{root}/*/task.toml",
+            f"{root}/*/instruction.md",
+            f"{root}/*/tests/rubric.txt",
+            f"{root}/*/tests/llm_judge.py",
+            f"{root}/*/tests/test.sh",
+        )
+    # Programmatic subjects are identified by their declared fields and launch
+    # argv. No undeclared source-tree walk is permitted.
+    return ()
+
+
+def _git_head(source: Path) -> str | None:
+    result = subprocess.run(
+        ["git", "-C", str(source), "rev-parse", "HEAD"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _source_content_digest(
+    source: Path,
+    *,
+    patterns: tuple[str, ...],
+    declared_commit: str | None,
+    adapter: str,
+) -> tuple[str | None, str]:
+    head = _git_head(source)
+    normalized_commit = (
+        declared_commit
+        if declared_commit is not None and _GIT_COMMIT_PATTERN.fullmatch(declared_commit)
+        else None
+    )
+    if normalized_commit is not None:
+        if head is None:
+            raise ValueError("declared git commit requires a git source checkout")
+        if head != normalized_commit:
+            raise ValueError(
+                f"declared commit {normalized_commit} does not match checkout HEAD {head}"
+            )
+
+    matched: set[Path] = set()
+    for pattern in patterns:
+        pattern_matches = {path for path in source.glob(pattern) if path.is_file()}
+        if not pattern_matches:
+            raise ValueError(
+                f"adapter {adapter!r} required content pattern matched no files: {pattern!r}"
+            )
+        matched.update(pattern_matches)
+
+    if normalized_commit is not None:
+        status = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(source),
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if status.returncode != 0:
+            raise ValueError(
+                "could not inspect source checkout status: "
+                + status.stderr.decode("utf-8", errors="replace").strip()
+            )
+        records = status.stdout.split(b"\0")
+        dirty_paths: set[str] = set()
+        index = 0
+        while index < len(records):
+            record = records[index]
+            index += 1
+            if not record:
+                continue
+            code = record[:2]
+            dirty_paths.add(record[3:].decode("utf-8"))
+            if b"R" in code or b"C" in code:
+                if index < len(records) and records[index]:
+                    dirty_paths.add(records[index].decode("utf-8"))
+                    index += 1
+        declared_paths = {path.relative_to(source).as_posix() for path in matched}
+        dirty_declared = sorted(declared_paths.intersection(dirty_paths))
+        if dirty_declared:
+            raise ValueError(
+                f"declared content dependency is dirty or untracked: {dirty_declared}"
+            )
+
+    entries: list[dict[str, Any]] = []
+    for path in sorted(matched, key=lambda item: item.relative_to(source).as_posix()):
+        relative = path.relative_to(source)
+        current = source
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(f"declared content dependency is a symlink: {relative}")
+        content = path.read_bytes()
+        entries.append(
+            {
+                "path": relative.as_posix(),
+                "size_bytes": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+            }
+        )
+    payload = json.dumps(
+        entries,
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+    )
+    return normalized_commit, hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def _resolve_existing_source(source: str, *, base_dir: Path | None = None) -> str:
     candidate = Path(source).expanduser()
     if not candidate.is_absolute():
@@ -85,11 +217,22 @@ def compile_benchmark_artifact(
     """Normalize and digest a hand-written benchmark declaration."""
 
     payload = spec.model_dump(mode="json")
-    payload["source"] = _resolve_existing_source(spec.source, base_dir=base_dir)
+    source = Path(_resolve_existing_source(spec.source, base_dir=base_dir))
+    commit, content_digest = _source_content_digest(
+        source,
+        patterns=_declared_content_patterns(spec),
+        declared_commit=spec.commit,
+        adapter=spec.adapter,
+    )
+    payload["source"] = str(source)
+    payload["commit"] = commit
+    payload["source_content_digest"] = content_digest
     payload["artifact_digest"] = "0" * 64
     provisional = BenchmarkArtifactAdapter.validate_python(payload)
-    payload = provisional.model_dump(mode="json", exclude={"artifact_digest"})
-    payload["artifact_digest"] = canonical_digest(payload)
+    identity = provisional.model_dump(
+        mode="json", exclude={"artifact_digest", "source"}
+    )
+    payload["artifact_digest"] = canonical_digest(identity)
     return BenchmarkArtifactAdapter.validate_python(payload)
 
 
@@ -102,11 +245,22 @@ def compile_subject_artifact(
 
     payload = spec.model_dump(mode="json")
     if spec.kind != "fake":
-        payload["source"] = _resolve_existing_source(spec.source, base_dir=base_dir)
+        source = Path(_resolve_existing_source(spec.source, base_dir=base_dir))
+        commit, content_digest = _source_content_digest(
+            source,
+            patterns=_declared_content_patterns(spec),
+            declared_commit=spec.commit,
+            adapter=spec.adapter,
+        )
+        payload["source"] = str(source)
+        payload["commit"] = commit
+        payload["source_content_digest"] = content_digest
     payload["artifact_digest"] = "0" * 64
     provisional = SubjectArtifactAdapter.validate_python(payload)
-    payload = provisional.model_dump(mode="json", exclude={"artifact_digest"})
-    payload["artifact_digest"] = canonical_digest(payload)
+    identity = provisional.model_dump(
+        mode="json", exclude={"artifact_digest", "source"}
+    )
+    payload["artifact_digest"] = canonical_digest(identity)
     return SubjectArtifactAdapter.validate_python(payload)
 
 
@@ -144,67 +298,40 @@ def resolve_execution_spec(
     backend_payload = _deep_merge(backend.model_dump(mode="python"), spec.backend_overrides)
     resolved_backend = BackendSpec.model_validate(backend_payload)
 
-    backend_budget = backend.defaults.get("budget", {})
-    if backend_budget is None:
-        backend_budget = {}
-    if not isinstance(backend_budget, Mapping):
-        raise ValueError("backend defaults.budget must be a table/object")
-    budget_payload: dict[str, Any] = dict(backend_budget)
-    if protocol is not None and protocol.budget is not None:
-        budget_payload = _deep_merge(
-            budget_payload,
-            protocol.budget.model_dump(mode="python", exclude_none=True),
+    if spec.budget is not None:
+        resolved_budget = spec.budget
+    elif protocol is not None and protocol.budget is not None:
+        resolved_budget = protocol.budget
+    else:
+        raise ValueError(
+            "execution must declare budget or reference a protocol with a budget"
         )
-    budget_payload = _deep_merge(
-        budget_payload,
-        spec.budget.model_dump(mode="python", exclude_none=True),
-    )
-    resolved_budget = Budget.model_validate(budget_payload)
 
+    # The fallback source is declaration-only. Manifest identity carries the
+    # effective budget exactly once at ResolvedExecutionSpec.budget.
+    resolved_protocol = (
+        None if protocol is None else protocol.model_copy(update={"budget": None})
+    )
     return ResolvedExecutionSpec(
         backend=resolved_backend,
         model=spec.model,
         seed=spec.seed,
         budget=resolved_budget,
-        protocol=protocol,
+        protocol=resolved_protocol,
     )
 
 
-def build_resolved_manifest(
-    *,
-    experiment_id: str,
-    run_id: str,
-    benchmark: BenchmarkArtifact,
-    subject: SubjectArtifact,
-    execution: ResolvedExecutionSpec,
-    claim_design: ClaimDesign,
-    allowed_diff: Iterable[str] = (),
-    factors: Mapping[str, Any] | None = None,
-    created_at: str | None = None,
-) -> ResolvedBmpManifest:
-    """Assemble the fully inlined, validated run identity."""
-
-    return ResolvedBmpManifest(
-        benchmark=benchmark,
-        subject=subject,
-        execution=execution,
-        claim_design=claim_design,
-        metadata=ResolvedManifestMetadata(
-            experiment_id=experiment_id,
-            run_id=run_id,
-            allowed_diff=tuple(allowed_diff),
-            factors={} if factors is None else factors,
-        ),
-        created_at=created_at,
-    )
-
-
-def load_toml(path: str | Path) -> dict[str, Any]:
+def _load_toml(path: str | Path) -> dict[str, Any]:
     with Path(path).open("rb") as handle:
         return tomllib.load(handle)
 
 
 def _required_table(document: Mapping[str, Any], name: str) -> Mapping[str, Any]:
+    unknown_roots = sorted(set(document) - {name})
+    if unknown_roots:
+        raise ValueError(
+            f"TOML document for [{name}] has unknown top-level keys: {unknown_roots}"
+        )
     value = document.get(name)
     if not isinstance(value, Mapping):
         raise ValueError(f"TOML document must contain a [{name}] table")
@@ -212,31 +339,33 @@ def _required_table(document: Mapping[str, Any], name: str) -> Mapping[str, Any]
 
 
 def load_benchmark_spec(path: str | Path) -> BenchmarkSpec:
-    return BenchmarkSpecAdapter.validate_python(_required_table(load_toml(path), "benchmark"))
+    table = _required_table(_load_toml(path), "benchmark")
+    return BenchmarkSpecAdapter.validate_python(table)
 
 
 def load_subject_spec(path: str | Path) -> SubjectSpec:
-    return SubjectSpecAdapter.validate_python(_required_table(load_toml(path), "subject"))
+    table = _required_table(_load_toml(path), "subject")
+    return SubjectSpecAdapter.validate_python(table)
 
 
 def load_backend_spec(path: str | Path) -> BackendSpec:
-    return BackendSpec.model_validate(_required_table(load_toml(path), "backend"))
+    return BackendSpec.model_validate(_required_table(_load_toml(path), "backend"))
 
 
 def load_protocol_spec(path: str | Path) -> ProtocolSpec:
-    return ProtocolSpec.model_validate(_required_table(load_toml(path), "protocol"))
+    return ProtocolSpec.model_validate(_required_table(_load_toml(path), "protocol"))
 
 
 def load_execution_spec(path: str | Path) -> ExecutionSpec:
-    return ExecutionSpec.model_validate(_required_table(load_toml(path), "execution"))
+    return ExecutionSpec.model_validate(_required_table(_load_toml(path), "execution"))
 
 
 def load_evidence_bundle(path: str | Path) -> EvidenceBundle:
-    return EvidenceBundle.model_validate(_required_table(load_toml(path), "evidence"))
+    return EvidenceBundle.model_validate(_required_table(_load_toml(path), "evidence"))
 
 
 def load_claim_report(path: str | Path) -> ClaimReport:
-    return ClaimReport.model_validate(_required_table(load_toml(path), "claim"))
+    return ClaimReport.model_validate(_required_table(_load_toml(path), "claim"))
 
 
 @dataclass(frozen=True)
@@ -335,96 +464,9 @@ def check_allowed_diff(
     )
 
 
-class ManifestCompiler:
-    """Filesystem registry compiler for a single resolved BMP run."""
-
-    def __init__(self, registry_root: str | Path) -> None:
-        self.registry_root = Path(registry_root).resolve()
-
-    def _entry_path(self, collection: str, entry_id: str) -> Path:
-        directory = self.registry_root / collection
-        direct = directory / f"{entry_id}.toml"
-        if direct.is_file():
-            return direct
-
-        matches: list[Path] = []
-        for candidate in sorted(directory.glob("*.toml")):
-            document = load_toml(candidate)
-            singular = collection[:-1] if collection.endswith("s") else collection
-            table = document.get(singular)
-            if isinstance(table, Mapping) and table.get("id") == entry_id:
-                matches.append(candidate)
-        if len(matches) != 1:
-            raise ValueError(
-                f"expected exactly one {collection} registry entry for {entry_id!r}; "
-                f"found {len(matches)}"
-            )
-        return matches[0]
-
-    def compile(
-        self,
-        *,
-        experiment_id: str,
-        run_id: str,
-        benchmark_id: str,
-        subject_id: str,
-        execution: ExecutionSpec,
-        claim_design: ClaimDesign,
-        protocol_id: str | None = None,
-        allowed_diff: Iterable[str] = (),
-        factors: Mapping[str, Any] | None = None,
-        created_at: str | None = None,
-    ) -> ResolvedBmpManifest:
-        benchmark_path = self._entry_path("benchmarks", benchmark_id)
-        subject_path = self._entry_path("subjects", subject_id)
-        backend_path = self._entry_path("backends", execution.backend)
-        protocol_path = (
-            self._entry_path("protocols", protocol_id) if protocol_id is not None else None
-        )
-
-        benchmark = compile_benchmark_artifact(
-            load_benchmark_spec(benchmark_path), base_dir=benchmark_path.parent
-        )
-        subject = compile_subject_artifact(
-            load_subject_spec(subject_path), base_dir=subject_path.parent
-        )
-        backend = load_backend_spec(backend_path)
-        protocol = load_protocol_spec(protocol_path) if protocol_path is not None else None
-        fake_subject = subject.kind == "fake"
-        deterministic_conformance = (
-            protocol is not None and protocol.deterministic_conformance
-        )
-        if fake_subject and not deterministic_conformance:
-            raise ValueError(
-                "fake subjects require a protocol with deterministic_conformance=true"
-            )
-        if deterministic_conformance and not fake_subject:
-            raise ValueError(
-                "deterministic_conformance protocols may only be used with fake subjects"
-            )
-        resolved_execution = resolve_execution_spec(
-            execution,
-            backend=backend,
-            protocol=protocol,
-        )
-        return build_resolved_manifest(
-            experiment_id=experiment_id,
-            run_id=run_id,
-            benchmark=benchmark,
-            subject=subject,
-            execution=resolved_execution,
-            claim_design=claim_design,
-            allowed_diff=allowed_diff,
-            factors=factors,
-            created_at=created_at,
-        )
-
-
 __all__ = [
     "AllowedDiffResult",
     "FactorRun",
-    "ManifestCompiler",
-    "build_resolved_manifest",
     "canonical_data",
     "canonical_digest",
     "canonical_json",
@@ -440,6 +482,5 @@ __all__ = [
     "load_execution_spec",
     "load_protocol_spec",
     "load_subject_spec",
-    "load_toml",
     "resolve_execution_spec",
 ]

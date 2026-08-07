@@ -6,5 +6,10 @@ bmp_version = "0.1"
 source = "../../../../BioAgent/AOSEBench"
 commit = "46d437f2f7a8ef505b8fac95ade12c2d6458a623"
 entrypoint = "/usr/bin/python3"
+launch_argv = [
+  "/usr/bin/python3",
+  "-c",
+  '''from pathlib import Path;Path('/app/trace.md').write_text('fixed trace\n', encoding='utf-8');Path('/app/answer.txt').write_text('fixed answer\n', encoding='utf-8')''',
+]
 interface = "aosebench-container-v1"
 emits_trace = true

@@ -1,13 +1,14 @@
 [protocol]
 id = "aose.zero-cost-dryrun.v1"
 kind = "mechanism_validation"
-adapter = "aose-docker"
+adapter = "magentabench.scheduler"
 bmp_version = "0.1"
 rollouts_per_case = 1
 parallelism = 1
 case_order = "fixed"
 adaptive_budget = false
-state_reset = "per_case"
+candidate_selection = "single"
+state_reset = "never"
 checkpoint_policy = "disabled"
 deterministic_conformance = false
 

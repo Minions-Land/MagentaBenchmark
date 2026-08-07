@@ -6,5 +6,6 @@ bmp_version = "0.1"
 source = "../../../../BioAgent/AOSEBench"
 commit = "46d437f2f7a8ef505b8fac95ade12c2d6458a623"
 entrypoint = "/usr/bin/true"
+launch_argv = ["/usr/bin/true"]
 interface = "aosebench-container-v1"
 emits_trace = false

@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "control_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Control Id"
+    },
+    "counterbalanced": {
+      "title": "Counterbalanced",
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "one_factor",
+        "all_arms"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "treatment_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Treatment Id"
+    }
+  },
+  "required": [
+    "mode",
+    "counterbalanced"
+  ],
+  "title": "ExperimentContrast",
+  "type": "object"
+}

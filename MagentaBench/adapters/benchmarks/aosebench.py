@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
 import shlex
 import shutil
 import stat
@@ -29,6 +31,7 @@ class AoseTask:
     instruction_path: Path
     rubric_path: Path
     task_config: Mapping[str, Any]
+    instruction_digest: str
     data_path: Path | None = None
 
     @property
@@ -59,8 +62,13 @@ def load_task(
 ) -> AoseTask:
     """Load a released task contract without loading hidden rubric content."""
 
+    if re.fullmatch(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", task_id) is None:
+        raise AoseBenchConfigurationError(f"invalid AOSEBench task id: {task_id!r}")
     root = Path(benchmark_source).expanduser().resolve()
-    task_dir = root / "benchmark" / "tasks" / task_id
+    task_root = (root / "benchmark" / "tasks").resolve()
+    task_dir = (task_root / task_id).resolve()
+    if not task_dir.is_relative_to(task_root):
+        raise AoseBenchConfigurationError(f"AOSEBench task path escapes task root: {task_id}")
     if not task_dir.is_dir():
         raise AoseBenchConfigurationError(f"unknown AOSEBench task: {task_id}")
     instruction = task_dir / "instruction.md"
@@ -82,6 +90,7 @@ def load_task(
         instruction_path=instruction,
         rubric_path=rubric,
         task_config=config,
+        instruction_digest=hashlib.sha256(instruction.read_bytes()).hexdigest(),
         data_path=data_path,
     )
 

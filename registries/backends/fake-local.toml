@@ -3,9 +3,3 @@ id = "fake.local"
 kind = "local"
 adapter = "fake"
 bmp_version = "0.1"
-executable = "python-in-process"
-version = "1"
-digest = "6dfdd3acba1e14384a11f0f4f7fe053d1a5af9bb61b319ca88c9af2e5c76e80b"
-
-[backend.defaults]
-network = "disabled"

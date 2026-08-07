@@ -47,16 +47,49 @@ class AoseDockerBackend:
         *,
         workspace_root: str | Path,
         docker_executable: str | Path = "/usr/bin/docker",
+        allow_test_launcher_override: bool = False,
     ) -> None:
         docker = Path(docker_executable)
+        if (
+            docker != Path("/usr/bin/docker")
+            and not allow_test_launcher_override
+        ):
+            raise AoseDockerError(
+                "docker launcher override requires allow_test_launcher_override=true"
+            )
         if not docker.is_absolute():
             raise AoseDockerError("docker executable must be an absolute pinned path")
         self.docker_executable = str(docker.resolve(strict=True))
         if not os.access(self.docker_executable, os.X_OK):
             raise AoseDockerError("docker executable is not executable")
+        self.docker_executable_digest = sha256_file(Path(self.docker_executable))
+        observed_version = subprocess.run(
+            (self.docker_executable, "--version"),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        if observed_version.returncode != 0 or not observed_version.stdout.strip():
+            raise AoseDockerError("cannot observe Docker launcher version")
+        self.docker_version = observed_version.stdout.strip()
         self.record_root = Path(record_root).resolve()
         self.workspace_root = Path(workspace_root).resolve()
-        self.runner_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        package_root = Path(__file__).parents[2]
+        runner_paths = tuple(sorted((
+            Path(__file__),
+            package_root / "runner" / "evidence.py",
+            package_root / "adapters" / "benchmarks" / "aosebench.py",
+        )))
+        digest = hashlib.sha256()
+        for path in runner_paths:
+            digest.update(str(path.relative_to(package_root)).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        self.runner_digest = digest.hexdigest()
 
     def _run(
         self,
@@ -163,11 +196,29 @@ class AoseDockerBackend:
         self,
         run: CompiledRun,
         task: AoseTask,
-        *,
-        agent_argv: Sequence[str],
     ) -> AoseDockerExecution:
+        benchmark = run.manifest.benchmark
+        if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", task.task_id) is None:
+            raise AoseDockerError(f"invalid AOSE task id: {task.task_id!r}")
+        task_root = (Path(benchmark.source) / benchmark.task_root).resolve()
+        registered_instruction = (
+            task_root / task.task_id / "instruction.md"
+        ).resolve()
+        if not registered_instruction.is_relative_to(task_root):
+            raise AoseDockerError("AOSE task instruction path escaped task root")
+        if (
+            not registered_instruction.is_file()
+            or sha256_file(registered_instruction) != task.instruction_digest
+        ):
+            raise AoseDockerError(
+                f"task {task.task_id!r} is not registered by benchmark "
+                f"{benchmark.id!r}"
+            )
+        agent_argv = getattr(run.manifest.subject, "launch_argv", None)
         if not agent_argv or not str(agent_argv[0]).startswith("/"):
-            raise AoseDockerError("agent argv requires an absolute in-image executable")
+            raise AoseDockerError(
+                "manifest subject launch_argv requires an absolute in-image executable"
+            )
         image = run.manifest.execution.backend.image
         if not image or not image.startswith("sha256:"):
             raise AoseDockerError("AOSE Docker image must be pinned by sha256 image ID")
@@ -300,6 +351,9 @@ class AoseDockerBackend:
             "attempt_id": attempt_id,
             "image_id": observed_image_id,
             "docker_argv": list(docker_argv),
+            "docker_executable": self.docker_executable,
+            "docker_executable_sha256": self.docker_executable_digest,
+            "docker_version": self.docker_version,
             "agent_executable": str(agent_argv[0]),
             "agent_executable_sha256": executable_digest,
             "returncode": returncode,
@@ -340,8 +394,9 @@ class AoseDockerBackend:
                 executable=str(agent_argv[0]),
                 executable_digest=executable_digest,
                 distribution="docker",
-                version=run.manifest.execution.backend.version,
+                version=self.docker_version,
                 image_digest=observed_image_id,
+                container_receipt_ref=artifact_ref(receipt_path),
                 trace_emission_claimed=run.manifest.subject.emits_trace,
                 backend_kind="docker",
                 network_mode="none",

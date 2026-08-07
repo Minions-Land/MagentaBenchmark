@@ -10,6 +10,5 @@ digest = "harbor-shim-test-fixture"
 
 [backend.defaults]
 environment_type = "docker"
-network_mode = "none"
 agent_override = "echo"
 agent_timeout_multiplier = 0.002777777777777778
