@@ -26,6 +26,8 @@ wheels/
 venv/
 ENV/
 env/
+!MagentaBench/runner/env/
+!MagentaBench/runner/env/*.py
 
 # Testing
 .pytest_cache/
