@@ -188,7 +188,10 @@ class AoseDockerBackend:
         )
         case_root.mkdir(parents=True, exist_ok=True)
         workspace_case_root = (
-            self.workspace_root / run.manifest.metadata.run_id / task.task_id
+            self.workspace_root
+            / run.manifest.metadata.run_id
+            / run.manifest_digest
+            / task.task_id
         )
         attempt_index = 0
         while (
