@@ -349,6 +349,15 @@ class Compiler:
                 f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
                 f"requires missing evidence class {proof_type}"
             )
+        if scope == ClaimScope.schedule:
+            raise CompilationError(
+                "claim scope 'schedule' requires missing evidence class "
+                "ScheduleActivationReceipt: protocol fields rollouts_per_case, "
+                "parallelism, case_order, candidate_selection, and state_reset "
+                "are identity-bearing in the manifest digest but are not honored "
+                "by the runner, so distinct manifests execute identically; Phase "
+                "3b must honor them and emit their observed values"
+            )
         if scope not in cls._ACTIVE_SCOPES:
             raise CompilationError(
                 f"claim scope {scope.value!r} requires missing evidence class "

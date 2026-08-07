@@ -157,6 +157,29 @@ def test_inactive_scopes_name_the_missing_evidence_class(
         Compiler(ROOT).compile(experiment)
 
 
+def test_schedule_diagnostic_names_identity_execution_mismatch(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
+        encoding="utf-8"
+    )
+    source = source.replace('scope = "whole_harness"', 'scope = "schedule"')
+    experiment = tmp_path / "blocked-schedule-diagnostic.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError) as caught:
+        Compiler(ROOT).compile(experiment)
+    message = str(caught.value)
+    assert "ScheduleActivationReceipt" in message
+    assert "identity-bearing in the manifest digest" in message
+    assert "not honored by the runner" in message
+    for field in (
+        "rollouts_per_case",
+        "parallelism",
+        "case_order",
+        "candidate_selection",
+        "state_reset",
+    ):
+        assert field in message
+
+
 def _whole_harness_experiment(*, vary: str) -> str:
     return f'''[experiment]
 id = "aose-whole-harness-compile"
