@@ -28,6 +28,36 @@ def artifact_ref(path: Path) -> ArtifactRef:
     )
 
 
+def source_closure_digest(
+    source_root: Path, refs: tuple[ArtifactRef, ...]
+) -> str:
+    source = source_root.resolve(strict=True)
+    entries = []
+    for ref in refs:
+        path = Path(ref.path).resolve(strict=True)
+        try:
+            relative = path.relative_to(source)
+        except ValueError as exc:
+            raise ValueError(
+                f"source content ref escapes declared source: {ref.path}"
+            ) from exc
+        entries.append(
+            {
+                "path": relative.as_posix(),
+                "size_bytes": ref.size_bytes,
+                "sha256": ref.sha256,
+            }
+        )
+    payload = json.dumps(
+        sorted(entries, key=lambda item: item["path"]),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def atomic_write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")

@@ -1,0 +1,158 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CaseArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "public_input_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "task_contract_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Task Contract Refs",
+          "type": "array"
+        },
+        "verifier_contract_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Verifier Contract Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "case_id",
+        "public_input_ref"
+      ],
+      "title": "CaseArtifact",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "benchmark_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Benchmark Digest",
+      "type": "string"
+    },
+    "benchmark_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Benchmark Id",
+      "type": "string"
+    },
+    "case_order": {
+      "default": "fixed",
+      "enum": [
+        "fixed",
+        "seeded_random"
+      ],
+      "title": "Case Order",
+      "type": "string"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/CaseArtifact"
+      },
+      "title": "Cases",
+      "type": "array"
+    },
+    "loader_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Loader Adapter",
+      "type": "string"
+    },
+    "loader_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Loader Digest",
+      "type": "string"
+    },
+    "order_seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Order Seed"
+    },
+    "ordered_case_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ordered Case Ids",
+      "type": "array"
+    },
+    "selection_method": {
+      "default": "all_cases",
+      "enum": [
+        "all_cases",
+        "explicit_case_ids"
+      ],
+      "title": "Selection Method",
+      "type": "string"
+    },
+    "source_content_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Content Digest",
+      "type": "string"
+    },
+    "source_content_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Source Content Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "benchmark_id",
+    "benchmark_digest",
+    "loader_adapter",
+    "loader_digest",
+    "source_content_digest",
+    "source_content_refs",
+    "ordered_case_ids",
+    "cases"
+  ],
+  "title": "CaseSetArtifact",
+  "type": "object"
+}

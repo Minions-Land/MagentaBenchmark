@@ -17,6 +17,11 @@ path = "/records/run0000/schedule_activation_receipt.json"
 sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 size_bytes = 200
 
+[claim.lineage.case_set_receipt_ref]
+path = "/records/run0000/case_set_activation_receipt.json"
+sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+size_bytes = 150
+
 [claim.effect]
 metric = "pass_rate_difference"
 point_estimate = 0.1

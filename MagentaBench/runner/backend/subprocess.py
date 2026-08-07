@@ -186,18 +186,26 @@ class SubprocessBackend:
         *,
         command: Sequence[str] | None = None,
         environment: Mapping[str, str] | None = None,
+        activated_case_set_digest: str | None = None,
         case_id: str | None = None,
         execution_run_id: str | None = None,
         attempt_budget: BudgetAllocation | None = None,
         remaining_wall_seconds: float | None = None,
     ) -> CaseExecution:
-        registered_task = FakeBackend._load_task(run)
-        task = task or registered_task
-        if task != registered_task:
-            raise SubprocessConfigurationError(
-                f"task {task.task_id!r} is not registered by benchmark "
-                f"{run.manifest.benchmark.id!r}"
-            )
+        if activated_case_set_digest is not None:
+            if task is None or len(activated_case_set_digest) != 64:
+                raise SubprocessConfigurationError(
+                    "activated case-set task binding is malformed"
+                )
+        else:
+            registered_task = FakeBackend._load_task(run)
+            task = task or registered_task
+            if task != registered_task:
+                raise SubprocessConfigurationError(
+                    f"task {task.task_id!r} is not registered by benchmark "
+                    f"{run.manifest.benchmark.id!r}"
+                )
+        assert task is not None
         has_test_override = command is not None or environment is not None
         if has_test_override and not self.allow_test_override:
             raise SubprocessConfigurationError(

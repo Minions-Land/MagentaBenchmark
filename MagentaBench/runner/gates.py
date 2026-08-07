@@ -11,6 +11,8 @@ from statistics import mean
 from typing import Iterable, Mapping
 
 from MagentaBench.schemas import (
+    CaseSetActivationReceipt,
+    CaseSetArtifact,
     ClaimReport,
     EffectEstimate,
     EvidenceBundle,
@@ -30,7 +32,7 @@ from MagentaBench.schemas import (
 
 from .backend.fake import CaseExecution
 from .compiler import CompiledRun, canonical_json_bytes, sha256_bytes
-from .evidence import artifact_ref, sha256_file
+from .evidence import artifact_ref, sha256_file, source_closure_digest
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,10 @@ class CompletedRun:
     scheduler_digest: str | None = None
     pipeline_digest: str | None = None
     runner_digest: str | None = None
+    case_set_receipt: CaseSetActivationReceipt | None = None
+    case_set_receipt_path: Path | None = None
+    case_set_receipt_sha256: str | None = None
+    case_set_digest: str | None = None
 
 
 _EXECUTION_VALID = frozenset({RunStatus.pass_, RunStatus.verified_fail})
@@ -349,8 +355,122 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
     return errors
 
 
-def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
+def _case_set_binding_errors(item: CompletedRun) -> list[str]:
+    receipt = item.case_set_receipt
+    if receipt is None:
+        return ["CaseSetActivationReceipt missing"]
     errors: list[str] = []
+    if item.case_set_receipt_path is None:
+        errors.append("case-set receipt path is missing")
+    else:
+        receipt_path = Path(item.case_set_receipt_path)
+        if not receipt_path.is_file():
+            errors.append("case-set receipt path is missing")
+        else:
+            if sha256_file(receipt_path) != item.case_set_receipt_sha256:
+                errors.append("persisted case-set receipt digest drift")
+            try:
+                persisted_receipt = CaseSetActivationReceipt.model_validate_json(
+                    receipt_path.read_bytes()
+                )
+            except ValueError:
+                errors.append("persisted case-set receipt is malformed")
+            else:
+                if persisted_receipt != receipt:
+                    errors.append(
+                        "persisted case-set receipt differs from in-memory receipt"
+                    )
+    artifact_path = Path(receipt.case_set_ref.path)
+    if (
+        not artifact_path.is_file()
+        or artifact_path.stat().st_size != receipt.case_set_ref.size_bytes
+        or sha256_file(artifact_path) != receipt.case_set_ref.sha256
+    ):
+        errors.append("case-set artifact byte drift")
+        return errors
+    try:
+        artifact = CaseSetArtifact.model_validate_json(artifact_path.read_bytes())
+    except ValueError:
+        errors.append("case-set artifact is malformed")
+        return errors
+    benchmark = item.plan.manifest.benchmark
+    if (
+        artifact.benchmark_id != benchmark.id
+        or artifact.benchmark_digest != benchmark.artifact_digest
+    ):
+        errors.append("case-set benchmark identity drift")
+    if artifact.loader_adapter != benchmark.adapter:
+        errors.append("case-set loader adapter does not match benchmark")
+    if artifact.canonical_digest() != receipt.case_set_digest:
+        errors.append("case-set identity digest drift")
+    if item.case_set_digest != receipt.case_set_digest:
+        errors.append("CompletedRun case-set digest drift")
+    if artifact.loader_adapter != receipt.loader_adapter:
+        errors.append("case-set loader adapter drift")
+    if artifact.loader_digest != receipt.loader_digest:
+        errors.append("case-set loader digest drift")
+    if artifact.ordered_case_ids != receipt.ordered_case_ids:
+        errors.append("case-set activated order drift")
+    source = getattr(benchmark, "source", None)
+    compiled_source_digest = getattr(
+        benchmark, "source_content_digest", None
+    )
+    try:
+        observed_source_digest = (
+            source_closure_digest(
+                Path(source), artifact.source_content_refs
+            )
+            if source is not None
+            else None
+        )
+    except (OSError, ValueError):
+        observed_source_digest = None
+    if (
+        compiled_source_digest is None
+        or artifact.source_content_digest != compiled_source_digest
+        or observed_source_digest != compiled_source_digest
+    ):
+        errors.append("case-set source closure differs from compiled benchmark")
+    selected_case_ids = tuple(
+        attempt.case_id
+        for attempt in item.schedule_receipt.attempts
+        if attempt.selected
+    ) if item.schedule_receipt is not None else ()
+    if selected_case_ids != receipt.ordered_case_ids:
+        errors.append("selected schedule case order differs from activated case set")
+    matching_attempts = [
+        attempt
+        for attempt in item.schedule_receipt.attempts
+        if (
+            attempt.selected
+            and attempt.evidence_bundle_ref is not None
+            and attempt.evidence_bundle_ref.sha256 == item.case.bundle_digest
+        )
+    ] if item.schedule_receipt is not None else []
+    if len(matching_attempts) != 1:
+        errors.append("completed case lacks unique selected-attempt lineage")
+    content_refs = list(artifact.source_content_refs)
+    for case in artifact.cases:
+        content_refs.extend(
+            (
+                case.public_input_ref,
+                *case.task_contract_refs,
+                *case.verifier_contract_refs,
+            )
+        )
+    for ref in content_refs:
+        ref_path = Path(ref.path)
+        if (
+            not ref_path.is_file()
+            or ref_path.stat().st_size != ref.size_bytes
+            or sha256_file(ref_path) != ref.sha256
+        ):
+            errors.append(f"case-set content reference drift: {ref.path}")
+    return errors
+
+
+def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
+    errors: list[str] = _case_set_binding_errors(item)
     manifest = item.plan.manifest
     provenance = item.case.bundle.provenance
     if provenance.runner_digest != item.runner_digest:
@@ -710,6 +830,7 @@ def _evaluate_claim(
             case_id=item.case.case_id,
             evidence_bundle_ref=artifact_ref(item.case.bundle_path),
             schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
+            case_set_receipt_ref=artifact_ref(item.case_set_receipt_path),
         )
         for item in items
     )
@@ -811,6 +932,7 @@ def evaluate_run_report(
             case_id=item.case.case_id,
             evidence_bundle_ref=artifact_ref(item.case.bundle_path),
             schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
+            case_set_receipt_ref=artifact_ref(item.case_set_receipt_path),
         )
         for item in items
     )

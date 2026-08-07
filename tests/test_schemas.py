@@ -244,12 +244,22 @@ def test_report_lineage_requires_locatable_evidence_refs() -> None:
             "sha256": "b" * 64,
             "size_bytes": 20,
         },
+        "case_set_receipt_ref": {
+            "path": "/records/run-1/case_set_activation_receipt.json",
+            "sha256": "c" * 64,
+            "size_bytes": 30,
+        },
     }
     lineage = LineageRef.model_validate(payload)
     assert lineage.schedule_receipt_ref.sha256 == "b" * 64
+    assert lineage.case_set_receipt_ref.sha256 == "c" * 64
     with pytest.raises(ValidationError, match="schedule_receipt_ref"):
         LineageRef.model_validate(
             {key: value for key, value in payload.items() if key != "schedule_receipt_ref"}
+        )
+    with pytest.raises(ValidationError, match="case_set_receipt_ref"):
+        LineageRef.model_validate(
+            {key: value for key, value in payload.items() if key != "case_set_receipt_ref"}
         )
     with pytest.raises(ValidationError, match="absolute"):
         LineageRef.model_validate(

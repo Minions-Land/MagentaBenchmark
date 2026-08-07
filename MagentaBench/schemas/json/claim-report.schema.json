@@ -143,6 +143,9 @@
           "default": null,
           "title": "Case Id"
         },
+        "case_set_receipt_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
         "evidence_bundle_ref": {
           "$ref": "#/$defs/ArtifactRef"
         },
@@ -158,7 +161,8 @@
       "required": [
         "run_id",
         "evidence_bundle_ref",
-        "schedule_receipt_ref"
+        "schedule_receipt_ref",
+        "case_set_receipt_ref"
       ],
       "title": "LineageRef",
       "type": "object"

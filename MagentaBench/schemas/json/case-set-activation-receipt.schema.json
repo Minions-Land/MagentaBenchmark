@@ -1,0 +1,69 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "case_set_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Case Set Digest",
+      "type": "string"
+    },
+    "case_set_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "loader_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Loader Adapter",
+      "type": "string"
+    },
+    "loader_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Loader Digest",
+      "type": "string"
+    },
+    "ordered_case_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ordered Case Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "case_set_ref",
+    "case_set_digest",
+    "loader_adapter",
+    "loader_digest",
+    "ordered_case_ids"
+  ],
+  "title": "CaseSetActivationReceipt",
+  "type": "object"
+}

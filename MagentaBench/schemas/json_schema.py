@@ -9,6 +9,8 @@ from typing import Any
 from .models import (
     BenchmarkArtifactAdapter,
     BenchmarkSpecAdapter,
+    CaseSetActivationReceipt,
+    CaseSetArtifact,
     CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
@@ -50,6 +52,8 @@ def schema_documents() -> dict[str, dict[str, Any]]:
         "environment-receipt": EnvironmentReceipt.model_json_schema(),
         "resource-spec": ResourceSpec.model_json_schema(),
         "credential-ref": CredentialRef.model_json_schema(),
+        "case-set-artifact": CaseSetArtifact.model_json_schema(),
+        "case-set-activation-receipt": CaseSetActivationReceipt.model_json_schema(),
         "checkpoint-load-receipt": CheckpointLoadReceipt.model_json_schema(),
         "checkpoint-save-receipt": CheckpointSaveReceipt.model_json_schema(),
         "provider-binding": ProviderBinding.model_json_schema(),

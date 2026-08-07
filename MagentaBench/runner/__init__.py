@@ -1,5 +1,6 @@
 """BMP manifest compilation and execution pipeline."""
 
+from .adapter_registry import AdapterRegistry, AdapterRegistryError
 from .compiler import (
     CompilationError,
     CompiledRun,
@@ -13,6 +14,8 @@ from .compiler import (
 )
 
 __all__ = [
+    "AdapterRegistry",
+    "AdapterRegistryError",
     "CompilationError",
     "CompiledRun",
     "Compiler",

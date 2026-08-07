@@ -6,10 +6,11 @@ import json
 from dataclasses import dataclass, replace
 from math import isclose
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from MagentaBench.schemas import (
     ArtifactRef,
+    CaseSetActivationReceipt,
     CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
@@ -19,7 +20,14 @@ from MagentaBench.schemas import (
     canonical_digest,
 )
 
-from .backend.fake import CaseExecution, EvidenceDriftError, FakeBackend
+from .adapter_registry import (
+    AdapterRegistry,
+    LoadedCaseSet,
+    ResolvedCaseSet,
+    verify_resolved_case_set,
+    write_immutable_json,
+)
+from .backend.fake import CaseExecution, EvidenceDriftError
 from .compiler import CompiledRun, Compiler, canonical_json_bytes, sha256_bytes
 from .evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
 from .gates import CompletedRun, _receipt_binding_errors, evaluate_run_report
@@ -49,11 +57,13 @@ class Pipeline:
         record_root: str | Path,
         *,
         backend: Any | None = None,
+        adapter_registry: AdapterRegistry | None = None,
         allow_test_override: bool = False,
     ) -> None:
-        if backend is not None and not allow_test_override:
+        if (backend is not None or adapter_registry is not None) and not allow_test_override:
             raise ValueError(
-                "backend injection requires allow_test_override=true"
+                "backend or adapter-registry injection requires "
+                "allow_test_override=true"
             )
         self.project_root = Path(project_root).resolve()
         self.record_root = Path(record_root).resolve()
@@ -61,6 +71,7 @@ class Pipeline:
             self.project_root, allow_test_override=allow_test_override
         )
         self.backend = backend
+        self.adapter_registry = adapter_registry or AdapterRegistry.production()
         self.allow_test_override = allow_test_override
         self.scheduler = Scheduler(record_root=self.record_root)
 
@@ -77,25 +88,11 @@ class Pipeline:
         payload["seq"] = sequence
         atomic_write_bytes(path, existing + canonical_json_bytes(payload) + b"\n")
 
-    @staticmethod
-    def _task_manifest_digest(run: CompiledRun) -> str:
-        benchmark = run.manifest.benchmark
-        task_manifest = getattr(benchmark, "task_manifest", None)
-        source = getattr(benchmark, "source", None)
-        if task_manifest and source:
-            path = Path(source) / str(task_manifest)
-            if not path.is_file():
-                raise FileNotFoundError(f"resolved task manifest is missing: {path}")
-            return sha256_file(path)
-        return benchmark.artifact_digest
-
-    @staticmethod
-    def _verifier_digest(run: CompiledRun) -> str:
-        verifier_id = str(getattr(run.manifest.benchmark, "verifier", "unknown"))
-        verifier_code = Path(__file__).parents[1] / "adapters" / "fake" / "verifier.py"
-        return sha256_bytes(verifier_id.encode("utf-8") + b"\0" + verifier_code.read_bytes())
-
-    def _plan(self, runs: list[CompiledRun]) -> dict[str, Any]:
+    def _plan(
+        self,
+        runs: list[CompiledRun],
+        case_sets: Mapping[str, LoadedCaseSet],
+    ) -> dict[str, Any]:
         return {
             "runner_digest": self.backend.runner_digest,
             "scheduler_digest": self.scheduler.scheduler_digest,
@@ -104,10 +101,22 @@ class Pipeline:
                     "run_id": run.manifest.metadata.run_id,
                     "manifest_digest": run.manifest_digest,
                     "benchmark_digest": run.manifest.benchmark.artifact_digest,
-                    "task_manifest_digest": self._task_manifest_digest(run),
-                    "verifier_digest": self._verifier_digest(run),
                     "subject_digest": run.manifest.subject.artifact_digest,
                     "backend_digest": run.manifest.execution.backend.digest,
+                    "benchmark_loader_digest": (
+                        self.adapter_registry.benchmark_loader(run).digest
+                    ),
+                    "execution_adapter_digest": (
+                        self.adapter_registry.execution_adapter(run).digest
+                    ),
+                    "case_set_digest": case_sets[
+                        run.manifest.metadata.run_id
+                    ].artifact.canonical_digest(),
+                    "ordered_case_ids": list(
+                        case_sets[
+                            run.manifest.metadata.run_id
+                        ].artifact.ordered_case_ids
+                    ),
                     "checkpoint_policy": run.manifest.execution.protocol.checkpoint_policy,
                     "manifest_identity": run.manifest.identity_data(),
                     "factors": dict(run.factor_values),
@@ -115,6 +124,49 @@ class Pipeline:
                 for run in runs
             ],
         }
+
+    def _activate_case_set(
+        self,
+        run: CompiledRun,
+        experiment_dir: Path,
+    ) -> tuple[LoadedCaseSet, CaseSetActivationReceipt, Path]:
+        loader = self.adapter_registry.benchmark_loader(run)
+        artifact_root = experiment_dir / "case_sets" / run.manifest_digest
+        resolved = loader.resolve(run, artifact_root)
+        verify_resolved_case_set(
+            run,
+            resolved,
+            expected_loader_adapter=loader.adapter,
+            expected_loader_digest=loader.digest,
+        )
+        loaded = loader.load(run, resolved)
+        verify_resolved_case_set(
+            run,
+            ResolvedCaseSet(
+                artifact=loaded.artifact,
+                artifact_path=loaded.artifact_path,
+                artifact_sha256=loaded.artifact_sha256,
+            ),
+            expected_loader_adapter=loader.adapter,
+            expected_loader_digest=loader.digest,
+        )
+        receipt = CaseSetActivationReceipt(
+            case_set_ref=artifact_ref(loaded.artifact_path),
+            case_set_digest=loaded.artifact.canonical_digest(),
+            loader_adapter=loader.adapter,
+            loader_digest=loader.digest,
+            ordered_case_ids=loaded.artifact.ordered_case_ids,
+        )
+        receipt_path = (
+            loaded.artifact_path.parent
+            / "case_set_activation_receipt.json"
+        )
+        write_immutable_json(
+            receipt_path,
+            receipt,
+            label="case-set activation receipt",
+        )
+        return loaded, receipt, receipt_path
 
     @staticmethod
     def _counterbalanced_order(
@@ -436,16 +488,17 @@ class Pipeline:
         compiled = self.compiler.compile(experiment_path, record_root=self.record_root)
         if not compiled:
             raise ValueError("experiment expanded to zero runs")
-        if self.backend is None:
-            adapters = {
-                run.manifest.execution.backend.adapter for run in compiled
-            }
-            if adapters != {"fake"}:
-                raise RuntimeError(
-                    "production Pipeline has no registered constructor for adapters "
-                    f"{sorted(adapters)}; registered adapters: ['fake']"
-                )
-            self.backend = FakeBackend(self.record_root)
+        factories = {
+            run.manifest.execution.backend.adapter: (
+                self.adapter_registry.backend_factory(run)
+            )
+            for run in compiled
+        }
+        if len(factories) != 1:
+            raise RuntimeError(
+                f"one Pipeline experiment cannot mix backend adapters: "
+                f"{sorted(factories)}"
+            )
         contrast = compiled[0].manifest.contrast
         control_id = contrast.control_id or compiled[0].manifest.subject.id
         treatment_id = contrast.treatment_id or compiled[-1].manifest.subject.id
@@ -459,9 +512,35 @@ class Pipeline:
         experiment_id = compiled[0].manifest.metadata.experiment_id
         experiment_dir = self.record_root / experiment_id
         experiment_dir.mkdir(parents=True, exist_ok=True)
+        activated_case_sets = {
+            run.manifest.metadata.run_id: self._activate_case_set(
+                run, experiment_dir
+            )
+            for run in compiled
+        }
+        loaded_case_sets = {
+            run_id: activation[0]
+            for run_id, activation in activated_case_sets.items()
+        }
+        # Run-by-case coverage, pairing, and checkpoint identities must land
+        # together; parent run IDs cannot honestly represent multiple cases.
+        for run_id, loaded_case_set in loaded_case_sets.items():
+            if len(loaded_case_set.cases) != 1:
+                raise RuntimeError(
+                    "multi-case execution identity is unimplemented: "
+                    f"compiled arm {run_id!r} resolved "
+                    f"{len(loaded_case_set.cases)} selected cases"
+                )
+        if self.backend is None:
+            factory = next(iter(factories.values()))
+            self.backend = factory.build(
+                compiled[0],
+                record_root=self.record_root,
+                workspace_root=self.record_root / "workspaces",
+            )
         plan_path = experiment_dir / "plan.json"
         checkpoint_path = experiment_dir / "checkpoint.json"
-        plan = self._plan(compiled)
+        plan = self._plan(compiled, loaded_case_sets)
         checkpoint_load_ref: CheckpointLoadReceipt | None = None
         ancestor_schedule_receipt_ref: ArtifactRef | None = None
         resume_prefix_count = 0
@@ -513,8 +592,14 @@ class Pipeline:
             )
             if previous_plan_digest != checkpoint["plan_sha256"]:
                 raise ResumeDriftError("loaded checkpoint plan digest drift")
-            self.backend = FakeBackend(
-                experiment_dir / f"resume-execution-{previous_checkpoint_digest[:12]}"
+            resume_root = (
+                experiment_dir
+                / f"resume-execution-{previous_checkpoint_digest[:12]}"
+            )
+            self.backend = self.adapter_registry.backend_factory(compiled[0]).build(
+                compiled[0],
+                record_root=resume_root,
+                workspace_root=resume_root / "workspaces",
             )
         else:
             protocol = compiled[0].manifest.execution.protocol
@@ -562,6 +647,20 @@ class Pipeline:
                 )
             if not resume and protocol.checkpoint_policy == "resume":
                 raise ResumeDriftError("checkpoint policy 'resume' requires resume=true")
+            (
+                loaded_case_set,
+                case_set_receipt,
+                case_set_receipt_path,
+            ) = activated_case_sets[run.manifest.metadata.run_id]
+            execution_adapter = self.adapter_registry.execution_adapter(run)
+            runtime_cases = {
+                case_id: case
+                for case_id, case in zip(
+                    loaded_case_set.artifact.ordered_case_ids,
+                    loaded_case_set.cases,
+                    strict=True,
+                )
+            }
             execution_run = run
             schedule: ScheduleResult | None = None
             if resume and run_index < resume_prefix_count:
@@ -582,23 +681,31 @@ class Pipeline:
                     )
                 reused_ids.append(run.manifest.metadata.run_id)
             else:
-                task = self.backend._load_task(run)
                 receipt_path = (
                     self.backend.run_directory(run)
                     / "schedule_activation_receipt.json"
                 )
                 schedule = self.scheduler.execute(
                     run,
-                    [task],
-                    attempt_runner=lambda attempt, run=run, task=task: self.backend.execute(
-                        run,
-                        task,
-                        case_id=attempt.attempt_id,
-                        execution_run_id=attempt.attempt_id,
-                        attempt_budget=attempt.allocation,
-                        remaining_wall_seconds=attempt.remaining_wall_seconds,
+                    loaded_case_set.cases,
+                    attempt_runner=(
+                        lambda attempt,
+                        run=run,
+                        adapter=execution_adapter,
+                        cases=runtime_cases: adapter.execute(
+                            self.backend,
+                            run,
+                            cases[attempt.case_id],
+                            attempt,
+                        )
                     ),
-                    reset_state=getattr(self.backend, "reset_state", None),
+                    reset_state=(
+                        lambda case_id,
+                        policy,
+                        adapter=execution_adapter: adapter.reset_state(
+                            self.backend, case_id, policy
+                        )
+                    ),
                     receipt_path=receipt_path,
                 )
                 executed_ids.append(run.manifest.metadata.run_id)
@@ -617,6 +724,10 @@ class Pipeline:
                     scheduler_digest=self.scheduler.scheduler_digest,
                     pipeline_digest=self.scheduler.pipeline_digest,
                     runner_digest=self.backend.runner_digest,
+                    case_set_receipt=case_set_receipt,
+                    case_set_receipt_path=case_set_receipt_path,
+                    case_set_receipt_sha256=sha256_file(case_set_receipt_path),
+                    case_set_digest=case_set_receipt.case_set_digest,
                 )
             )
 

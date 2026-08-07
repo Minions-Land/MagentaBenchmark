@@ -939,6 +939,118 @@ class ResolvedExecutionSpec(StrictModel):
         return self
 
 
+class CaseArtifact(StrictModel):
+    case_id: str = Field(pattern=ID_PATTERN)
+    public_input_ref: ArtifactRef
+    task_contract_refs: tuple[ArtifactRef, ...] = ()
+    verifier_contract_refs: tuple[ArtifactRef, ...] = ()
+
+    @model_validator(mode="after")
+    def refs_are_unique(self) -> "CaseArtifact":
+        refs = (
+            self.public_input_ref,
+            *self.task_contract_refs,
+            *self.verifier_contract_refs,
+        )
+        identities = [(ref.sha256, ref.size_bytes) for ref in refs]
+        if len(set(identities)) != len(identities):
+            raise ValueError("case artifact refs must be content-unique")
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "case_id": self.case_id,
+            "public_input_ref": self.public_input_ref.identity_data(),
+            "task_contract_refs": [
+                ref.identity_data() for ref in self.task_contract_refs
+            ],
+            "verifier_contract_refs": [
+                ref.identity_data() for ref in self.verifier_contract_refs
+            ],
+        }
+
+
+class CaseSetArtifact(StrictModel):
+    benchmark_id: str = Field(pattern=ID_PATTERN)
+    benchmark_digest: str = Field(pattern=SHA256_PATTERN)
+    loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    loader_digest: str = Field(pattern=SHA256_PATTERN)
+    selection_method: Literal["all_cases", "explicit_case_ids"] = "all_cases"
+    case_order: Literal["fixed", "seeded_random"] = "fixed"
+    order_seed: int | None = None
+    source_content_digest: str = Field(pattern=SHA256_PATTERN)
+    source_content_refs: tuple[ArtifactRef, ...]
+    ordered_case_ids: tuple[str, ...]
+    cases: tuple[CaseArtifact, ...]
+
+    @model_validator(mode="after")
+    def order_exactly_matches_cases(self) -> "CaseSetArtifact":
+        case_ids = tuple(case.case_id for case in self.cases)
+        if not case_ids:
+            raise ValueError("case set must contain at least one case")
+        if len(set(case_ids)) != len(case_ids):
+            raise ValueError("case set ids must be unique")
+        if self.ordered_case_ids != case_ids:
+            raise ValueError("ordered_case_ids must exactly match case order")
+        if self.case_order == "seeded_random" and self.order_seed is None:
+            raise ValueError("order_seed is required for seeded_random case order")
+        if self.case_order != "seeded_random" and self.order_seed is not None:
+            raise ValueError("order_seed is forbidden for fixed case order")
+        source_identities = [
+            (ref.sha256, ref.size_bytes) for ref in self.source_content_refs
+        ]
+        if (
+            not source_identities
+            or len(set(source_identities)) != len(source_identities)
+        ):
+            raise ValueError(
+                "source content refs must be non-empty and content-unique"
+            )
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "benchmark_id": self.benchmark_id,
+            "benchmark_digest": self.benchmark_digest,
+            "loader_adapter": self.loader_adapter,
+            "loader_digest": self.loader_digest,
+            "selection_method": self.selection_method,
+            "case_order": self.case_order,
+            "order_seed": self.order_seed,
+            "source_content_digest": self.source_content_digest,
+            "source_content_refs": [
+                ref.identity_data() for ref in self.source_content_refs
+            ],
+            "ordered_case_ids": list(self.ordered_case_ids),
+            "cases": [case.identity_data() for case in self.cases],
+        }
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class CaseSetActivationReceipt(StrictModel):
+    case_set_ref: ArtifactRef
+    case_set_digest: str = Field(pattern=SHA256_PATTERN)
+    loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    loader_digest: str = Field(pattern=SHA256_PATTERN)
+    ordered_case_ids: tuple[str, ...]
+
+    @field_validator("ordered_case_ids")
+    @classmethod
+    def ordered_ids_are_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value or len(set(value)) != len(value):
+            raise ValueError("activated case ids must be non-empty and unique")
+        return value
+
+
 class ClaimScope(str, Enum):
     component = "component"
     whole_harness = "whole_harness"
@@ -1727,6 +1839,7 @@ class LineageRef(StrictModel):
     case_id: str | None = None
     evidence_bundle_ref: ArtifactRef
     schedule_receipt_ref: ArtifactRef
+    case_set_receipt_ref: ArtifactRef
 
 
 class RecordIndex(StrictModel):
@@ -1855,6 +1968,9 @@ __all__ = [
     "BudgetDebit",
     "BudgetLedger",
     "CaseAllocation",
+    "CaseArtifact",
+    "CaseSetActivationReceipt",
+    "CaseSetArtifact",
     "CheckpointLoadReceipt",
     "CheckpointSaveReceipt",
     "ClaimDesign",

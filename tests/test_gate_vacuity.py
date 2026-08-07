@@ -236,10 +236,12 @@ def test_case_set_policy_fails_closed_without_activation_receipt(
     case_policy = policy.model_copy(
         update={
             "source": NetworkPolicySource.case_set_artifact,
-            "source_artifact_digest": item.plan.manifest.benchmark.artifact_digest,
+            "source_artifact_digest": item.case_set_digest,
         }
     )
-    items[0] = _with_policy(item, case_policy)
+    items[0] = dataclasses.replace(
+        _with_policy(item, case_policy), case_set_digest=None
+    )
     isolation = _claim(items).gates[GateName.isolation_valid]
     assert isolation.valid is False
     assert "CaseSetActivationReceipt" in isolation.reason
