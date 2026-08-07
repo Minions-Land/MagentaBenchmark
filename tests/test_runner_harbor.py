@@ -49,7 +49,7 @@ def _shim(path: Path, *, fail: bool = False) -> Path:
         "trial = jobs / 'trial-0000'\n"
         "trial.mkdir(parents=True, exist_ok=True)\n"
         "(trial / 'answer.txt').write_text('BMP_OK', encoding='utf-8')\n"
-        "native_trial = {'trial_name': 'trial-0000', 'verifier_result': {'rewards': {'score': 1.0}}}\n"
+        "native_trial = {'trial_name': 'trial-0000', 'verifier_result': {'rewards': {'exact_match': 1.0}}}\n"
         "(trial / 'result.json').write_text('{}', encoding='utf-8')\n"
         "(jobs / 'result.json').write_text(json.dumps({'trial_results': [native_trial]}), encoding='utf-8')\n", 
         encoding="utf-8",

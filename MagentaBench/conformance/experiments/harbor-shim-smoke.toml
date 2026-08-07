@@ -2,7 +2,7 @@
 id = "harbor-shim-smoke"
 benchmark = "fake.exact.v1"
 subject = "fake.treatment"
-protocol = "fake.deterministic.v1"
+protocol = "harbor.shim-conformance.v1"
 
 [experiment.design]
 scope = "conformance"
@@ -12,7 +12,6 @@ vary = []
 [execution]
 backend = "harbor.local-shim"
 model = "none/echo"
-seed = 1
 
 [execution.budget]
 max_tokens = 0

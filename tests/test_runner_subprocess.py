@@ -169,7 +169,8 @@ def test_subprocess_environment_does_not_inherit_secrets(
     monkeypatch.setenv("BMP_SECRET_TOKEN", "must-not-leak")
     run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[1]
     backend = SubprocessBackend(
-        tmp_path / "records", workspace_root=tmp_path / "workspaces"
+        tmp_path / "records", workspace_root=tmp_path / "workspaces",
+        allow_test_override=True,
     )
 
     result = backend.execute(
