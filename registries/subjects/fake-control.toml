@@ -1,0 +1,7 @@
+[subject]
+id = "fake.control"
+kind = "fake"
+adapter = "fake"
+bmp_version = "0.1"
+fixed_answer = "BMP_BAD"
+fault_mode = "none"

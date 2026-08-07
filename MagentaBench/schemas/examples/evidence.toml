@@ -1,0 +1,32 @@
+[evidence]
+run_id = "terminal-module-evolution-sweep__run0000"
+status = "pass"
+
+[[evidence.output_refs]]
+path = "/var/lib/magentabench/runs/run0000/answer.txt"
+sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+size_bytes = 7
+
+[evidence.trace_ref]
+path = "/var/lib/magentabench/runs/run0000/trace.jsonl"
+sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+size_bytes = 512
+
+[evidence.verifier_evidence]
+verifier = "native"
+passed = true
+score = 1.0
+
+[evidence.usage]
+input_tokens = 100
+output_tokens = 20
+total_tokens = 120
+wall_clock_seconds = 4.25
+
+[evidence.provenance]
+manifest_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+runner_digest = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+benchmark_digest = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+subject_digest = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+backend_digest = "sha256:0123456789abcdef"
+trace_emission_claimed = true

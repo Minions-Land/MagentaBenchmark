@@ -1,0 +1,12 @@
+[backend]
+id = "subprocess.echo"
+kind = "local"
+adapter = "subprocess"
+bmp_version = "0.1"
+executable = "/usr/bin/echo"
+version = "coreutils"
+digest = "c31564e5dedbc99c3ac163d462daa6fabe151c61ac0cd7509e5e4a145748ddb7"
+
+[backend.defaults]
+network = "disabled"
+workspace_policy = "isolated_tmp"

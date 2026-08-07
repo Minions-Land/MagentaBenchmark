@@ -1,0 +1,29 @@
+[experiment]
+id = "fake-taxonomy"
+benchmark = "fake.exact.v1"
+subject = "fake.fault"
+protocol = "fake.deterministic.v1"
+counterbalance = true
+
+[execution]
+backend = "fake.local"
+model = "none/deterministic"
+seed = 7
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[factors]
+fault_mode = [
+  "none",
+  "no_output",
+  "invalid_output",
+  "timeout",
+  "agent_error",
+  "harness_fault",
+  "verifier_error",
+  "infra_error",
+  "unsupported",
+]

@@ -1,0 +1,15 @@
+[experiment]
+id = "aose-zero-cost-run-a"
+benchmark = "aosebench.biomnibench-da.v1"
+subject = "aose.dryrun.true"
+protocol = "aose.zero-cost-dryrun.v1"
+
+[execution]
+backend = "aose.docker.immutable"
+model = "none/zero-cost"
+seed = 0
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 120.0
+max_cost = 0.0

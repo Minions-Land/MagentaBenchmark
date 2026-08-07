@@ -1,0 +1,5 @@
+[[tasks]]
+id = "case-001"
+instruction = "Emit the BMP protocol sentinel."
+expected = "BMP_OK"
+output = "answer.txt"

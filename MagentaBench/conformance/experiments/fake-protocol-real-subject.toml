@@ -1,0 +1,15 @@
+[experiment]
+id = "fake-protocol-real-subject"
+benchmark = "fake.exact.v1"
+subject = "fake.nonfake"
+protocol = "fake.deterministic.v1"
+
+[execution]
+backend = "fake.local"
+model = "none/deterministic"
+seed = 7
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

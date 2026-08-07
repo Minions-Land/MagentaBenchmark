@@ -1,0 +1,9 @@
+[subject]
+id = "magenta.hcp.default"
+kind = "hcp_harness"
+adapter = "magenta_hcp"
+bmp_version = "0.1"
+source = "/opt/subjects/Magenta"
+commit = "d25c9d212ae79081990a3695c4af61575b79ec19"
+assembly_profile = "default"
+emits_trace = true

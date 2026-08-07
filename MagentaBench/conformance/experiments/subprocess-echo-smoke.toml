@@ -1,0 +1,28 @@
+[experiment]
+id = "subprocess-echo-smoke"
+benchmark = "fake.exact.v1"
+subject = "fake.control"
+protocol = "fake.deterministic.v1"
+claim_mode = "one_factor"
+control = "fake.control"
+treatment = "fake.treatment"
+allowed_diff = [
+  "subject.artifact_digest",
+  "subject.fixed_answer",
+  "subject.id",
+]
+counterbalance = true
+
+[execution]
+backend = "subprocess.echo"
+model = "none/echo"
+seed = 41
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 2.0
+max_cost = 0.0
+
+[factors]
+subject = ["fake.control", "fake.treatment"]
+repetition = [0, 1]

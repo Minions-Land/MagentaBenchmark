@@ -1,0 +1,11 @@
+[benchmark]
+id = "aosebench.biomnibench-da.v1"
+kind = "tool_agent_suite"
+adapter = "aosebench"
+bmp_version = "0.1"
+source = "../../../../BioAgent/AOSEBench"
+commit = "46d437f2f7a8ef505b8fac95ade12c2d6458a623"
+task_root = "benchmark/tasks"
+input_contract = "/app/instruction.md; /app/data:ro"
+output_contract = ["/app/trace.md", "/app/answer.txt"]
+evaluator = "aosebench.rubric-judge"

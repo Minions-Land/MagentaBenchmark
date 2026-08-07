@@ -1,0 +1,15 @@
+[experiment]
+id = "harbor-shim-smoke"
+benchmark = "fake.exact.v1"
+subject = "fake.treatment"
+protocol = "fake.deterministic.v1"
+
+[execution]
+backend = "harbor.local-shim"
+model = "none/echo"
+seed = 1
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 10.0
+max_cost = 0.0

@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import json
+import sys
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from MagentaBench.runner.backend.subprocess import SubprocessBackend
+from MagentaBench.runner.compiler import (
+    CompiledRun,
+    Compiler,
+    canonical_manifest_json,
+    sha256_bytes,
+)
+from MagentaBench.runner.pipeline import Pipeline
+from MagentaBench.schemas import (
+    Budget,
+    EnvironmentReceipt,
+    EnvironmentSpec,
+    ProvenanceRecord,
+    RunStatus,
+    canonical_digest,
+)
+
+
+ROOT = Path(__file__).parents[1]
+EXPERIMENT = (
+    ROOT
+    / "MagentaBench"
+    / "conformance"
+    / "experiments"
+    / "subprocess-echo-smoke.toml"
+)
+
+
+def _with_timeout(run: CompiledRun, seconds: float) -> CompiledRun:
+    budget = Budget(max_tokens=0, max_wall_seconds=seconds, max_cost=0.0)
+    execution = run.manifest.execution.model_copy(update={"budget": budget})
+    manifest = run.manifest.model_copy(update={"execution": execution})
+    canonical = canonical_manifest_json(manifest)
+    return replace(
+        run,
+        manifest=manifest,
+        canonical_json=canonical,
+        manifest_digest=sha256_bytes(canonical),
+    )
+
+
+def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> None:
+    records = tmp_path / "records"
+    workspaces = tmp_path / "workspaces"
+    backend = SubprocessBackend(records, workspace_root=workspaces)
+
+    result = Pipeline(ROOT, records, backend=backend).run(EXPERIMENT)
+
+    statuses = [item.case.bundle.status for item in result.runs]
+    assert statuses == [
+        RunStatus.verified_fail,
+        RunStatus.pass_,
+        RunStatus.pass_,
+        RunStatus.verified_fail,
+    ]
+    assert result.claim_report.claim_eligible is True
+    assert result.claim_report.effect is not None
+    assert result.claim_report.effect.point_estimate == 1.0
+    assert result.claim_report.effect.n_pairs == 2
+    for item in result.runs:
+        bundle = item.case.bundle
+        assert bundle.provenance.executable == "/usr/bin/echo"
+        assert bundle.log_refs
+        receipt = json.loads(
+            Path(bundle.log_refs[2].path).read_text(encoding="utf-8")
+        )
+        assert receipt["workspace_kept"] is False
+        assert not Path(receipt["workspace"]).exists()
+        assert Path(bundle.log_refs[0].path).read_text(encoding="utf-8") in {
+            "BMP_OK\n",
+            "BMP_BAD\n",
+        }
+    assert not list(workspaces.rglob("case-001"))
+
+
+def test_subprocess_timeout_is_classified_and_keeps_failure_workspace(
+    tmp_path: Path,
+) -> None:
+    run = _with_timeout(Compiler(ROOT).compile(EXPERIMENT)[0], 0.01)
+    backend = SubprocessBackend(
+        tmp_path / "records",
+        workspace_root=tmp_path / "workspaces",
+        keep_workspace_on_failure=True,
+    )
+
+    result = backend.execute(
+        run,
+        command=(
+            sys.executable,
+            "-c",
+            "import time; time.sleep(1); print('BMP_OK')",
+        ),
+    )
+
+    assert result.bundle.status == RunStatus.timeout
+    assert result.bundle.output_refs == ()
+    assert result.bundle.usage is not None
+    assert result.bundle.usage.wall_clock_seconds is not None
+    assert result.bundle.usage.wall_clock_seconds >= 0.01
+    receipt = json.loads(
+        Path(result.bundle.log_refs[2].path).read_text(encoding="utf-8")
+    )
+    assert receipt["workspace_kept"] is True
+    assert Path(receipt["workspace"]).is_dir()
+
+
+def test_environment_receipt_is_carried_into_evidence_provenance(
+    tmp_path: Path,
+) -> None:
+    spec = EnvironmentSpec(id="echo-env", python_version="3.11")
+    receipt = EnvironmentReceipt(
+        spec_id=spec.id,
+        spec_digest=canonical_digest(spec),
+        python_executable="/usr/bin/python3.11",
+        python_version="3.11.13",
+        installed_packages=(),
+        build_duration_seconds=0.0,
+        built_at="2026-08-06T16:00:00+00:00",
+    )
+    run = Compiler(ROOT).compile(EXPERIMENT)[0]
+    backend = SubprocessBackend(
+        tmp_path / "records",
+        workspace_root=tmp_path / "workspaces",
+        environment_receipt=receipt,
+    )
+    case = backend.execute(run)
+    assert case.bundle.provenance.environment_receipt == receipt
+
+
+def test_provenance_does_not_serialize_api_key_values() -> None:
+    """ProvenanceRecord must not accept or serialize API-key values."""
+    with pytest.raises(Exception):
+        ProvenanceRecord.model_validate(
+            {
+                "manifest_digest": "0" * 64,
+                "runner_digest": "1" * 64,
+                "benchmark_digest": "2" * 64,
+                "subject_digest": "3" * 64,
+                "backend_digest": "backend",
+                "environment": {"OPENAI_API_KEY": "sk-secret"},
+            }
+        )
+
+
+def test_provenance_rejects_equals_in_string_fields() -> None:
+    with pytest.raises(Exception, match="must not contain"):
+        ProvenanceRecord(
+            manifest_digest="0" * 64,
+            runner_digest="1" * 64,
+            benchmark_digest="2" * 64,
+            subject_digest="3" * 64,
+            backend_digest="backend",
+            version="KEY=secret",
+        )
+
+
+def test_subprocess_environment_does_not_inherit_secrets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("BMP_SECRET_TOKEN", "must-not-leak")
+    run = Compiler(ROOT).compile(EXPERIMENT)[1]
+    backend = SubprocessBackend(
+        tmp_path / "records", workspace_root=tmp_path / "workspaces"
+    )
+
+    result = backend.execute(
+        run,
+        command=(
+            sys.executable,
+            "-c",
+            "import os; print(os.environ.get('BMP_SECRET_TOKEN', 'BMP_OK'))",
+        ),
+    )
+
+    assert result.bundle.status == RunStatus.pass_
+    assert result.bundle.verifier_evidence is not None
+    assert result.bundle.verifier_evidence.details["actual"] == "BMP_OK"

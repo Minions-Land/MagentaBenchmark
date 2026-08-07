@@ -1,0 +1,511 @@
+"""Compile BMP TOML declarations into deterministic resolved manifests.
+
+The compiler is deliberately side-effect free except for the rejected-run audit
+record written when a one-factor experiment violates its declared isolation
+boundary. Execution consumes :class:`CompiledRun` objects produced here.
+"""
+
+from __future__ import annotations
+
+import copy
+import hashlib
+import itertools
+import json
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable, Mapping
+
+import pydantic
+
+if int(pydantic.VERSION.split(".", 1)[0]) < 2:  # pragma: no cover - import guard
+    raise RuntimeError("MagentaBench requires Pydantic v2")
+
+try:  # Python 3.11+
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib
+
+from MagentaBench.schemas import (
+    BackendSpec,
+    BenchmarkSpecAdapter,
+    ClaimReport,
+    ExecutionSpec,
+    GateName,
+    GateResult,
+    ProtocolSpec,
+    ResolvedBmpManifest,
+    ResolvedManifestMetadata,
+    SubjectSpecAdapter,
+    compile_benchmark_artifact,
+    compile_subject_artifact,
+    resolve_execution_spec,
+)
+
+
+class CompilationError(ValueError):
+    """A declaration cannot be resolved into a valid run manifest."""
+
+
+class RegistryLookupError(CompilationError):
+    """A referenced registry entry is missing or ambiguous."""
+
+
+class IsolationViolation(CompilationError):
+    """Resolved control/treatment manifests differ outside ``allowed_diff``."""
+
+    def __init__(self, forbidden_paths: Iterable[str], all_paths: Iterable[str] = ()) -> None:
+        self.forbidden_paths = tuple(sorted(set(forbidden_paths)))
+        self.all_paths = tuple(sorted(set(all_paths)))
+        super().__init__(
+            "resolved manifest diff exceeds allowed intervention: "
+            + ", ".join(self.forbidden_paths)
+        )
+
+
+@dataclass(frozen=True)
+class CompiledRun:
+    """One expanded run and its canonical experiment identity."""
+
+    manifest: ResolvedBmpManifest
+    canonical_json: bytes
+    manifest_digest: str
+    factor_values: Mapping[str, Any]
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    return value
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    """Serialize a JSON-compatible value using the BMP canonical encoding."""
+
+    return json.dumps(
+        _jsonable(value),
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def manifest_identity_dict(manifest: ResolvedBmpManifest) -> dict[str, Any]:
+    """Return the schema-defined identity projection for ``manifest``."""
+
+    excluded = ResolvedBmpManifest.IDENTITY_EXCLUDE
+    return manifest.model_dump(mode="json", exclude=excluded)
+
+
+def canonical_manifest_json(manifest: ResolvedBmpManifest) -> bytes:
+    return canonical_json_bytes(manifest_identity_dict(manifest))
+
+
+def manifest_sha256(manifest: ResolvedBmpManifest) -> str:
+    return sha256_bytes(canonical_manifest_json(manifest))
+
+
+def _deep_set(target: dict[str, Any], dotted_path: str, value: Any) -> None:
+    parts = dotted_path.split(".")
+    current = target
+    for part in parts[:-1]:
+        child = current.get(part)
+        if child is None:
+            child = {}
+            current[part] = child
+        if not isinstance(child, dict):
+            raise CompilationError(
+                f"factor path {dotted_path!r} traverses non-table field {part!r}"
+            )
+        current = child
+    current[parts[-1]] = copy.deepcopy(value)
+
+
+def expand_factor_sweep(
+    base: Mapping[str, Any], factors: Mapping[str, Any] | None
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Expand lexically sorted axes and values into deterministic combinations.
+
+    Returns pairs of ``(expanded_declaration, selected_factor_values)``. Factor
+    paths that start with ``experiment.`` or ``execution.`` modify those tables;
+    bare ``benchmark``, ``subject`` and ``protocol`` modify experiment refs.
+    Other bare factors are metadata-only (for example ``repetition``).
+    """
+
+    if not factors:
+        return [(copy.deepcopy(dict(base)), {})]
+
+    axes: list[tuple[str, list[Any]]] = []
+    for path in sorted(factors):
+        raw_values = factors[path]
+        values = list(raw_values) if isinstance(raw_values, list) else [raw_values]
+        if not values:
+            raise CompilationError(f"factor {path!r} has no values")
+        axes.append((path, sorted(values, key=lambda value: str(value))))
+
+    expanded: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for combination in itertools.product(*(values for _, values in axes)):
+        declaration = copy.deepcopy(dict(base))
+        selected: dict[str, Any] = {}
+        for (path, _), value in zip(axes, combination):
+            selected[path] = copy.deepcopy(value)
+            if path in {"benchmark", "subject", "protocol"}:
+                declaration.setdefault("experiment", {})[path] = copy.deepcopy(value)
+            elif path.startswith("experiment.") or path.startswith("execution."):
+                _deep_set(declaration, path, value)
+            else:
+                # Metadata-only factors still participate in run identity.
+                continue
+        expanded.append((declaration, selected))
+    return expanded
+
+
+def resolved_diff_paths(left: Any, right: Any, prefix: str = "") -> tuple[str, ...]:
+    """Return leaf-level dotted paths whose resolved values differ."""
+
+    left = _jsonable(left)
+    right = _jsonable(right)
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        paths: list[str] = []
+        for key in sorted(set(left) | set(right)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in left or key not in right:
+                paths.append(path)
+            else:
+                paths.extend(resolved_diff_paths(left[key], right[key], path))
+        return tuple(paths)
+    if isinstance(left, list) and isinstance(right, list):
+        paths = []
+        for index in range(max(len(left), len(right))):
+            path = f"{prefix}.{index}" if prefix else str(index)
+            if index >= len(left) or index >= len(right):
+                paths.append(path)
+            else:
+                paths.extend(resolved_diff_paths(left[index], right[index], path))
+        return tuple(paths)
+    return () if left == right else (prefix or "$",)
+
+
+def enforce_allowed_diff(
+    control: ResolvedBmpManifest,
+    treatment: ResolvedBmpManifest,
+    allowed_diff: Iterable[str],
+) -> tuple[str, ...]:
+    """Validate a control/treatment pair and return its complete resolved diff."""
+
+    # Metadata contains pair labels and run identity, not causal configuration.
+    left = {
+        "benchmark": control.benchmark.model_dump(mode="json"),
+        "subject": control.subject.model_dump(mode="json"),
+        "execution": control.execution.model_dump(mode="json"),
+    }
+    right = {
+        "benchmark": treatment.benchmark.model_dump(mode="json"),
+        "subject": treatment.subject.model_dump(mode="json"),
+        "execution": treatment.execution.model_dump(mode="json"),
+    }
+    paths = resolved_diff_paths(left, right)
+    allowed = tuple(allowed_diff)
+    forbidden = [path for path in paths if path not in allowed]
+    if forbidden:
+        raise IsolationViolation(forbidden, paths)
+    return paths
+
+
+class Compiler:
+    """Load registries and compile an experiment TOML into resolved run plans."""
+
+    _REGISTRY_SECTIONS = {
+        "benchmark": ("benchmarks", BenchmarkSpecAdapter),
+        "subject": ("subjects", SubjectSpecAdapter),
+        "protocol": ("protocols", ProtocolSpec),
+        "backend": ("backends", BackendSpec),
+    }
+
+    def __init__(self, project_root: str | os.PathLike[str]) -> None:
+        self.project_root = Path(project_root).resolve()
+        self.registry_root = self.project_root / "registries"
+        self._registry_cache: dict[tuple[str, str], tuple[Any, Path]] = {}
+
+    @staticmethod
+    def _load_toml(path: Path) -> dict[str, Any]:
+        try:
+            with path.open("rb") as handle:
+                value = tomllib.load(handle)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise CompilationError(f"cannot load TOML {path}: {exc}") from exc
+        if not isinstance(value, dict):  # defensive: TOML roots are tables
+            raise CompilationError(f"TOML root must be a table: {path}")
+        return value
+
+    def _lookup(self, kind: str, entry_id: str) -> tuple[Any, Path]:
+        key = (kind, entry_id)
+        if key in self._registry_cache:
+            return self._registry_cache[key]
+        try:
+            directory_name, validator = self._REGISTRY_SECTIONS[kind]
+        except KeyError as exc:  # pragma: no cover - internal misuse
+            raise RegistryLookupError(f"unknown registry kind {kind!r}") from exc
+
+        matches: list[tuple[Any, Path]] = []
+        directory = self.registry_root / directory_name
+        for path in sorted(directory.glob("*.toml")):
+            raw = self._load_toml(path)
+            section = raw.get(kind)
+            if not isinstance(section, dict) or section.get("id") != entry_id:
+                continue
+            try:
+                if hasattr(validator, "validate_python"):
+                    parsed = validator.validate_python(section)
+                else:
+                    parsed = validator.model_validate(section)
+            except pydantic.ValidationError as exc:
+                raise CompilationError(
+                    f"invalid {kind} registry entry {entry_id!r} in {path}: {exc}"
+                ) from exc
+            matches.append((parsed, path))
+
+        if not matches:
+            raise RegistryLookupError(
+                f"{kind} registry id {entry_id!r} not found under {directory}"
+            )
+        if len(matches) > 1:
+            paths = ", ".join(str(path) for _, path in matches)
+            raise RegistryLookupError(
+                f"duplicate {kind} registry id {entry_id!r}: {paths}"
+            )
+        self._registry_cache[key] = matches[0]
+        return matches[0]
+
+    @staticmethod
+    def _artifact_digest(data: Mapping[str, Any]) -> str:
+        return sha256_bytes(canonical_json_bytes(data))
+
+    def _benchmark_artifact(self, entry_id: str):
+        spec, registry_path = self._lookup("benchmark", entry_id)
+        return compile_benchmark_artifact(spec, base_dir=registry_path.parent)
+
+    def _subject_artifact(self, entry_id: str):
+        spec, registry_path = self._lookup("subject", entry_id)
+        return compile_subject_artifact(spec, base_dir=registry_path.parent)
+
+    def _compile_expanded(
+        self,
+        declaration: Mapping[str, Any],
+        factor_values: Mapping[str, Any],
+        run_index: int,
+    ) -> CompiledRun:
+        experiment = declaration.get("experiment")
+        execution_raw = declaration.get("execution")
+        if not isinstance(experiment, dict) or not isinstance(execution_raw, dict):
+            raise CompilationError("experiment TOML requires [experiment] and [execution]")
+
+        required = ("id", "benchmark", "subject", "protocol")
+        missing = [name for name in required if not experiment.get(name)]
+        if missing:
+            raise CompilationError(f"[experiment] missing fields: {', '.join(missing)}")
+
+        try:
+            execution = ExecutionSpec.model_validate(execution_raw)
+        except pydantic.ValidationError as exc:
+            raise CompilationError(f"invalid [execution]: {exc}") from exc
+        benchmark = self._benchmark_artifact(str(experiment["benchmark"]))
+        subject = self._subject_artifact(str(experiment["subject"]))
+        backend, _ = self._lookup("backend", execution.backend)
+        protocol, _ = self._lookup("protocol", str(experiment["protocol"]))
+
+        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
+        if deterministic and subject.kind != "fake":
+            raise CompilationError(
+                "deterministic_conformance is permitted only for fake subjects"
+            )
+        if subject.kind == "fake" and not deterministic:
+            raise CompilationError(
+                "fake subjects require deterministic_conformance=true"
+            )
+
+        allowed_raw = experiment.get("allowed_diff", experiment.get("vary", ()))
+        if isinstance(allowed_raw, str):
+            allowed_diff = (allowed_raw,)
+        else:
+            allowed_diff = tuple(allowed_raw or ())
+
+        # The stable ordinal is defined over the canonical lexical sweep order.
+        metadata = ResolvedManifestMetadata(
+            experiment_id=experiment["id"],
+            run_id=f"{experiment['id']}__run{run_index:04d}",
+            allowed_diff=allowed_diff,
+            factors=dict(factor_values),
+        )
+        resolved_execution = resolve_execution_spec(
+            execution,
+            backend=backend,
+            protocol=protocol,
+        )
+        manifest = ResolvedBmpManifest(
+            benchmark=benchmark,
+            subject=subject,
+            execution=resolved_execution,
+            metadata=metadata,
+        )
+        canonical = canonical_manifest_json(manifest)
+        return CompiledRun(
+            manifest=manifest,
+            canonical_json=canonical,
+            manifest_digest=sha256_bytes(canonical),
+            factor_values=dict(factor_values),
+        )
+
+    @staticmethod
+    def _pair_key(run: CompiledRun) -> bytes:
+        factors = {
+            key: value
+            for key, value in run.factor_values.items()
+            if key not in {"subject", "experiment.subject"}
+        }
+        return canonical_json_bytes(factors)
+
+    def _enforce_one_factor(
+        self,
+        declaration: Mapping[str, Any],
+        runs: list[CompiledRun],
+    ) -> None:
+        experiment = declaration["experiment"]
+        if experiment.get("claim_mode") != "one_factor":
+            return
+        control_id = experiment.get("control")
+        treatment_id = experiment.get("treatment")
+        if not control_id or not treatment_id:
+            raise CompilationError(
+                "one_factor experiment requires control and treatment subject ids"
+            )
+        by_pair: dict[bytes, dict[str, CompiledRun]] = {}
+        for run in runs:
+            subject_id = run.manifest.subject.id
+            if subject_id not in {control_id, treatment_id}:
+                raise CompilationError(
+                    f"one_factor sweep contains undeclared subject {subject_id!r}"
+                )
+            by_pair.setdefault(self._pair_key(run), {})[subject_id] = run
+        if not by_pair:
+            raise CompilationError("one_factor sweep contains no control/treatment runs")
+        for pair in by_pair.values():
+            if set(pair) != {control_id, treatment_id}:
+                raise CompilationError("one_factor sweep has an unpaired control/treatment")
+            control = pair[control_id].manifest
+            treatment = pair[treatment_id].manifest
+            enforce_allowed_diff(control, treatment, control.metadata.allowed_diff)
+
+    def compile(
+        self,
+        experiment_path: str | os.PathLike[str],
+        *,
+        record_root: str | os.PathLike[str] | None = None,
+    ) -> list[CompiledRun]:
+        """Compile and isolation-check every run in an experiment TOML."""
+
+        path = Path(experiment_path).resolve()
+        # Re-read registry files on every compilation so drift cannot be hidden
+        # by a long-lived compiler instance.
+        self._registry_cache.clear()
+        declaration = self._load_toml(path)
+        experiment = declaration.get("experiment")
+        if not isinstance(experiment, dict) or not experiment.get("id"):
+            raise CompilationError("experiment TOML requires [experiment].id")
+
+        factors = declaration.get("factors")
+        if factors is not None and not isinstance(factors, dict):
+            raise CompilationError("[factors] must be a table")
+        base = {key: value for key, value in declaration.items() if key != "factors"}
+
+        # A one-factor declaration may omit a redundant subject axis.
+        if experiment.get("claim_mode") == "one_factor":
+            if not experiment.get("control") or not experiment.get("treatment"):
+                raise CompilationError(
+                    "one_factor experiment requires control and treatment subject ids"
+                )
+            has_subject_axis = isinstance(factors, dict) and any(
+                key in {"subject", "experiment.subject"} for key in factors
+            )
+            if not has_subject_axis:
+                factors = dict(factors or {})
+                factors = {
+                    "subject": [experiment.get("control"), experiment.get("treatment")],
+                    **factors,
+                }
+
+        runs = [
+            self._compile_expanded(expanded, selected, index)
+            for index, (expanded, selected) in enumerate(
+                expand_factor_sweep(base, factors)
+            )
+        ]
+        try:
+            self._enforce_one_factor(declaration, runs)
+        except IsolationViolation as exc:
+            if record_root is not None:
+                self._write_isolation_rejection(
+                    Path(record_root), str(experiment["id"]), runs, exc
+                )
+            raise
+        return runs
+
+    @staticmethod
+    def _write_isolation_rejection(
+        record_root: Path,
+        experiment_id: str,
+        runs: list[CompiledRun],
+        violation: IsolationViolation,
+    ) -> Path:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        directory = record_root / experiment_id / f"REJECTED_{timestamp}"
+        directory.mkdir(parents=True, exist_ok=False)
+        digest_basis = canonical_json_bytes([run.manifest_digest for run in runs])
+        reason = "forbidden resolved diff paths: " + ", ".join(
+            violation.forbidden_paths
+        )
+        not_executed = GateResult(valid=False, reason="not executed: isolation violation")
+        report = ClaimReport(
+            experiment_id=experiment_id,
+            manifest_digest=sha256_bytes(digest_basis),
+            gates={
+                GateName.execution_valid: not_executed,
+                GateName.protocol_valid: not_executed,
+                GateName.isolation_valid: GateResult(valid=False, reason=reason),
+                GateName.scoring_valid: not_executed,
+                GateName.statistics_valid: not_executed,
+            },
+            failure_breakdown={},
+            lineage=(),
+        )
+        target = directory / "isolation_violation.json"
+        temporary = target.with_suffix(".json.tmp")
+        with temporary.open("wb") as handle:
+            handle.write(canonical_json_bytes(report) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+        return target
+
+
+__all__ = [
+    "CompilationError",
+    "CompiledRun",
+    "Compiler",
+    "IsolationViolation",
+    "RegistryLookupError",
+    "canonical_json_bytes",
+    "canonical_manifest_json",
+    "enforce_allowed_diff",
+    "expand_factor_sweep",
+    "manifest_identity_dict",
+    "manifest_sha256",
+    "resolved_diff_paths",
+    "sha256_bytes",
+]

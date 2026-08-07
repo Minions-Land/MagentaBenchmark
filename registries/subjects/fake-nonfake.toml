@@ -1,0 +1,10 @@
+[subject]
+id = "fake.nonfake"
+kind = "opaque_agent"
+adapter = "fake"
+bmp_version = "0.1"
+source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
+commit = "fake-nonfake-v1"
+entrypoint = "fixed:BMP_OK"
+interface = "task_to_output"
+emits_trace = false

@@ -1,0 +1,9 @@
+[benchmark]
+id = "terminal-bench-2.1"
+kind = "task_suite"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+source = "/opt/benchmarks/terminal-bench-2.1"
+commit = "5c8eadf1f393183288a000000000000000000000"
+task_manifest = "tasks/dataset.toml"
+verifier = "native"

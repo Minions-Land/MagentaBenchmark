@@ -1,0 +1,372 @@
+{
+  "$defs": {
+    "BackendSpec": {
+      "additionalProperties": false,
+      "description": "Pinned execution backend registry entry.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "defaults": {
+          "additionalProperties": true,
+          "title": "Defaults",
+          "type": "object"
+        },
+        "digest": {
+          "minLength": 1,
+          "title": "Digest",
+          "type": "string"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "executable": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "version",
+        "digest"
+      ],
+      "title": "BackendSpec",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "EnvironmentSpec": {
+      "additionalProperties": false,
+      "description": "Reproducible environment requirements; interpreter pin is mandatory.",
+      "properties": {
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "build_timeout_seconds": {
+          "default": 600.0,
+          "exclusiveMinimum": 0,
+          "title": "Build Timeout Seconds",
+          "type": "number"
+        },
+        "env_var_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Var Names",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mounts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MountSpec"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
+        "packages": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Packages",
+          "type": "array"
+        },
+        "python_version": {
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$",
+          "title": "Python Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "python_version"
+      ],
+      "title": "EnvironmentSpec",
+      "type": "object"
+    },
+    "MountSpec": {
+      "additionalProperties": false,
+      "description": "A host-to-runtime mount declaration for an execution environment.",
+      "properties": {
+        "container_path": {
+          "minLength": 1,
+          "title": "Container Path",
+          "type": "string"
+        },
+        "host_path": {
+          "minLength": 1,
+          "title": "Host Path",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host_path",
+        "container_path"
+      ],
+      "title": "MountSpec",
+      "type": "object"
+    },
+    "ProtocolSpec": {
+      "additionalProperties": false,
+      "description": "Execution schedule defaults resolved before local execution overrides.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "adaptive_budget": {
+          "default": false,
+          "title": "Adaptive Budget",
+          "type": "boolean"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "candidate_selection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Selection"
+        },
+        "case_order": {
+          "default": "fixed",
+          "enum": [
+            "fixed",
+            "seeded_random",
+            "random"
+          ],
+          "title": "Case Order",
+          "type": "string"
+        },
+        "checkpoint_policy": {
+          "default": "disabled",
+          "enum": [
+            "disabled",
+            "save",
+            "resume",
+            "save_and_resume"
+          ],
+          "title": "Checkpoint Policy",
+          "type": "string"
+        },
+        "deterministic_conformance": {
+          "default": false,
+          "title": "Deterministic Conformance",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "parallelism": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Parallelism",
+          "type": "integer"
+        },
+        "rollouts_per_case": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Rollouts Per Case",
+          "type": "integer"
+        },
+        "state_reset": {
+          "default": "per_case",
+          "enum": [
+            "per_case",
+            "per_rollout",
+            "never"
+          ],
+          "title": "State Reset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter"
+      ],
+      "title": "ProtocolSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Execution contract with registry references inlined.",
+  "properties": {
+    "backend": {
+      "$ref": "#/$defs/BackendSpec"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "model": {
+      "minLength": 1,
+      "title": "Model",
+      "type": "string"
+    },
+    "protocol": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProtocolSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "backend",
+    "model",
+    "seed",
+    "budget"
+  ],
+  "title": "ResolvedExecutionSpec",
+  "type": "object"
+}

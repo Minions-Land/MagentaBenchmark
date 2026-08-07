@@ -1,0 +1,385 @@
+{
+  "$defs": {
+    "AssemblySidecarRef": {
+      "additionalProperties": false,
+      "description": "Opaque reference to the assembly sidecar produced by ``magenta_hcp``.\n\nBMP records path and digest for provenance but does not interpret contents.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "sidecar_schema_version": {
+          "default": "0.1",
+          "minLength": 1,
+          "title": "Sidecar Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "AssemblySidecarRef",
+      "type": "object"
+    },
+    "AssemblySubjectArtifact": {
+      "additionalProperties": false,
+      "description": "Pinned harness whose assembly evidence remains opaque to BMP core.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "assembly_profile": {
+          "default": "default",
+          "minLength": 1,
+          "title": "Assembly Profile",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "hcp_harness",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sidecar_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssemblySidecarRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit"
+      ],
+      "title": "AssemblySubjectArtifact",
+      "type": "object"
+    },
+    "EvolverSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "const": "harness",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "target"
+      ],
+      "title": "EvolverSubjectArtifact",
+      "type": "object"
+    },
+    "FakeSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "const": "fake",
+          "default": "fake",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "fault_mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "no_output",
+            "invalid_output",
+            "timeout",
+            "agent_error",
+            "harness_fault",
+            "verifier_error",
+            "infra_error",
+            "unsupported"
+          ],
+          "title": "Fault Mode",
+          "type": "string"
+        },
+        "fixed_answer": {
+          "default": "BMP_OK",
+          "title": "Fixed Answer",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fake",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "kind",
+        "id"
+      ],
+      "title": "FakeSubjectArtifact",
+      "type": "object"
+    },
+    "MetaEvolverSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "meta_evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "const": "evolver",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "target"
+      ],
+      "title": "MetaEvolverSubjectArtifact",
+      "type": "object"
+    },
+    "OpaqueAgentSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "interface": {
+          "minLength": 1,
+          "title": "Interface",
+          "type": "string"
+        },
+        "kind": {
+          "const": "opaque_agent",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "entrypoint",
+        "interface"
+      ],
+      "title": "OpaqueAgentSubjectArtifact",
+      "type": "object"
+    }
+  },
+  "discriminator": {
+    "mapping": {
+      "evolver": "#/$defs/EvolverSubjectArtifact",
+      "fake": "#/$defs/FakeSubjectArtifact",
+      "hcp_harness": "#/$defs/AssemblySubjectArtifact",
+      "meta_evolver": "#/$defs/MetaEvolverSubjectArtifact",
+      "opaque_agent": "#/$defs/OpaqueAgentSubjectArtifact"
+    },
+    "propertyName": "kind"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AssemblySubjectArtifact"
+    },
+    {
+      "$ref": "#/$defs/OpaqueAgentSubjectArtifact"
+    },
+    {
+      "$ref": "#/$defs/EvolverSubjectArtifact"
+    },
+    {
+      "$ref": "#/$defs/MetaEvolverSubjectArtifact"
+    },
+    {
+      "$ref": "#/$defs/FakeSubjectArtifact"
+    }
+  ]
+}

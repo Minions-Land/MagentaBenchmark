@@ -1,0 +1,29 @@
+[experiment]
+id = "fake-conformance-sweep"
+benchmark = "fake.exact.v1"
+subject = "fake.control"
+protocol = "fake.deterministic.v1"
+claim_mode = "one_factor"
+control = "fake.control"
+treatment = "fake.treatment"
+allowed_diff = [
+  "subject.artifact_digest",
+  "subject.fixed_answer",
+  "subject.id",
+]
+counterbalance = true
+
+[execution]
+backend = "fake.local"
+model = "none/deterministic"
+seed = 11
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[factors]
+subject = ["fake.control", "fake.treatment"]
+"execution.seed" = [11, 29]
+repetition = [0, 1]

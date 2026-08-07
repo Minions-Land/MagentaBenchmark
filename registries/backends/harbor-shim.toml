@@ -1,0 +1,15 @@
+# Non-Harbor local shim used only for BMP plumbing tests; never a real-agent run.
+[backend]
+id = "harbor.local-shim"
+kind = "local"
+adapter = "harbor-shim"
+bmp_version = "0.1"
+executable = "/root/.local/share/uv/tools/harbor/bin/harbor"
+version = "0.20.0"
+digest = "harbor-shim-test-fixture"
+
+[backend.defaults]
+environment_type = "docker"
+network_mode = "none"
+agent_override = "echo"
+agent_timeout_multiplier = 0.002777777777777778

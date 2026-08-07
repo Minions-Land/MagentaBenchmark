@@ -1,0 +1,496 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EnvironmentReceipt": {
+      "additionalProperties": false,
+      "description": "Observed environment identity recorded in execution provenance.",
+      "properties": {
+        "build_duration_seconds": {
+          "minimum": 0,
+          "title": "Build Duration Seconds",
+          "type": "number"
+        },
+        "built_at": {
+          "minLength": 1,
+          "title": "Built At",
+          "type": "string"
+        },
+        "installed_packages": {
+          "items": {
+            "$ref": "#/$defs/PackageRecord"
+          },
+          "title": "Installed Packages",
+          "type": "array"
+        },
+        "python_executable": {
+          "minLength": 1,
+          "title": "Python Executable",
+          "type": "string"
+        },
+        "python_version": {
+          "minLength": 1,
+          "title": "Python Version",
+          "type": "string"
+        },
+        "spec_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Spec Digest",
+          "type": "string"
+        },
+        "spec_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "spec_digest",
+        "python_executable",
+        "python_version",
+        "installed_packages",
+        "build_duration_seconds",
+        "built_at"
+      ],
+      "title": "EnvironmentReceipt",
+      "type": "object"
+    },
+    "PackageRecord": {
+      "additionalProperties": false,
+      "description": "Installed package provenance captured by an environment builder.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PackageRecord",
+      "type": "object"
+    },
+    "ProvenanceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_digest": {
+          "minLength": 1,
+          "title": "Backend Digest",
+          "type": "string"
+        },
+        "backend_kind": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Kind"
+        },
+        "benchmark_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Benchmark Digest",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "distribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distribution"
+        },
+        "environment_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "executable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable"
+        },
+        "image_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Digest"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "network_mode": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Mode"
+        },
+        "runner_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Runner Digest",
+          "type": "string"
+        },
+        "subject_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "trace_emission_claimed": {
+          "default": false,
+          "title": "Trace Emission Claimed",
+          "type": "boolean"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "workspace_namespace": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Namespace"
+        }
+      },
+      "required": [
+        "manifest_digest",
+        "runner_digest",
+        "benchmark_digest",
+        "subject_digest",
+        "backend_digest"
+      ],
+      "title": "ProvenanceRecord",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "pass",
+        "verified_fail",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "wall_clock_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Seconds"
+        }
+      },
+      "title": "UsageRecord",
+      "type": "object"
+    },
+    "VerifierEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "passed": {
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verifier",
+        "passed"
+      ],
+      "title": "VerifierEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checkpoint_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "log_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Log Refs",
+      "type": "array"
+    },
+    "output_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Output Refs",
+      "type": "array"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProvenanceRecord"
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "trace_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UsageRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "verifier_evidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "provenance"
+  ],
+  "title": "EvidenceBundle",
+  "type": "object"
+}

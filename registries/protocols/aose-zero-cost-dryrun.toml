@@ -1,0 +1,17 @@
+[protocol]
+id = "aose.zero-cost-dryrun.v1"
+kind = "mechanism_validation"
+adapter = "aose-docker"
+bmp_version = "0.1"
+rollouts_per_case = 1
+parallelism = 1
+case_order = "fixed"
+adaptive_budget = false
+state_reset = "per_case"
+checkpoint_policy = "disabled"
+deterministic_conformance = false
+
+[protocol.budget]
+max_tokens = 0
+max_wall_seconds = 120.0
+max_cost = 0.0

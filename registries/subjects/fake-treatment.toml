@@ -1,0 +1,7 @@
+[subject]
+id = "fake.treatment"
+kind = "fake"
+adapter = "fake"
+bmp_version = "0.1"
+fixed_answer = "BMP_OK"
+fault_mode = "none"

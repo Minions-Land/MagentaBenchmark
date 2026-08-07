@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "TOML execution declaration: registry references plus local overrides.",
+  "properties": {
+    "backend": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Backend",
+      "type": "string"
+    },
+    "backend_overrides": {
+      "additionalProperties": true,
+      "title": "Backend Overrides",
+      "type": "object"
+    },
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "model": {
+      "minLength": 1,
+      "title": "Model",
+      "type": "string"
+    },
+    "seed": {
+      "title": "Seed",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "backend",
+    "model",
+    "seed",
+    "budget"
+  ],
+  "title": "ExecutionSpec",
+  "type": "object"
+}

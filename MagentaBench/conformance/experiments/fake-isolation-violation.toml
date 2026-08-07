@@ -1,0 +1,23 @@
+[experiment]
+id = "fake-isolation-violation"
+benchmark = "fake.exact.v1"
+subject = "fake.control"
+protocol = "fake.deterministic.v1"
+claim_mode = "one_factor"
+control = "fake.control"
+treatment = "fake.treatment"
+allowed_diff = ["subject.fixed_answer"]
+counterbalance = true
+
+[execution]
+backend = "fake.local"
+model = "none/deterministic"
+seed = 11
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[factors]
+subject = ["fake.control", "fake.treatment"]

@@ -1,0 +1,34 @@
+[claim]
+experiment_id = "terminal-module-evolution-sweep"
+manifest_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+[[claim.lineage]]
+run_id = "terminal-module-evolution-sweep__run0000"
+case_id = "case-001"
+evidence_bundle_sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+[claim.effect]
+metric = "pass_rate_difference"
+point_estimate = 0.1
+confidence_interval = [0.02, 0.18]
+n_runs = 20
+n_pairs = 10
+
+[claim.failure_breakdown]
+pass = 18
+verified_fail = 2
+
+[claim.gates.execution_valid]
+valid = true
+
+[claim.gates.protocol_valid]
+valid = true
+
+[claim.gates.isolation_valid]
+valid = true
+
+[claim.gates.scoring_valid]
+valid = true
+
+[claim.gates.statistics_valid]
+valid = true

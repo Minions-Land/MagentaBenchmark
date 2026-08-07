@@ -1,0 +1,8 @@
+[execution]
+backend = "harbor-0.20"
+model = "provider_a/model_x"
+seed = 42
+
+[execution.budget]
+max_tokens = 100000
+max_wall_seconds = 3600.0

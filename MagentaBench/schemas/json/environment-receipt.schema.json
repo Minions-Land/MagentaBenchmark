@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "PackageRecord": {
+      "additionalProperties": false,
+      "description": "Installed package provenance captured by an environment builder.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PackageRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Observed environment identity recorded in execution provenance.",
+  "properties": {
+    "build_duration_seconds": {
+      "minimum": 0,
+      "title": "Build Duration Seconds",
+      "type": "number"
+    },
+    "built_at": {
+      "minLength": 1,
+      "title": "Built At",
+      "type": "string"
+    },
+    "installed_packages": {
+      "items": {
+        "$ref": "#/$defs/PackageRecord"
+      },
+      "title": "Installed Packages",
+      "type": "array"
+    },
+    "python_executable": {
+      "minLength": 1,
+      "title": "Python Executable",
+      "type": "string"
+    },
+    "python_version": {
+      "minLength": 1,
+      "title": "Python Version",
+      "type": "string"
+    },
+    "spec_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Spec Digest",
+      "type": "string"
+    },
+    "spec_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Spec Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "spec_id",
+    "spec_digest",
+    "python_executable",
+    "python_version",
+    "installed_packages",
+    "build_duration_seconds",
+    "built_at"
+  ],
+  "title": "EnvironmentReceipt",
+  "type": "object"
+}

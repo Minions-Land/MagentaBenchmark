@@ -1,0 +1,1090 @@
+{
+  "$defs": {
+    "AssemblySidecarRef": {
+      "additionalProperties": false,
+      "description": "Opaque reference to the assembly sidecar produced by ``magenta_hcp``.\n\nBMP records path and digest for provenance but does not interpret contents.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "sidecar_schema_version": {
+          "default": "0.1",
+          "minLength": 1,
+          "title": "Sidecar Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "title": "AssemblySidecarRef",
+      "type": "object"
+    },
+    "AssemblySubjectArtifact": {
+      "additionalProperties": false,
+      "description": "Pinned harness whose assembly evidence remains opaque to BMP core.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "assembly_profile": {
+          "default": "default",
+          "minLength": 1,
+          "title": "Assembly Profile",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "hcp_harness",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sidecar_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AssemblySidecarRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit"
+      ],
+      "title": "AssemblySubjectArtifact",
+      "type": "object"
+    },
+    "BackendSpec": {
+      "additionalProperties": false,
+      "description": "Pinned execution backend registry entry.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "defaults": {
+          "additionalProperties": true,
+          "title": "Defaults",
+          "type": "object"
+        },
+        "digest": {
+          "minLength": 1,
+          "title": "Digest",
+          "type": "string"
+        },
+        "environment": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "executable": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "image": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "version",
+        "digest"
+      ],
+      "title": "BackendSpec",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "EnvironmentSpec": {
+      "additionalProperties": false,
+      "description": "Reproducible environment requirements; interpreter pin is mandatory.",
+      "properties": {
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "build_timeout_seconds": {
+          "default": 600.0,
+          "exclusiveMinimum": 0,
+          "title": "Build Timeout Seconds",
+          "type": "number"
+        },
+        "env_var_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Env Var Names",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mounts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MountSpec"
+          },
+          "title": "Mounts",
+          "type": "array"
+        },
+        "packages": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Packages",
+          "type": "array"
+        },
+        "python_version": {
+          "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$",
+          "title": "Python Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "python_version"
+      ],
+      "title": "EnvironmentSpec",
+      "type": "object"
+    },
+    "EvolverSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "const": "harness",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "target"
+      ],
+      "title": "EvolverSubjectArtifact",
+      "type": "object"
+    },
+    "FakeSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "const": "fake",
+          "default": "fake",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "fault_mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "no_output",
+            "invalid_output",
+            "timeout",
+            "agent_error",
+            "harness_fault",
+            "verifier_error",
+            "infra_error",
+            "unsupported"
+          ],
+          "title": "Fault Mode",
+          "type": "string"
+        },
+        "fixed_answer": {
+          "default": "BMP_OK",
+          "title": "Fixed Answer",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "fake",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "kind",
+        "id"
+      ],
+      "title": "FakeSubjectArtifact",
+      "type": "object"
+    },
+    "MetaEvolverSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "meta_evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "target": {
+          "const": "evolver",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "target"
+      ],
+      "title": "MetaEvolverSubjectArtifact",
+      "type": "object"
+    },
+    "MountSpec": {
+      "additionalProperties": false,
+      "description": "A host-to-runtime mount declaration for an execution environment.",
+      "properties": {
+        "container_path": {
+          "minLength": 1,
+          "title": "Container Path",
+          "type": "string"
+        },
+        "host_path": {
+          "minLength": 1,
+          "title": "Host Path",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host_path",
+        "container_path"
+      ],
+      "title": "MountSpec",
+      "type": "object"
+    },
+    "OpaqueAgentSubjectArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "emits_trace": {
+          "default": false,
+          "title": "Emits Trace",
+          "type": "boolean"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "interface": {
+          "minLength": 1,
+          "title": "Interface",
+          "type": "string"
+        },
+        "kind": {
+          "const": "opaque_agent",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "entrypoint",
+        "interface"
+      ],
+      "title": "OpaqueAgentSubjectArtifact",
+      "type": "object"
+    },
+    "ProtocolSpec": {
+      "additionalProperties": false,
+      "description": "Execution schedule defaults resolved before local execution overrides.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "adaptive_budget": {
+          "default": false,
+          "title": "Adaptive Budget",
+          "type": "boolean"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "candidate_selection": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candidate Selection"
+        },
+        "case_order": {
+          "default": "fixed",
+          "enum": [
+            "fixed",
+            "seeded_random",
+            "random"
+          ],
+          "title": "Case Order",
+          "type": "string"
+        },
+        "checkpoint_policy": {
+          "default": "disabled",
+          "enum": [
+            "disabled",
+            "save",
+            "resume",
+            "save_and_resume"
+          ],
+          "title": "Checkpoint Policy",
+          "type": "string"
+        },
+        "deterministic_conformance": {
+          "default": false,
+          "title": "Deterministic Conformance",
+          "type": "boolean"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "parallelism": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Parallelism",
+          "type": "integer"
+        },
+        "rollouts_per_case": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Rollouts Per Case",
+          "type": "integer"
+        },
+        "state_reset": {
+          "default": "per_case",
+          "enum": [
+            "per_case",
+            "per_rollout",
+            "never"
+          ],
+          "title": "State Reset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter"
+      ],
+      "title": "ProtocolSpec",
+      "type": "object"
+    },
+    "ResolvedExecutionSpec": {
+      "additionalProperties": false,
+      "description": "Execution contract with registry references inlined.",
+      "properties": {
+        "backend": {
+          "$ref": "#/$defs/BackendSpec"
+        },
+        "budget": {
+          "$ref": "#/$defs/Budget"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "protocol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProtocolSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "backend",
+        "model",
+        "seed",
+        "budget"
+      ],
+      "title": "ResolvedExecutionSpec",
+      "type": "object"
+    },
+    "ResolvedManifestMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_diff": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Diff",
+          "type": "array"
+        },
+        "experiment_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Experiment Id",
+          "type": "string"
+        },
+        "factors": {
+          "additionalProperties": true,
+          "title": "Factors",
+          "type": "object"
+        },
+        "run_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "experiment_id",
+        "run_id"
+      ],
+      "title": "ResolvedManifestMetadata",
+      "type": "object"
+    },
+    "TaskSuiteBenchmarkArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "authoritative_reward_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoritative Reward Metric"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "task_suite",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reward_pass_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Pass Value"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "task_manifest": {
+          "minLength": 1,
+          "title": "Task Manifest",
+          "type": "string"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "task_manifest",
+        "verifier"
+      ],
+      "title": "TaskSuiteBenchmarkArtifact",
+      "type": "object"
+    },
+    "ToolAgentSuiteBenchmarkArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "authoritative_reward_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Authoritative Reward Metric"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "minLength": 1,
+          "title": "Commit",
+          "type": "string"
+        },
+        "evaluator": {
+          "minLength": 1,
+          "title": "Evaluator",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input_contract": {
+          "minLength": 1,
+          "title": "Input Contract",
+          "type": "string"
+        },
+        "kind": {
+          "const": "tool_agent_suite",
+          "title": "Kind",
+          "type": "string"
+        },
+        "output_contract": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Output Contract",
+          "type": "array"
+        },
+        "reward_pass_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Pass Value"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "task_root": {
+          "minLength": 1,
+          "title": "Task Root",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "id",
+        "kind",
+        "adapter",
+        "commit",
+        "task_root",
+        "input_contract",
+        "output_contract",
+        "evaluator"
+      ],
+      "title": "ToolAgentSuiteBenchmarkArtifact",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "benchmark": {
+      "discriminator": {
+        "mapping": {
+          "task_suite": "#/$defs/TaskSuiteBenchmarkArtifact",
+          "tool_agent_suite": "#/$defs/ToolAgentSuiteBenchmarkArtifact"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/TaskSuiteBenchmarkArtifact"
+        },
+        {
+          "$ref": "#/$defs/ToolAgentSuiteBenchmarkArtifact"
+        }
+      ],
+      "title": "Benchmark"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created At"
+    },
+    "execution": {
+      "$ref": "#/$defs/ResolvedExecutionSpec"
+    },
+    "metadata": {
+      "$ref": "#/$defs/ResolvedManifestMetadata"
+    },
+    "record_root": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Record Root"
+    },
+    "resume_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Resume Count",
+      "type": "integer"
+    },
+    "runner_invocation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runner Invocation Id"
+    },
+    "subject": {
+      "discriminator": {
+        "mapping": {
+          "evolver": "#/$defs/EvolverSubjectArtifact",
+          "fake": "#/$defs/FakeSubjectArtifact",
+          "hcp_harness": "#/$defs/AssemblySubjectArtifact",
+          "meta_evolver": "#/$defs/MetaEvolverSubjectArtifact",
+          "opaque_agent": "#/$defs/OpaqueAgentSubjectArtifact"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AssemblySubjectArtifact"
+        },
+        {
+          "$ref": "#/$defs/OpaqueAgentSubjectArtifact"
+        },
+        {
+          "$ref": "#/$defs/EvolverSubjectArtifact"
+        },
+        {
+          "$ref": "#/$defs/MetaEvolverSubjectArtifact"
+        },
+        {
+          "$ref": "#/$defs/FakeSubjectArtifact"
+        }
+      ],
+      "title": "Subject"
+    },
+    "wall_clock_end": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wall Clock End"
+    },
+    "wall_clock_start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wall Clock Start"
+    }
+  },
+  "required": [
+    "benchmark",
+    "subject",
+    "execution",
+    "metadata"
+  ],
+  "title": "ResolvedBmpManifest",
+  "type": "object"
+}

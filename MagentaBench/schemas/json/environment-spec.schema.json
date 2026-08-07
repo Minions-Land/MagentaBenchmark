@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "MountSpec": {
+      "additionalProperties": false,
+      "description": "A host-to-runtime mount declaration for an execution environment.",
+      "properties": {
+        "container_path": {
+          "minLength": 1,
+          "title": "Container Path",
+          "type": "string"
+        },
+        "host_path": {
+          "minLength": 1,
+          "title": "Host Path",
+          "type": "string"
+        },
+        "read_only": {
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host_path",
+        "container_path"
+      ],
+      "title": "MountSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Reproducible environment requirements; interpreter pin is mandatory.",
+  "properties": {
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "build_timeout_seconds": {
+      "default": 600.0,
+      "exclusiveMinimum": 0,
+      "title": "Build Timeout Seconds",
+      "type": "number"
+    },
+    "env_var_names": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Env Var Names",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "mounts": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MountSpec"
+      },
+      "title": "Mounts",
+      "type": "array"
+    },
+    "packages": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Packages",
+      "type": "array"
+    },
+    "python_version": {
+      "pattern": "^[0-9]+\\.[0-9]+(?:\\.[0-9]+)?$",
+      "title": "Python Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "python_version"
+  ],
+  "title": "EnvironmentSpec",
+  "type": "object"
+}
