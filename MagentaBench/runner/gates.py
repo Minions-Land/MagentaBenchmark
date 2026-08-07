@@ -19,6 +19,8 @@ from MagentaBench.schemas import (
     GateName,
     GateResult,
     LineageRef,
+    NetworkBoundary,
+    NetworkPolicySource,
     RunPurpose,
     RunReport,
     RunStatus,
@@ -445,6 +447,87 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     return errors
 
 
+_NETWORK_BOUNDARIES = {
+    "fake": NetworkBoundary.process,
+    "subprocess": NetworkBoundary.process,
+    "harbor-shim": NetworkBoundary.process,
+    "aose-docker": NetworkBoundary.task_container,
+    "harbor": NetworkBoundary.task_container,
+}
+
+
+def _network_policy_errors(item: CompletedRun) -> list[str]:
+    bundle = item.case.bundle
+    policy = bundle.network_policy
+    observation = bundle.network_observation
+    errors: list[str] = []
+    if policy is None:
+        errors.append(f"{item.case.case_id}: ResolvedNetworkPolicy missing")
+    if observation is None:
+        errors.append(f"{item.case.case_id}: NetworkObservation missing")
+    if policy is None or observation is None:
+        return errors
+
+    manifest = item.plan.manifest
+    backend_adapter = manifest.execution.backend.adapter
+    if policy.execution_adapter != backend_adapter:
+        errors.append(
+            f"{item.case.case_id}: network policy execution adapter mismatch"
+        )
+    if policy.case_id != item.case.case_id:
+        errors.append(f"{item.case.case_id}: network policy case binding mismatch")
+    expected_boundary = _NETWORK_BOUNDARIES.get(backend_adapter)
+    if expected_boundary is None:
+        errors.append(
+            f"{item.case.case_id}: missing NetworkPolicyActivationReceipt for "
+            f"adapter {backend_adapter!r}"
+        )
+    elif policy.boundary != expected_boundary:
+        errors.append(f"{item.case.case_id}: network policy boundary mismatch")
+
+    if policy.source == NetworkPolicySource.backend_artifact:
+        if policy.resolver_adapter != backend_adapter:
+            errors.append(
+                f"{item.case.case_id}: network policy resolver adapter mismatch"
+            )
+        expected_source_digest = manifest.execution.backend.digest or item.runner_digest
+        if policy.source_artifact_digest != expected_source_digest:
+            errors.append(
+                f"{item.case.case_id}: network policy source artifact digest drift"
+            )
+    else:
+        if policy.resolver_adapter != manifest.benchmark.adapter:
+            errors.append(
+                f"{item.case.case_id}: case-set network policy resolver mismatch"
+            )
+        expected_case_set_digest = getattr(item, "case_set_digest", None)
+        if expected_case_set_digest is None:
+            errors.append(
+                f"{item.case.case_id}: case-set network policy requires missing "
+                "CaseSetActivationReceipt"
+            )
+        elif policy.source_artifact_digest != expected_case_set_digest:
+            errors.append(
+                f"{item.case.case_id}: case-set network policy source digest drift"
+            )
+
+    if observation.policy_digest != canonical_digest(policy):
+        errors.append(f"{item.case.case_id}: network observation policy digest drift")
+    if observation.declared_allow_internet != policy.allow_internet:
+        errors.append(
+            f"{item.case.case_id}: network observation disagrees with resolved policy"
+        )
+    if observation.mode != policy.required_observation:
+        errors.append(
+            f"{item.case.case_id}: network observation mode does not satisfy policy"
+        )
+    if not observation.evidence_refs:
+        errors.append(
+            f"{item.case.case_id}: NetworkObservation evidence reference missing"
+        )
+    return errors
+
+
 def _evaluate_claim(
     *,
     experiment_id: str,
@@ -496,17 +579,16 @@ def _evaluate_claim(
     for item in items:
         bundle = item.case.bundle
         isolation_errors.extend(_evidence_integrity_errors(item))
+        policy_errors = _network_policy_errors(item)
+        isolation_errors.extend(policy_errors)
         network_observation = bundle.network_observation
-        if network_observation is None:
-            isolation_errors.append(
-                f"{item.case.case_id}: NetworkObservation missing"
-            )
-        elif not network_observation.claim_isolation_valid:
-            isolation_errors.append(
-                f"{item.case.case_id}: NetworkObservation cannot substantiate isolation"
-            )
-        else:
-            positive_isolation_observations += 1
+        if not policy_errors and network_observation is not None:
+            if not network_observation.claim_isolation_valid:
+                isolation_errors.append(
+                    f"{item.case.case_id}: NetworkObservation cannot substantiate isolation"
+                )
+            else:
+                positive_isolation_observations += 1
     if isolation_errors:
         isolation_gate = _invalid("; ".join(isolation_errors))
     elif len(items) != expected_run_count:

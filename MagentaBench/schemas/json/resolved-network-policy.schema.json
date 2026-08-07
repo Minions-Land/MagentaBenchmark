@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "NetworkBoundary": {
+      "enum": [
+        "process",
+        "task_container"
+      ],
+      "title": "NetworkBoundary",
+      "type": "string"
+    },
+    "NetworkObservationMode": {
+      "enum": [
+        "active_probe",
+        "connection_log",
+        "unobservable"
+      ],
+      "title": "NetworkObservationMode",
+      "type": "string"
+    },
+    "NetworkPolicySource": {
+      "enum": [
+        "backend_artifact",
+        "case_set_artifact"
+      ],
+      "title": "NetworkPolicySource",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Concrete adapter-resolved network policy bound to one executed case.",
+  "properties": {
+    "allow_internet": {
+      "title": "Allow Internet",
+      "type": "boolean"
+    },
+    "boundary": {
+      "$ref": "#/$defs/NetworkBoundary"
+    },
+    "case_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "execution_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Execution Adapter",
+      "type": "string"
+    },
+    "required_observation": {
+      "$ref": "#/$defs/NetworkObservationMode"
+    },
+    "resolver_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Resolver Adapter",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/NetworkPolicySource"
+    },
+    "source_artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Artifact Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "resolver_adapter",
+    "execution_adapter",
+    "case_id",
+    "boundary",
+    "allow_internet",
+    "required_observation",
+    "source",
+    "source_artifact_digest"
+  ],
+  "title": "ResolvedNetworkPolicy",
+  "type": "object"
+}

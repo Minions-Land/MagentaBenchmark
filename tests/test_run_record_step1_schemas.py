@@ -169,6 +169,7 @@ def test_provider_binding_is_optional_but_identity_bearing_when_resolved() -> No
 
 def test_network_observation_proves_claim_isolation_without_recording_urls() -> None:
     observation = NetworkObservation(
+        policy_digest=SHA,
         declared_allow_internet=False,
         mode=NetworkObservationMode.active_probe,
         egress_attempted=True,
@@ -185,6 +186,7 @@ def test_network_observation_proves_claim_isolation_without_recording_urls() -> 
     )
     assert observation.claim_isolation_valid is True
     unobservable = NetworkObservation(
+        policy_digest=SHA,
         declared_allow_internet=False,
         mode=NetworkObservationMode.unobservable,
         egress_attempted=False,

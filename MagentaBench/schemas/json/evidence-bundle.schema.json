@@ -82,6 +82,14 @@
       "title": "EnvironmentReceipt",
       "type": "object"
     },
+    "NetworkBoundary": {
+      "enum": [
+        "process",
+        "task_container"
+      ],
+      "title": "NetworkBoundary",
+      "type": "string"
+    },
     "NetworkEndpointRecord": {
       "additionalProperties": false,
       "properties": {
@@ -118,7 +126,7 @@
     },
     "NetworkObservation": {
       "additionalProperties": false,
-      "description": "Observed network behavior without embedded request or credential data.\n\nREQUIRED-IN-STEP-2: a claim with allow_internet=false must require an\nactive probe proving egress_succeeded=false; unobservable fails isolation.",
+      "description": "Observed network behavior bound to a resolved, content-addressed policy.\n\n``declared_allow_internet`` is a redundant observation-side cross-check;\nthe bound ``ResolvedNetworkPolicy`` remains authoritative. A deny policy\nrequires an active failed-egress probe; unobservable fails isolation.",
       "properties": {
         "declared_allow_internet": {
           "title": "Declared Allow Internet",
@@ -143,6 +151,11 @@
         "mode": {
           "$ref": "#/$defs/NetworkObservationMode"
         },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
         "reached_endpoints": {
           "default": [],
           "items": {
@@ -153,6 +166,7 @@
         }
       },
       "required": [
+        "policy_digest",
         "declared_allow_internet",
         "mode",
         "egress_attempted",
@@ -168,6 +182,14 @@
         "unobservable"
       ],
       "title": "NetworkObservationMode",
+      "type": "string"
+    },
+    "NetworkPolicySource": {
+      "enum": [
+        "backend_artifact",
+        "case_set_artifact"
+      ],
+      "title": "NetworkPolicySource",
       "type": "string"
     },
     "PackageRecord": {
@@ -379,6 +401,57 @@
         "backend_digest"
       ],
       "title": "ProvenanceRecord",
+      "type": "object"
+    },
+    "ResolvedNetworkPolicy": {
+      "additionalProperties": false,
+      "description": "Concrete adapter-resolved network policy bound to one executed case.",
+      "properties": {
+        "allow_internet": {
+          "title": "Allow Internet",
+          "type": "boolean"
+        },
+        "boundary": {
+          "$ref": "#/$defs/NetworkBoundary"
+        },
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "execution_adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Execution Adapter",
+          "type": "string"
+        },
+        "required_observation": {
+          "$ref": "#/$defs/NetworkObservationMode"
+        },
+        "resolver_adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Resolver Adapter",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/NetworkPolicySource"
+        },
+        "source_artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Artifact Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "resolver_adapter",
+        "execution_adapter",
+        "case_id",
+        "boundary",
+        "allow_internet",
+        "required_observation",
+        "source",
+        "source_artifact_digest"
+      ],
+      "title": "ResolvedNetworkPolicy",
       "type": "object"
     },
     "RunStatus": {
@@ -608,6 +681,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/NetworkObservation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "network_policy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResolvedNetworkPolicy"
         },
         {
           "type": "null"

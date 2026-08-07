@@ -73,7 +73,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Observed network behavior without embedded request or credential data.\n\nREQUIRED-IN-STEP-2: a claim with allow_internet=false must require an\nactive probe proving egress_succeeded=false; unobservable fails isolation.",
+  "description": "Observed network behavior bound to a resolved, content-addressed policy.\n\n``declared_allow_internet`` is a redundant observation-side cross-check;\nthe bound ``ResolvedNetworkPolicy`` remains authoritative. A deny policy\nrequires an active failed-egress probe; unobservable fails isolation.",
   "properties": {
     "declared_allow_internet": {
       "title": "Declared Allow Internet",
@@ -98,6 +98,11 @@
     "mode": {
       "$ref": "#/$defs/NetworkObservationMode"
     },
+    "policy_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Digest",
+      "type": "string"
+    },
     "reached_endpoints": {
       "default": [],
       "items": {
@@ -108,6 +113,7 @@
     }
   },
   "required": [
+    "policy_digest",
     "declared_allow_internet",
     "mode",
     "egress_attempted",

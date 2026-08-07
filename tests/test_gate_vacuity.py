@@ -16,10 +16,14 @@ from MagentaBench.runner.gates import _evaluate_claim
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
     GateName,
+    NetworkBoundary,
     NetworkObservation,
     NetworkObservationMode,
+    NetworkPolicySource,
+    ResolvedNetworkPolicy,
     RunStatus,
     ScheduleActivationReceipt,
+    canonical_digest,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -68,19 +72,53 @@ def _with_bundle(item, bundle):
 
 def _completed(tmp_path: Path):
     runs = Pipeline(ROOT, tmp_path).run(EXPERIMENT).runs
-    isolation_observation = NetworkObservation(
-        declared_allow_internet=False,
-        mode=NetworkObservationMode.active_probe,
-        egress_attempted=True,
-        egress_succeeded=False,
-    )
     completed = []
     for item in runs:
+        policy = ResolvedNetworkPolicy(
+            resolver_adapter="fake",
+            execution_adapter="fake",
+            case_id=item.case.case_id,
+            boundary=NetworkBoundary.process,
+            allow_internet=False,
+            required_observation=NetworkObservationMode.active_probe,
+            source=NetworkPolicySource.backend_artifact,
+            source_artifact_digest=item.runner_digest,
+        )
+        probe_path = Path(item.case.bundle_path).with_name("network_probe.json")
+        atomic_write_json(
+            probe_path,
+            {"egress_attempted": True, "egress_succeeded": False},
+        )
+        observation = NetworkObservation(
+            policy_digest=canonical_digest(policy),
+            declared_allow_internet=False,
+            mode=NetworkObservationMode.active_probe,
+            egress_attempted=True,
+            egress_succeeded=False,
+            evidence_refs=(artifact_ref(probe_path),),
+        )
         bundle = item.case.bundle.model_copy(
-            update={"network_observation": isolation_observation}
+            update={
+                "network_policy": policy,
+                "network_observation": observation,
+            }
         )
         completed.append(_with_bundle(item, bundle))
     return tuple(completed)
+
+
+def _with_policy(item, policy: ResolvedNetworkPolicy):
+    observation = item.case.bundle.network_observation
+    assert observation is not None
+    bundle = item.case.bundle.model_copy(
+        update={
+            "network_policy": policy,
+            "network_observation": observation.model_copy(
+                update={"policy_digest": canonical_digest(policy)}
+            ),
+        }
+    )
+    return _with_bundle(item, bundle)
 
 
 def _claim(items, *, expected_run_count: int = EXPECTED_RUNS):
@@ -100,6 +138,14 @@ def _restatus(item, status: RunStatus):
     """Return a copy of a CompletedRun whose bundle carries a new status."""
     bundle = item.case.bundle.model_copy(update={"status": status})
     return _with_bundle(item, bundle)
+
+
+def test_fake_pipeline_does_not_synthesize_network_isolation(
+    tmp_path: Path,
+) -> None:
+    runs = Pipeline(ROOT, tmp_path).run(EXPERIMENT).runs
+    assert all(item.case.bundle.network_policy is None for item in runs)
+    assert all(item.case.bundle.network_observation is None for item in runs)
 
 
 def test_complete_plan_scores_every_run(tmp_path: Path) -> None:
@@ -123,6 +169,138 @@ def test_missing_positive_isolation_observation_invalidates_isolation(
     report = _claim(items)
     isolation = report.gates[GateName.isolation_valid]
     assert report.gates[GateName.protocol_valid].valid is True
+    assert isolation.valid is False
+    assert "NetworkObservation missing" in isolation.reason
+
+
+def test_missing_resolved_network_policy_invalidates_isolation(
+    tmp_path: Path,
+) -> None:
+    items = list(_completed(tmp_path))
+    item = items[0]
+    bundle = item.case.bundle.model_copy(update={"network_policy": None})
+    items[0] = _with_bundle(item, bundle)
+    isolation = _claim(items).gates[GateName.isolation_valid]
+    assert isolation.valid is False
+    assert "ResolvedNetworkPolicy missing" in isolation.reason
+
+
+def test_network_observation_must_bind_resolved_policy(tmp_path: Path) -> None:
+    baseline = list(_completed(tmp_path))
+    item = baseline[0]
+    observation = item.case.bundle.network_observation
+    assert observation is not None
+    mutations = (
+        ({"declared_allow_internet": True}, "disagrees with resolved policy"),
+        ({"policy_digest": "0" * 64}, "policy digest drift"),
+        ({"evidence_refs": ()}, "evidence reference missing"),
+    )
+    for update, expected in mutations:
+        items = list(baseline)
+        bundle = item.case.bundle.model_copy(
+            update={"network_observation": observation.model_copy(update=update)}
+        )
+        items[0] = _with_bundle(item, bundle)
+        isolation = _claim(items).gates[GateName.isolation_valid]
+        assert isolation.valid is False
+        assert expected in isolation.reason
+
+
+def test_network_policy_identity_substitutions_are_rejected(tmp_path: Path) -> None:
+    baseline = list(_completed(tmp_path))
+    item = baseline[0]
+    policy = item.case.bundle.network_policy
+    assert policy is not None
+    mutations = (
+        ({"execution_adapter": "subprocess"}, "execution adapter mismatch"),
+        ({"resolver_adapter": "subprocess"}, "resolver adapter mismatch"),
+        ({"case_id": "other-case"}, "case binding mismatch"),
+        ({"boundary": NetworkBoundary.task_container}, "boundary mismatch"),
+        ({"source_artifact_digest": "0" * 64}, "source artifact digest drift"),
+    )
+    for update, expected in mutations:
+        items = list(baseline)
+        items[0] = _with_policy(item, policy.model_copy(update=update))
+        isolation = _claim(items).gates[GateName.isolation_valid]
+        assert isolation.valid is False
+        assert expected in isolation.reason
+
+
+def test_case_set_policy_fails_closed_without_activation_receipt(
+    tmp_path: Path,
+) -> None:
+    items = list(_completed(tmp_path))
+    item = items[0]
+    policy = item.case.bundle.network_policy
+    assert policy is not None
+    case_policy = policy.model_copy(
+        update={
+            "source": NetworkPolicySource.case_set_artifact,
+            "source_artifact_digest": item.plan.manifest.benchmark.artifact_digest,
+        }
+    )
+    items[0] = _with_policy(item, case_policy)
+    isolation = _claim(items).gates[GateName.isolation_valid]
+    assert isolation.valid is False
+    assert "CaseSetActivationReceipt" in isolation.reason
+
+
+def test_denial_policy_requires_positive_failed_egress_probe(
+    tmp_path: Path,
+) -> None:
+    baseline = list(_completed(tmp_path))
+    item = baseline[0]
+    policy = item.case.bundle.network_policy
+    observation = item.case.bundle.network_observation
+    assert policy is not None and observation is not None
+    mutations = (
+        (
+            policy.model_copy(
+                update={"required_observation": NetworkObservationMode.unobservable}
+            ),
+            observation.model_copy(
+                update={
+                    "mode": NetworkObservationMode.unobservable,
+                    "egress_attempted": False,
+                    "egress_succeeded": False,
+                }
+            ),
+        ),
+        (
+            policy,
+            observation.model_copy(update={"egress_succeeded": True}),
+        ),
+    )
+    for mutated_policy, mutated_observation in mutations:
+        items = list(baseline)
+        mutated_observation = mutated_observation.model_copy(
+            update={"policy_digest": canonical_digest(mutated_policy)}
+        )
+        bundle = item.case.bundle.model_copy(
+            update={
+                "network_policy": mutated_policy,
+                "network_observation": mutated_observation,
+            }
+        )
+        items[0] = _with_bundle(item, bundle)
+        isolation = _claim(items).gates[GateName.isolation_valid]
+        assert isolation.valid is False
+        assert "cannot substantiate isolation" in isolation.reason
+
+
+def test_network_mode_provenance_cannot_replace_observation(
+    tmp_path: Path,
+) -> None:
+    items = list(_completed(tmp_path))
+    item = items[0]
+    provenance = item.case.bundle.provenance.model_copy(
+        update={"network_mode": "none"}
+    )
+    bundle = item.case.bundle.model_copy(
+        update={"provenance": provenance, "network_observation": None}
+    )
+    items[0] = _with_bundle(item, bundle)
+    isolation = _claim(items).gates[GateName.isolation_valid]
     assert isolation.valid is False
     assert "NetworkObservation missing" in isolation.reason
 

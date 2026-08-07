@@ -123,6 +123,7 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         "provider-binding",
         "evidence-bundle",
         "network-observation",
+        "resolved-network-policy",
         "journal-record",
         "system-prompt-record",
         "workspace-record",

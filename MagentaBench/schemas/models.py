@@ -200,6 +200,29 @@ class NetworkObservationMode(str, Enum):
     unobservable = "unobservable"
 
 
+class NetworkPolicySource(str, Enum):
+    backend_artifact = "backend_artifact"
+    case_set_artifact = "case_set_artifact"
+
+
+class NetworkBoundary(str, Enum):
+    process = "process"
+    task_container = "task_container"
+
+
+class ResolvedNetworkPolicy(StrictModel):
+    """Concrete adapter-resolved network policy bound to one executed case."""
+
+    resolver_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    execution_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    boundary: NetworkBoundary
+    allow_internet: bool
+    required_observation: NetworkObservationMode
+    source: NetworkPolicySource
+    source_artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+
 class NetworkEndpointRecord(StrictModel):
     protocol: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9+.-]*$")
     host: str = Field(min_length=1)
@@ -225,12 +248,14 @@ class NetworkEndpointRecord(StrictModel):
 
 
 class NetworkObservation(StrictModel):
-    """Observed network behavior without embedded request or credential data.
+    """Observed network behavior bound to a resolved, content-addressed policy.
 
-    REQUIRED-IN-STEP-2: a claim with allow_internet=false must require an
-    active probe proving egress_succeeded=false; unobservable fails isolation.
+    ``declared_allow_internet`` is a redundant observation-side cross-check;
+    the bound ``ResolvedNetworkPolicy`` remains authoritative. A deny policy
+    requires an active failed-egress probe; unobservable fails isolation.
     """
 
+    policy_digest: str = Field(pattern=SHA256_PATTERN)
     declared_allow_internet: bool
     mode: NetworkObservationMode
     egress_attempted: bool
@@ -1174,6 +1199,7 @@ class EvidenceBundle(StrictModel):
     log_refs: tuple[ArtifactRef, ...] = ()
     verifier_evidence: VerifierEvidence | None = None
     usage: UsageRecord | None = None
+    network_policy: ResolvedNetworkPolicy | None = None
     network_observation: NetworkObservation | None = None
     provenance: ProvenanceRecord
 
@@ -1850,9 +1876,12 @@ __all__ = [
     "JournalRecord",
     "LineageRef",
     "MountSpec",
+    "NetworkBoundary",
     "NetworkEndpointRecord",
     "NetworkObservation",
     "NetworkObservationMode",
+    "NetworkPolicySource",
+    "ResolvedNetworkPolicy",
     "Observation",
     "ObservationReport",
     "PackageRecord",
