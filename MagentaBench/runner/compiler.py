@@ -499,6 +499,7 @@ class Compiler:
             claim_design = ClaimDesign.model_validate(design_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
+        self._validate_scope_vary_declaration(claim_design)
         contrast = self._parse_contrast(experiment)
 
         try:
@@ -579,14 +580,46 @@ class Compiler:
                 f"unknown subject adapter/interface combination: {subject_combo!r}"
             )
 
-        if (
-            claim_design.scope == ClaimScope.schedule
-            and backend.adapter not in {"fake", "subprocess"}
-        ):
+        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
+        deterministic_allowed = (
+            protocol.kind == "mechanism_validation"
+            and claim_design.purpose == RunPurpose.exploratory
+            and claim_design.scope == ClaimScope.conformance
+            and benchmark.adapter == "fake"
+            and subject.kind == "fake"
+            and subject.adapter == "fake"
+            and backend.adapter == "fake"
+            and benchmark.verifier == "fake.exact.v1"
+        )
+        if deterministic and not deterministic_allowed:
             raise CompilationError(
-                f"backend adapter {backend.adapter!r} requires missing "
-                "BackendScheduleActivationReceipt for schedule scope"
+                "deterministic_conformance requires the all-fake exploratory "
+                "mechanism-validation conformance path"
             )
+        if backend.adapter == "fake" and subject.kind == "fake" and not deterministic:
+            raise CompilationError(
+                "all-fake conformance requires deterministic_conformance=true"
+            )
+
+        scope = claim_design.scope
+        if scope == ClaimScope.schedule:
+            raise CompilationError(
+                "schedule scope requires missing native subprocess schedule tuple "
+                "and CaseSetActivationReceipt with Pipeline multi-case loading"
+            )
+        proof_type = self._SCOPE_PROOF_TYPES[scope]
+        legal_scopes = SUBJECT_KIND_SCOPE_MATRIX.get(subject.kind, frozenset())
+        if scope not in legal_scopes:
+            raise CompilationError(
+                f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
+                f"requires missing evidence class {proof_type}"
+            )
+        if scope not in self._ACTIVE_SCOPES:
+            raise CompilationError(
+                f"claim scope {scope.value!r} requires missing evidence class "
+                f"{proof_type}; runtime support is not active"
+            )
+
         kind_scope_matrix = {
             "mechanism_validation": {
                 RunPurpose.exploratory: {
@@ -685,27 +718,6 @@ class Compiler:
                 "candidate_selection='exact' requires binary benchmark scoring "
                 "and ExactSelectionReceipt"
             )
-        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
-        deterministic_allowed = (
-            protocol.kind == "mechanism_validation"
-            and claim_design.purpose == RunPurpose.exploratory
-            and claim_design.scope == ClaimScope.conformance
-            and benchmark.adapter == "fake"
-            and subject.kind == "fake"
-            and subject.adapter == "fake"
-            and backend.adapter == "fake"
-            and benchmark.verifier == "fake.exact.v1"
-        )
-        if deterministic and not deterministic_allowed:
-            raise CompilationError(
-                "deterministic_conformance requires the all-fake exploratory "
-                "mechanism-validation conformance path"
-            )
-        if backend.adapter == "fake" and subject.kind == "fake" and not deterministic:
-            raise CompilationError(
-                "all-fake conformance requires deterministic_conformance=true"
-            )
-
         allowed_raw = experiment.get("allowed_diff", ())
         if isinstance(allowed_raw, str):
             allowed_diff = (allowed_raw,)
@@ -871,6 +883,13 @@ class Compiler:
         factors = declaration.get("factors")
         if factors is not None and not isinstance(factors, dict):
             raise CompilationError("[factors] must be a table")
+        if isinstance(factors, dict) and any(
+            key.startswith("experiment.design.")
+            and isinstance(values, list)
+            and len(values) > 1
+            for key, values in factors.items()
+        ):
+            raise CompilationError("claim design must be invariant across comparison arms")
         base = {key: value for key, value in declaration.items() if key != "factors"}
 
         # A one-factor contrast may omit a redundant subject axis.

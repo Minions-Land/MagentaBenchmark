@@ -73,7 +73,7 @@ def test_manifest_identity_excludes_only_schema_declared_observation_fields() ->
 
 def test_allowed_diff_accepts_declared_subject_intervention() -> None:
     runs = Compiler(ROOT).compile(EXPERIMENTS / "fake-sweep.toml")
-    pair = [run for run in runs if run.factor_values["execution.seed"] == 11 and run.factor_values["repetition"] == 0]
+    pair = [run for run in runs if run.factor_values["repetition"] == 0]
     control = next(run for run in pair if run.manifest.subject.id == "fake.control")
     treatment = next(run for run in pair if run.manifest.subject.id == "fake.treatment")
 
@@ -199,18 +199,18 @@ id = "aose-whole-harness-compile"
 benchmark = "aosebench.biomnibench-da.v1"
 subject = "aose.dryrun.true"
 protocol = "aose.zero-cost-dryrun.v1"
-
-[experiment.contrast]
-mode = "one_factor"
-control_id = "aose.dryrun.true"
-treatment_id = "aose.dryrun.echo"
-counterbalanced = false
 allowed_diff = [
   "subject.artifact_digest",
   "subject.emits_trace",
   "subject.entrypoint",
   "subject.id",
 ]
+
+[experiment.contrast]
+mode = "one_factor"
+control_id = "aose.dryrun.true"
+treatment_id = "aose.dryrun.echo"
+counterbalanced = false
 
 [experiment.design]
 scope = "whole_harness"
@@ -289,7 +289,7 @@ def test_unknown_candidate_selection_requires_activation_receipt(
     project, experiment = _project_with_protocol_edit(
         tmp_path, 'candidate_selection = "single"', 'candidate_selection = "invented"'
     )
-    with pytest.raises(CompilationError, match="CandidateSelectionReceipt"):
+    with pytest.raises(CompilationError, match="candidate_selection"):
         Compiler(project).compile(experiment)
 
 
