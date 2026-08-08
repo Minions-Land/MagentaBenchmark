@@ -16,14 +16,18 @@ from MagentaBench.adapters.benchmarks.aosebench import (
 from MagentaBench.adapters.subjects.cli_agent import (
     CliInvocationResult,
     MagentaJsonlError,
+    MagentaLaunchConfiguration,
     build_cli_command,
     extract_answer,
     parse_magenta_jsonl,
+    resolve_magenta_configuration,
     run_cli_agent,
     scrubbed_environment,
+    write_magenta_settings,
     write_cli_outputs,
 )
 from MagentaBench.schemas import RunStatus
+from MagentaBench.schemas import EvidenceBundle, ProvenanceRecord
 
 
 AOSE = Path("/mnt/aliyunsb/BioAgent/AOSEBench")
@@ -246,6 +250,146 @@ def test_cli_command_variants_and_provider_extraction() -> None:
     assert extract_answer("codex answer", agent="codex") == "codex answer"
 
 
+def test_magenta_v022_configuration_maps_to_stable_native_argv() -> None:
+    configuration = {
+        "agent": {
+            "provider": "openai",
+            "model": "gpt-5.6",
+            "transport": "websocket-cached",
+            "cacheRetention": "long",
+            "openai_prompt_cache_mode": "explicit",
+            "cacheTelemetry": True,
+            "cacheDiagnostics": False,
+            "harness": {"toolSearch": True},
+            "retry": {
+                "enabled": True,
+                "provider": {"timeoutMs": 12_000, "maxRetries": 2},
+            },
+        }
+    }
+    command = build_cli_command("magenta", prompt="p", configuration=configuration)
+    assert command == (
+        "magenta",
+        "--print",
+        "--no-session",
+        "--mode",
+        "json",
+        "--model",
+        "gpt-5.6",
+        "--provider",
+        "openai",
+        "--transport",
+        "websocket-cached",
+        "--cache-retention",
+        "long",
+        "--openai-prompt-cache-mode",
+        "explicit",
+        "--cache-telemetry",
+        "--no-cache-diagnostics",
+        "--anthropic-cache-affinity",
+        "auto",
+        "--no-harness-workflows",
+        "--no-harness-teammates",
+        "--harness-tool-search",
+        "--lock-tools",
+        "p",
+    )
+    resolved = resolve_magenta_configuration(configuration)
+    assert isinstance(resolved, MagentaLaunchConfiguration)
+    assert resolved.provider_timeout_seconds == 12.0
+    assert resolved.settings_document()["retry"]["provider"]["timeoutMs"] == 12_000
+
+
+def test_magenta_configuration_alias_conflicts_and_settings_are_fail_closed(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="conflicting Magenta configuration"):
+        resolve_magenta_configuration(
+            {"transport": "sse", "agent": {"transport": "websocket"}}
+        )
+    with pytest.raises(ValueError, match="secret-like key"):
+        resolve_magenta_configuration({"api_key": "must-not-be-read"})
+    settings = write_magenta_settings(
+        tmp_path / "agent",
+        {"retry": {"provider": {"timeoutMs": 1234, "maxRetries": 1}}},
+    )
+    assert json.loads(settings.read_text()) == {
+        "retry": {"provider": {"maxRetries": 1, "timeoutMs": 1234}}
+    }
+    with pytest.raises(ValueError, match="differs"):
+        write_magenta_settings(
+            tmp_path / "agent",
+            {"retry": {"provider": {"timeoutMs": 999}}},
+        )
+
+
+def test_magenta_configuration_receipt_binds_effective_settings_and_activation(
+    tmp_path: Path,
+) -> None:
+    manifests = []
+    for sequence in (1, 2):
+        manifest = _magenta_manifest(sequence)
+        manifest["model"] = {"provider": "openai", "id": "gpt-5.6", "api": "responses"}
+        manifest["execution"].update(
+            {
+                "transport": "websocket",
+                "cacheRetention": "long",
+                "openaiPromptCacheMode": "explicit",
+                "cacheTelemetry": True,
+                "cacheDiagnostics": False,
+                "harnessCapabilities": {
+                    "workflows": False,
+                    "teammates": False,
+                    "toolSearch": True,
+                },
+            }
+        )
+        manifest["policies"] = {
+            "retry": {
+                "enabled": True,
+                "provider": {"timeoutMs": 1234, "maxRetries": 1},
+            }
+        }
+        manifests.append(manifest)
+    stream = "\n".join(
+        json.dumps(item)
+        for item in (*manifests, {"type": "message_end", "message": {"role": "assistant", "content": [{"type": "text", "text": "ok"}]}}, _magenta_run_end())
+    )
+    result = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=0,
+        stdout=stream,
+        stderr="",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    artifacts = write_cli_outputs(
+        result,
+        tmp_path / "receipt",
+        configuration={
+            "transport": "websocket",
+            "cacheRetention": "long",
+            "openaiPromptCacheMode": "explicit",
+            "cacheTelemetry": True,
+            "cacheDiagnostics": False,
+            "toolSearch": True,
+            "retry": {"provider": {"timeoutMs": 1234, "maxRetries": 1}},
+            "model": "gpt-5.6",
+            "provider": "openai",
+        },
+    )
+    assert artifacts.configuration_receipt is not None
+    receipt = artifacts.configuration_receipt
+    assert receipt.status == "matched"
+    assert receipt.requested["toolSearch"] is True
+    assert receipt.effective["cacheRetention"] == "long"
+    assert receipt.activation_receipt is not None
+    assert receipt.path is not None and receipt.path.is_file()
+    status = json.loads(artifacts.status_path.read_text())
+    assert status["configuration_activation_status"] == "matched"
+    assert status["activation_receipt"]["status"] == "observed"
+
+
 def test_magenta_jsonl_never_falls_back_to_event_stream_as_answer() -> None:
     assert extract_answer(json.dumps({"result": "legacy"}), agent="magenta") == ""
     assert extract_answer("not json", agent="magenta") == ""
@@ -263,7 +407,39 @@ def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> Non
     assert valid.status == RunStatus.pass_
     assert valid.answer_text() == "magenta answer"
 
-    _, _, valid_status_path = write_cli_outputs(valid, tmp_path / "valid")
+    artifacts = write_cli_outputs(valid, tmp_path / "valid")
+    _, _, valid_status_path = artifacts
+    assert artifacts.runtime_manifest_receipt is not None
+    assert artifacts.runtime_manifest_receipt.effective_sequence == 2
+    assert (
+        artifacts.runtime_manifest_receipt.trace_ref.sha256
+        == hashlib.sha256(valid.stdout.encode("utf-8")).hexdigest()
+    )
+    assert (
+        artifacts.runtime_manifest_receipt.effective_assembly_sidecar_ref
+        == artifacts.runtime_manifest_receipt.assembly_sidecar_refs[-1]
+    )
+    provenance = ProvenanceRecord(
+        manifest_digest="0" * 64,
+        runner_digest="1" * 64,
+        benchmark_digest="2" * 64,
+        subject_digest="3" * 64,
+        backend_digest="4" * 64,
+    )
+    assert (
+        artifacts.bind_provenance(provenance).runtime_manifest_receipt
+        == artifacts.runtime_manifest_receipt
+    )
+    bundle = EvidenceBundle(
+        run_id="run-1",
+        status=RunStatus.no_output,
+        provenance=artifacts.bind_provenance(provenance),
+    )
+    assert bundle.effective_assembly_sidecar_ref is not None
+    assert (
+        bundle.effective_assembly_sidecar_ref.sha256
+        == artifacts.runtime_manifest_receipt.assembly_sidecar_refs[-1].sha256
+    )
     valid_status = json.loads(valid_status_path.read_text())
     effective_ref = valid_status["effective_assembly_sidecar_ref"]
     assert effective_ref["sequence"] == 2
@@ -290,6 +466,9 @@ def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> Non
         agent="magenta",
     )
     assert malformed.status == RunStatus.invalid_output
+    malformed_artifacts = write_cli_outputs(malformed, tmp_path / "malformed")
+    with pytest.raises(MagentaJsonlError, match="lack a valid runtime manifest"):
+        malformed_artifacts.bind_provenance(provenance)
 
     contradictory = CliInvocationResult(
         command=("/opt/bin/magenta",),
