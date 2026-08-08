@@ -138,6 +138,19 @@ raise CompilationError(
 parent manifest。checkpoint ledger 的旧 completion map 仍以 parent run 为键，因此
 checkpoint 多 case 在 schema 扩展前会在 activation 处明确拒绝。
 
+## configuration registry（当前 HEAD）
+
+`runner/configuration.py` 提供名字到不可变 TOML 对象的 CRUD：`index.json` 只保存
+名字、digest 和大小，实际内容位于 digest 命名的 `objects/`。编译器把
+`[experiment.configuration]` 的 profiles、external files 和 inline values 深合并为
+`ResolvedManifestMetadata.configuration`，并把 source refs 与 artifact digest 纳入
+manifest identity。配置可以包含任意 adapter-owned 的 agent/debugger/meta-agent 参数，
+但不能携带 secret-like key；内容或路径漂移会被 standalone verifier 拒绝。
+
+`custom` benchmark kind 配合 `AdapterCapability` 和显式 digest-bound
+`AdapterRegistry.extend()`，允许外部 benchmark 提供自己的 loader、verifier 和 config
+tree，同时复用 BMP 的调度、lineage、证据和 gate。未知 adapter tuple 仍然 fail closed。
+
 ## EnvManager（Phase 2）
 
 `runner/env/manager.py`。内容寻址 venv 缓存：给定 `requirements.txt` 或 lockfile，返回 digest 与已准备好的 venv 路径。避免重复创建。
@@ -192,9 +205,10 @@ test_aose_docker_dryrun.py      10/10 AOSE 零成本观测
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-.venv311/bin/python -m pytest -q   # 171 passed in ~75s
+uv run pytest -q                    # 当前 HEAD 的精确计数见最后一次输出
 ```
 
 **必须用 `.venv311/bin/python`**，系统 `python3` 是 3.6.8。
 
-最近一次全套：`171 passed in 75.54s`（干净 HEAD `db9a171`，由 runtime-builder 从全新 detached worktree `/mnt/aliyunsb/aralacai/MagentaBench-verify-db9a171` 运行）。
+`171 passed` 是历史基线快照；当前树的验证命令是 `uv run pytest -q`，提交前必须重新记录
+精确输出，不得复用旧数字。

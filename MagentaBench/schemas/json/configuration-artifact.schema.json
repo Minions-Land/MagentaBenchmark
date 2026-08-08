@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Resolved configuration tree bound to every profile/source byte.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Artifact Digest",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "profiles": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Profiles",
+      "type": "array"
+    },
+    "schema_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Schema Digest",
+      "type": "string"
+    },
+    "source_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Source Refs",
+      "type": "array"
+    },
+    "values": {
+      "additionalProperties": true,
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "adapter",
+    "schema_digest",
+    "artifact_digest"
+  ],
+  "title": "ConfigurationArtifact",
+  "type": "object"
+}

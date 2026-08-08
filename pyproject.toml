@@ -17,6 +17,7 @@ dependencies = [
 bmp-verify-report = "MagentaBench.schemas.verification:main"
 bmp-compile = "MagentaBench.runner.cli:compile_main"
 bmp-run = "MagentaBench.runner.cli:run_main"
+bmp-config = "MagentaBench.runner.configuration_cli:main"
 
 [project.optional-dependencies]
 test = [

@@ -1,0 +1,52 @@
+{
+  "additionalProperties": false,
+  "description": "Open, identity-bearing TOML configuration profile.\n\nThe profile deliberately carries a generic JSON-compatible tree.  Adapter\ncode owns the meaning of its paths; BMP owns merge order, secret rejection,\nsource bytes, and the resulting digest.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "extends": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Extends",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "configuration",
+      "title": "Kind",
+      "type": "string"
+    },
+    "schema": {
+      "additionalProperties": true,
+      "title": "Schema",
+      "type": "object"
+    },
+    "values": {
+      "additionalProperties": true,
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "adapter"
+  ],
+  "title": "ConfigurationSpec",
+  "type": "object"
+}

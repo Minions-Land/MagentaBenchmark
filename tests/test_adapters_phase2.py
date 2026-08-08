@@ -75,6 +75,32 @@ def _magenta_manifest(sequence: int) -> dict[str, object]:
             "packageTools": [],
             "userMcpTools": [],
         },
+        "assembly": {
+            "type": "hcp_assembly",
+            "schemaVersion": 1,
+            "canonicalAssemblyDigest": None,
+            "dependencyFileClosure": None,
+            "components": [],
+            "resolvedAddresses": ["tool:read"],
+            "activeTools": ["read"],
+            "activeCapabilities": [],
+            "systemPromptDigest": {
+                "algorithm": "sha256",
+                "value": "a" * 64,
+            },
+            "packageProvenance": [],
+            "diagnostics": [],
+            "versions": {"magenta": "0.1.21", "runtime": "v24.0.0"},
+            "activationReceipt": {
+                "status": "observed",
+                "addresses": ["tool:read"],
+            },
+            "namespaces": {
+                "state": "/tmp/state",
+                "cache": "/tmp/cache",
+                "workspace": "/tmp/workspace",
+            },
+        },
     }
 
 
@@ -101,13 +127,6 @@ def _magenta_stream(*, terminal: dict[str, object] | None = None) -> str:
         json.dumps(item)
         for item in (
             _magenta_manifest(1),
-            {
-                "type": "message_end",
-                "message": {
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": "draft"}],
-                },
-            },
             _magenta_manifest(2),
             {
                 "type": "message_end",
@@ -200,6 +219,8 @@ def test_cli_command_variants_and_provider_extraction() -> None:
     stream = _magenta_stream()
     parsed = parse_magenta_jsonl(stream)
     assert len(parsed.runtime_manifests) == 2
+    assert parsed.effective_runtime_manifest["sequence"] == 2
+    assert parsed.effective_assembly_sidecar is not None
     assert parsed.answer == "magenta answer"
     assert extract_answer(stream, agent="magenta") == "magenta answer"
     with pytest.raises(MagentaJsonlError, match="exactly one run_end"):
@@ -209,6 +230,19 @@ def test_cli_command_variants_and_provider_extraction() -> None:
     )
     with pytest.raises(MagentaJsonlError, match="contiguous"):
         parse_magenta_jsonl(gap_stream)
+    missing_sidecar_field = _magenta_manifest(1)
+    del missing_sidecar_field["assembly"]["versions"]
+    malformed_sidecar_stream = stream.replace(
+        json.dumps(_magenta_manifest(1)), json.dumps(missing_sidecar_field)
+    )
+    with pytest.raises(MagentaJsonlError, match="lacks required fields"):
+        parse_magenta_jsonl(malformed_sidecar_stream)
+    nullable_versions = _magenta_manifest(1)
+    nullable_versions["assembly"]["versions"] = {"magenta": None, "runtime": None}
+    nullable_stream = stream.replace(
+        json.dumps(_magenta_manifest(1)), json.dumps(nullable_versions)
+    )
+    assert parse_magenta_jsonl(nullable_stream).effective_assembly_sidecar is not None
     assert extract_answer("codex answer", agent="codex") == "codex answer"
 
 
@@ -228,6 +262,20 @@ def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> Non
     )
     assert valid.status == RunStatus.pass_
     assert valid.answer_text() == "magenta answer"
+
+    _, _, valid_status_path = write_cli_outputs(valid, tmp_path / "valid")
+    valid_status = json.loads(valid_status_path.read_text())
+    effective_ref = valid_status["effective_assembly_sidecar_ref"]
+    assert effective_ref["sequence"] == 2
+    persisted_sidecar = Path(effective_ref["path"])
+    assert (
+        hashlib.sha256(persisted_sidecar.read_bytes()).hexdigest()
+        == effective_ref["sha256"]
+    )
+    assert persisted_sidecar.stat().st_size == effective_ref["size_bytes"]
+    assert [
+        item["sequence"] for item in valid_status["assembly_sidecar_refs"]
+    ] == [1, 2]
 
     malformed = CliInvocationResult(
         command=("/opt/bin/magenta",),

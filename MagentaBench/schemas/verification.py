@@ -189,6 +189,29 @@ def _verify_bundle_artifacts(
         )
 
 
+def _verify_manifest_configuration(
+    manifest: ResolvedBmpManifest,
+    *,
+    label: str,
+    path_map: Mapping[str, str],
+    mismatches: list[str],
+) -> None:
+    """Rehash every configuration source and the resolved tree identity."""
+
+    configuration = manifest.metadata.configuration
+    if configuration is None:
+        return
+    if configuration.canonical_digest() != configuration.artifact_digest:
+        mismatches.append(f"{label}: configuration artifact_digest drift")
+    for index, ref in enumerate(configuration.source_refs):
+        _verify_ref(
+            ref,
+            label=f"{label}.source_refs[{index}]",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+
+
 def _verify_bundle_provenance(
     bundle: EvidenceBundle,
     manifest: ResolvedBmpManifest,
@@ -1876,6 +1899,12 @@ def _verify_report(
             mismatches.append(
                 f"manifest[{position}]: test_override lineage cannot produce a verified report"
             )
+        _verify_manifest_configuration(
+            manifest,
+            label=f"manifest[{position}].configuration",
+            path_map=relocation,
+            mismatches=mismatches,
+        )
     observed_experiment_digest = _compact_json_digest(manifest_digests)
     if observed_experiment_digest != report.manifest_digest:
         mismatches.append(

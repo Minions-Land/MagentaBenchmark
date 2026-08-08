@@ -23,6 +23,9 @@ _EXPORT_MODULES = {
     "enforce_allowed_diff": ".compiler",
     "expand_factor_sweep": ".compiler",
     "manifest_sha256": ".compiler",
+    "ConfigurationRegistry": ".configuration",
+    "ConfigurationRegistryError": ".configuration",
+    "ConfigurationDriftError": ".configuration",
 }
 
 
@@ -47,4 +50,7 @@ __all__ = [
     "enforce_allowed_diff",
     "expand_factor_sweep",
     "manifest_sha256",
+    "ConfigurationRegistry",
+    "ConfigurationRegistryError",
+    "ConfigurationDriftError",
 ]

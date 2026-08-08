@@ -111,6 +111,26 @@ def test_typed_toml_loaders_reject_unknown_top_level_sections(tmp_path: Path) ->
         load_benchmark_spec(path)
 
 
+def test_custom_benchmark_contract_is_adapter_owned() -> None:
+    benchmark = BenchmarkSpecAdapter.validate_python(
+        {
+            "id": "custom.demo",
+            "kind": "custom",
+            "adapter": "external.benchmark",
+            "bmp_version": "0.1",
+            "source": "/tmp/custom-benchmark",
+            "content_globs": ("tasks/*.json", "verifier.py"),
+            "verifier": "external.verifier:v1",
+            "scoring_kind": "continuous",
+            "authoritative_reward_metric": "quality",
+            "config": {"dataset": "demo"},
+        }
+    )
+    assert benchmark.kind == "custom"
+    assert benchmark.adapter == "external.benchmark"
+    assert benchmark.config["dataset"] == "demo"
+
+
 def test_json_schema_is_generated_for_public_contracts() -> None:
     documents = schema_documents()
     assert {

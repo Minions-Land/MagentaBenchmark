@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Experiment-local composition of registry profiles and external TOML.",
+  "properties": {
+    "files": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "profiles": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Profiles",
+      "type": "array"
+    },
+    "values": {
+      "additionalProperties": true,
+      "title": "Values",
+      "type": "object"
+    }
+  },
+  "title": "ConfigurationSelection",
+  "type": "object"
+}

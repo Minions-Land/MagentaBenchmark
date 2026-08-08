@@ -1,5 +1,34 @@
 {
   "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
     "AssemblySidecarRef": {
       "additionalProperties": false,
       "description": "Opaque reference to the assembly sidecar produced by ``magenta_hcp``.\n\nBMP records path and digest for provenance but does not interpret contents.",
@@ -306,6 +335,61 @@
       "title": "ClaimScope",
       "type": "string"
     },
+    "ConfigurationArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved configuration tree bound to every profile/source byte.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "profiles": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Profiles",
+          "type": "array"
+        },
+        "schema_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Schema Digest",
+          "type": "string"
+        },
+        "source_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Source Refs",
+          "type": "array"
+        },
+        "values": {
+          "additionalProperties": true,
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "adapter",
+        "schema_digest",
+        "artifact_digest"
+      ],
+      "title": "ConfigurationArtifact",
+      "type": "object"
+    },
     "CredentialRef": {
       "additionalProperties": false,
       "description": "Identity-bearing credential digest; secret values are never serialized.",
@@ -338,6 +422,113 @@
         "source_file"
       ],
       "title": "CredentialRef",
+      "type": "object"
+    },
+    "CustomBenchmarkArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved form of a benchmark implemented by an external adapter.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "authoritative_reward_metric": {
+          "minLength": 1,
+          "title": "Authoritative Reward Metric",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "content_globs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Content Globs",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "custom",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reward_pass_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Pass Value"
+        },
+        "scoring_kind": {
+          "$ref": "#/$defs/ScoringKind"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
+          "type": "string"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "source_content_digest",
+        "id",
+        "kind",
+        "adapter",
+        "content_globs",
+        "verifier",
+        "scoring_kind",
+        "authoritative_reward_metric"
+      ],
+      "title": "CustomBenchmarkArtifact",
       "type": "object"
     },
     "EnvironmentSpec": {
@@ -1028,6 +1219,17 @@
           "title": "Allowed Diff",
           "type": "array"
         },
+        "configuration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigurationArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "experiment_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Experiment Id",
@@ -1323,6 +1525,7 @@
     "benchmark": {
       "discriminator": {
         "mapping": {
+          "custom": "#/$defs/CustomBenchmarkArtifact",
           "task_suite": "#/$defs/TaskSuiteBenchmarkArtifact",
           "tool_agent_suite": "#/$defs/ToolAgentSuiteBenchmarkArtifact"
         },
@@ -1334,6 +1537,9 @@
         },
         {
           "$ref": "#/$defs/ToolAgentSuiteBenchmarkArtifact"
+        },
+        {
+          "$ref": "#/$defs/CustomBenchmarkArtifact"
         }
       ],
       "title": "Benchmark"

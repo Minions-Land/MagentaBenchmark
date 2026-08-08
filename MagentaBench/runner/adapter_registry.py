@@ -12,7 +12,12 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
 from MagentaBench.adapters.fake.task import FakeTask
-from MagentaBench.schemas import ArtifactRef, CaseArtifact, CaseSetArtifact
+from MagentaBench.schemas import (
+    AdapterCapability,
+    ArtifactRef,
+    CaseArtifact,
+    CaseSetArtifact,
+)
 
 from .backend.fake import CaseExecution, FakeBackend
 from .backend.subprocess import SubprocessBackend
@@ -589,7 +594,12 @@ class SubprocessExecutionAdapter:
 
 
 class AdapterRegistry:
-    """Closed production registry; exact compatibility keys prevent fallback."""
+    """Exact adapter registry with explicit, digest-bound extension points.
+
+    The built-in production registry remains deterministic.  A benchmark
+    package can extend a copy by registering its loader/backend/executor and a
+    matching ``AdapterCapability``; there is no name-based fallback.
+    """
 
     def __init__(
         self,
@@ -599,6 +609,7 @@ class AdapterRegistry:
         execution_adapters: Mapping[
             tuple[str, str, str | None], ExecutionAdapter
         ],
+        capabilities: Mapping[str, AdapterCapability] | None = None,
     ) -> None:
         for key, loader in benchmark_loaders.items():
             if key != loader.adapter:
@@ -623,6 +634,13 @@ class AdapterRegistry:
         self._benchmark_loaders = MappingProxyType(dict(benchmark_loaders))
         self._backend_factories = MappingProxyType(dict(backend_factories))
         self._execution_adapters = MappingProxyType(dict(execution_adapters))
+        capability_values = dict(capabilities or {})
+        for key, capability in capability_values.items():
+            if key != capability.adapter:
+                raise AdapterRegistryError(
+                    f"AdapterCapability registry key mismatch: {key!r}"
+                )
+        self._capabilities = MappingProxyType(capability_values)
 
     @classmethod
     def production(cls) -> "AdapterRegistry":
@@ -650,6 +668,75 @@ class AdapterRegistry:
                 ): subprocess_executor,
             },
         )
+
+    def extend(
+        self,
+        *,
+        capability: AdapterCapability,
+        benchmark_loader: BenchmarkLoader | None = None,
+        backend_factory: BackendFactory | None = None,
+        execution_adapter: ExecutionAdapter | None = None,
+    ) -> "AdapterRegistry":
+        """Return a registry with one explicit plugin capability installed."""
+
+        if capability.adapter_kind == "benchmark_loader":
+            if benchmark_loader is None or benchmark_loader.adapter != capability.adapter:
+                raise AdapterRegistryError(
+                    "benchmark_loader capability requires a matching loader"
+                )
+            if benchmark_loader.digest != capability.digest:
+                raise AdapterRegistryError("benchmark loader digest does not match capability")
+        elif benchmark_loader is not None:
+            raise AdapterRegistryError("benchmark_loader is forbidden for this capability kind")
+        if capability.adapter_kind == "backend_factory":
+            if backend_factory is None or backend_factory.adapter != capability.adapter:
+                raise AdapterRegistryError(
+                    "backend_factory capability requires a matching factory"
+                )
+        elif backend_factory is not None:
+            raise AdapterRegistryError("backend_factory is forbidden for this capability kind")
+        if capability.adapter_kind == "execution":
+            if execution_adapter is None or execution_adapter.benchmark_adapter != capability.adapter:
+                raise AdapterRegistryError(
+                    "execution capability requires an adapter with matching benchmark id"
+                )
+        elif execution_adapter is not None:
+            raise AdapterRegistryError("execution_adapter is forbidden for this capability kind")
+
+        benchmark_loaders = dict(self._benchmark_loaders)
+        backend_factories = dict(self._backend_factories)
+        execution_adapters = dict(self._execution_adapters)
+        capabilities = dict(self._capabilities)
+        capabilities[capability.adapter] = capability
+        if benchmark_loader is not None:
+            benchmark_loaders[benchmark_loader.adapter] = benchmark_loader
+        if backend_factory is not None:
+            backend_factories[backend_factory.adapter] = backend_factory
+        if execution_adapter is not None:
+            key = (
+                execution_adapter.benchmark_adapter,
+                execution_adapter.backend_adapter,
+                execution_adapter.subject_interface,
+            )
+            execution_adapters[key] = execution_adapter
+        return type(self)(
+            benchmark_loaders=benchmark_loaders,
+            backend_factories=backend_factories,
+            execution_adapters=execution_adapters,
+            capabilities=capabilities,
+        )
+
+    def capability(self, adapter: str) -> AdapterCapability:
+        try:
+            return self._capabilities[adapter]
+        except KeyError as exc:
+            raise AdapterRegistryError(
+                f"adapter capability {adapter!r} is not registered"
+            ) from exc
+
+    @property
+    def capabilities(self) -> tuple[AdapterCapability, ...]:
+        return tuple(self._capabilities[key] for key in sorted(self._capabilities))
 
     @staticmethod
     def compatibility_key(run: CompiledRun) -> tuple[str, str, str | None]:

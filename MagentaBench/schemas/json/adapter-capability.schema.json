@@ -1,0 +1,89 @@
+{
+  "additionalProperties": false,
+  "description": "Declarative capability contract for a pluggable BMP adapter.\n\nThe entrypoint is metadata only until a host explicitly registers the\nimplementation object.  This keeps a TOML declaration from silently\nselecting executable code while still making supported kinds and config\npaths inspectable and hashable.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "adapter_kind": {
+      "enum": [
+        "benchmark_loader",
+        "subject",
+        "backend_factory",
+        "execution"
+      ],
+      "title": "Adapter Kind",
+      "type": "string"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "config_paths": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Config Paths",
+      "type": "array"
+    },
+    "digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Digest",
+      "type": "string"
+    },
+    "entrypoint": {
+      "minLength": 1,
+      "title": "Entrypoint",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "adapter",
+      "title": "Kind",
+      "type": "string"
+    },
+    "supported_backend_kinds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Backend Kinds",
+      "type": "array"
+    },
+    "supported_benchmark_kinds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Benchmark Kinds",
+      "type": "array"
+    },
+    "supported_subject_kinds": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Subject Kinds",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "adapter",
+    "adapter_kind",
+    "entrypoint",
+    "digest"
+  ],
+  "title": "AdapterCapability",
+  "type": "object"
+}

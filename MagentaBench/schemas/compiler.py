@@ -19,6 +19,8 @@ from .models import (
     BenchmarkArtifactAdapter,
     BenchmarkSpec,
     BenchmarkSpecAdapter,
+    ConfigurationSelection,
+    ConfigurationSpec,
     Budget,
     ClaimReport,
     EvidenceBundle,
@@ -88,6 +90,8 @@ def _declared_content_patterns(
             f"{root}/*/tests/llm_judge.py",
             f"{root}/*/tests/test.sh",
         )
+    if spec.kind == "custom":
+        return tuple(spec.content_globs)
     # Programmatic subjects are identified by their declared fields and launch
     # argv. No undeclared source-tree walk is permitted.
     return ()
@@ -352,6 +356,16 @@ def _required_table(document: Mapping[str, Any], name: str) -> Mapping[str, Any]
 def load_benchmark_spec(path: str | Path) -> BenchmarkSpec:
     table = _required_table(_load_toml(path), "benchmark")
     return BenchmarkSpecAdapter.validate_python(table)
+
+
+def load_configuration_spec(path: str | Path) -> ConfigurationSpec:
+    table = _required_table(_load_toml(path), "configuration")
+    return ConfigurationSpec.model_validate(table)
+
+
+def load_configuration_selection(path: str | Path) -> ConfigurationSelection:
+    table = _required_table(_load_toml(path), "configuration")
+    return ConfigurationSelection.model_validate(table)
 
 
 def load_subject_spec(path: str | Path) -> SubjectSpec:

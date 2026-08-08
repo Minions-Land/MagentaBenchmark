@@ -21,3 +21,9 @@ Protocol. BMP may consume a canonical resolved sidecar emitted through the
 Magenta adapter, but no MagentaBench artifact or test is evidence that BMP owns
 or reimplements HCP resolution.
 
+Configuration profiles are also BMP artifacts: registry names resolve to
+content-addressed TOML objects, external/inline overlays are included in the
+resolved manifest identity, and standalone verification rehashes every source
+reference. A custom benchmark adapter must register an explicit digest-bound
+`AdapterCapability`; configuration freedom does not permit an unregistered
+loader or a silent fallback.

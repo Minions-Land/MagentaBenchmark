@@ -36,6 +36,10 @@ SECRET_KEY_PATTERN = re.compile(
     r"KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL",
     re.IGNORECASE,
 )
+NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
+    r"^(?:cache|completion|context|generation|input|max_context|max_generation|output|prompt|total)_?tokens$",
+    re.IGNORECASE,
+)
 IDENTITY_EXCLUDE: frozenset[str] = frozenset(
     {
         "created_at",
@@ -53,7 +57,10 @@ def _reject_secret_like_keys(value: Any, *, field_name: str) -> Any:
 
     if isinstance(value, Mapping):
         for key, item in value.items():
-            if SECRET_KEY_PATTERN.search(str(key)):
+            if SECRET_KEY_PATTERN.search(str(key)) and not (
+                "TOKEN" in str(key).upper()
+                and NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(str(key))
+            ):
                 raise ValueError(
                     f"{field_name} must not contain secret-like key {key!r}"
                 )
@@ -92,6 +99,104 @@ class SourceRegistryEntry(RegistryEntry):
     commit: str | None = Field(default=None, min_length=1)
 
 
+def _validate_json_configuration(value: Any, *, field_name: str) -> Any:
+    """Validate an extensible configuration tree without admitting secrets."""
+
+    _reject_secret_like_keys(value, field_name=field_name)
+
+    def visit(item: Any) -> None:
+        if isinstance(item, Mapping):
+            for key, child in item.items():
+                if not isinstance(key, str) or not key:
+                    raise ValueError(f"{field_name} keys must be non-empty strings")
+                visit(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                visit(child)
+
+    visit(value)
+    try:
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be JSON-compatible") from exc
+    return value
+
+
+class ConfigurationSpec(RegistryEntry):
+    """Open, identity-bearing TOML configuration profile.
+
+    The profile deliberately carries a generic JSON-compatible tree.  Adapter
+    code owns the meaning of its paths; BMP owns merge order, secret rejection,
+    source bytes, and the resulting digest.
+    """
+
+    kind: Literal["configuration"]
+    extends: tuple[str, ...] = ()
+    values: Mapping[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(populate_by_name=True)
+    json_schema: Mapping[str, Any] = Field(default_factory=dict, alias="schema")
+
+    @field_validator("extends")
+    @classmethod
+    def parent_ids_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("configuration extends ids must be unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("configuration extends ids must be valid BMP ids")
+        return values
+
+    @field_validator("values", "json_schema", mode="before")
+    @classmethod
+    def values_are_json_compatible(cls, value: Any, info: Any) -> Any:
+        return _validate_json_configuration(value or {}, field_name=f"ConfigurationSpec.{info.field_name}")
+
+
+class ConfigurationSelection(StrictModel):
+    """Experiment-local composition of registry profiles and external TOML."""
+
+    profiles: tuple[str, ...] = ()
+    files: tuple[str, ...] = ()
+    values: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("profiles")
+    @classmethod
+    def profile_ids_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("configuration profiles must be unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("configuration profile ids must be valid BMP ids")
+        return values
+
+    @field_validator("files")
+    @classmethod
+    def files_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for value in values:
+            candidate = value.replace("\\", "/")
+            parts = candidate.split("/")
+            if (
+                not candidate
+                or candidate.startswith("/")
+                or any(part in {"", ".", ".."} for part in parts)
+            ):
+                raise ValueError("configuration files must be normalized relative paths")
+            normalized.append(candidate)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("configuration files must be unique")
+        return tuple(normalized)
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def inline_values_are_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value or {}, field_name="ConfigurationSelection.values")
+
+
 class ArtifactRef(StrictModel):
     """Content-addressed reference to an artifact stored outside the manifest."""
 
@@ -108,6 +213,87 @@ class ArtifactRef(StrictModel):
 
     def identity_data(self) -> dict[str, int | str]:
         return {"sha256": self.sha256, "size_bytes": self.size_bytes}
+
+
+class ConfigurationArtifact(StrictModel):
+    """Resolved configuration tree bound to every profile/source byte."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    profiles: tuple[str, ...] = ()
+    source_refs: tuple[ArtifactRef, ...] = ()
+    schema_digest: str = Field(pattern=SHA256_PATTERN)
+    values: Mapping[str, Any] = Field(default_factory=dict)
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    @field_validator("values", mode="before")
+    @classmethod
+    def artifact_values_are_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value or {}, field_name="ConfigurationArtifact.values"
+        )
+
+    @model_validator(mode="after")
+    def source_refs_are_unique(self) -> "ConfigurationArtifact":
+        identities = [(ref.sha256, ref.size_bytes) for ref in self.source_refs]
+        if len(set(identities)) != len(identities):
+            raise ValueError("configuration source refs must be content-unique")
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "adapter": self.adapter,
+            "profiles": list(self.profiles),
+            "source_refs": [ref.identity_data() for ref in self.source_refs],
+            "schema_digest": self.schema_digest,
+            "values": self.values,
+        }
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class AdapterCapability(RegistryEntry):
+    """Declarative capability contract for a pluggable BMP adapter.
+
+    The entrypoint is metadata only until a host explicitly registers the
+    implementation object.  This keeps a TOML declaration from silently
+    selecting executable code while still making supported kinds and config
+    paths inspectable and hashable.
+    """
+
+    kind: Literal["adapter"]
+    adapter_kind: Literal[
+        "benchmark_loader", "subject", "backend_factory", "execution"
+    ]
+    entrypoint: str = Field(min_length=1)
+    digest: str = Field(pattern=SHA256_PATTERN)
+    config_paths: tuple[str, ...] = ()
+    supported_benchmark_kinds: tuple[str, ...] = ()
+    supported_subject_kinds: tuple[str, ...] = ()
+    supported_backend_kinds: tuple[str, ...] = ()
+
+    @field_validator(
+        "config_paths",
+        "supported_benchmark_kinds",
+        "supported_subject_kinds",
+        "supported_backend_kinds",
+    )
+    @classmethod
+    def capability_values_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("adapter capability values must be unique")
+        if any(not value.strip() for value in values):
+            raise ValueError("adapter capability values must be non-empty")
+        return values
 
 
 class EnvironmentBindingRef(StrictModel):
@@ -405,8 +591,43 @@ class ToolAgentSuiteBenchmarkSpec(SourceRegistryEntry):
         return self
 
 
+class CustomBenchmarkSpec(SourceRegistryEntry):
+    """Generic benchmark declaration owned by an external BMP adapter."""
+
+    kind: Literal["custom"]
+    content_globs: tuple[str, ...] = Field(min_length=1)
+    verifier: str = Field(min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
+    reward_pass_value: float | None = None
+    config: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("custom benchmark content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="content_globs")
+        return values
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value or {}, field_name="CustomBenchmarkSpec.config")
+
+    @model_validator(mode="after")
+    def scoring_semantics_are_complete(self) -> "CustomBenchmarkSpec":
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
+        return self
+
+
 BenchmarkSpec = Annotated[
-    Union[TaskSuiteBenchmarkSpec, ToolAgentSuiteBenchmarkSpec],
+    Union[TaskSuiteBenchmarkSpec, ToolAgentSuiteBenchmarkSpec, CustomBenchmarkSpec],
     Field(discriminator="kind"),
 ]
 BenchmarkSpecAdapter = TypeAdapter(BenchmarkSpec)
@@ -486,8 +707,47 @@ class ToolAgentSuiteBenchmarkArtifact(AbsoluteSourceArtifact):
         return self
 
 
+class CustomBenchmarkArtifact(AbsoluteSourceArtifact):
+    """Resolved form of a benchmark implemented by an external adapter."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    kind: Literal["custom"]
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    bmp_version: Literal["0.1"] = BMP_VERSION
+    commit: str | None = Field(default=None, min_length=1)
+    content_globs: tuple[str, ...] = Field(min_length=1)
+    verifier: str = Field(min_length=1)
+    scoring_kind: ScoringKind
+    authoritative_reward_metric: str = Field(min_length=1)
+    reward_pass_value: float | None = None
+    config: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("custom benchmark content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="content_globs")
+        return values
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value or {}, field_name="CustomBenchmarkArtifact.config")
+
+    @model_validator(mode="after")
+    def scoring_semantics_are_complete(self) -> "CustomBenchmarkArtifact":
+        _validate_scoring_semantics(
+            self.scoring_kind,
+            self.authoritative_reward_metric,
+            self.reward_pass_value,
+        )
+        return self
+
+
 BenchmarkArtifact = Annotated[
-    Union[TaskSuiteBenchmarkArtifact, ToolAgentSuiteBenchmarkArtifact],
+    Union[TaskSuiteBenchmarkArtifact, ToolAgentSuiteBenchmarkArtifact, CustomBenchmarkArtifact],
     Field(discriminator="kind"),
 ]
 BenchmarkArtifactAdapter = TypeAdapter(BenchmarkArtifact)
@@ -1237,6 +1497,7 @@ class ResolvedManifestMetadata(StrictModel):
     run_id: str = Field(pattern=ID_PATTERN)
     allowed_diff: tuple[str, ...] = ()
     factors: Mapping[str, Any] = Field(default_factory=dict)
+    configuration: ConfigurationArtifact | None = None
     test_override: TestOverrideReceipt | None = None
 
     @field_validator("allowed_diff")
@@ -2278,6 +2539,7 @@ RunReportAdapter = TypeAdapter(RunReport)
 
 __all__ = [
     "BMP_VERSION",
+    "AdapterCapability",
     "IDENTITY_EXCLUDE",
     "ArtifactRef",
     "AttemptAllocation",
@@ -2290,6 +2552,9 @@ __all__ = [
     "BenchmarkArtifactAdapter",
     "BenchmarkSpec",
     "BenchmarkSpecAdapter",
+    "ConfigurationArtifact",
+    "ConfigurationSelection",
+    "ConfigurationSpec",
     "Budget",
     "BudgetAllocation",
     "BudgetDebit",
@@ -2303,6 +2568,8 @@ __all__ = [
     "ClaimDesign",
     "ClaimReport",
     "ClaimScope",
+    "CustomBenchmarkArtifact",
+    "CustomBenchmarkSpec",
     "CredentialRef",
     "EffectEstimate",
     "EnvironmentBindingRef",

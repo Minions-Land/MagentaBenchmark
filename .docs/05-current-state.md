@@ -1,20 +1,21 @@
 # 05 · 当前状态：已建立、未建立、被阻塞
 
-> **后续状态修订（2026-08-08）**：本页下面的提交列表和 171-test 数字保留为 Planner
-> 基线。当前未提交工作已实现 `SubjectKind` 的 manifest 推导、父 run/子 attempt
+> **状态修订（2026-08-08）**：`SubjectKind` 的 manifest 推导、父 run/子 attempt
 > lineage、`RecordIndex`、独立报告校验、checkpoint 字节绑定、环境路径无关身份、
-> exploratory 显式 `isolation_valid`，并写入 `EVIDENCE.md` 与 `records/RETROACTIVE.md`。
-> 这些改动仍须以最终树上的回归结果为准；**没有任何真实 benchmark 证据因此变成有效
-> claim**。Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到 `650de920`；
-> 当前 Magenta 本地提交增加了可消费的中性 HCP assembly sidecar，但 canonical
+> exploratory 显式 `isolation_valid` 已提交到当前 BMP HEAD `aff5632`，并写入
+> `EVIDENCE.md` 与 `records/RETROACTIVE.md`。最终树验证为 249 tests passed、HCP
+> boundary audit 0 violation；**没有任何真实 benchmark 证据因此变成有效 claim**。
+> Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到 `650de920`；当前
+> Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，但 canonical
 > assembly digest/dependency closure 仍未由 HCP 提供，因此 `magenta_hcp` 的
 > component/ablation 能力继续 fail closed。
 
 本文档决定接手者从哪继续。
 
-## 提交历史（23 个提交，`git log --oneline | cat`）
+## 提交历史（24 个提交，`git log --oneline | cat`）
 
 ```
+aff5632 Harden BMP lineage, ordering, and standalone verification
 db9a171 Add content-addressed case-set adapter registry
 e41944e Bind network observations to resolved policy
 551b5cc Require exact exploratory evidence coverage
@@ -40,8 +41,8 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 7c2d378 Initial commit: BMP Phase 0-2 implementation
 ```
 
-Planner 基线工作树并不代表当前共享树状态；本轮 BMP 改动仍保留在共享工作树中，
-Magenta 的对应 HCP 改动已本地提交为 `f0eb2f49`，且明确未 push。
+当前 BMP 工作树已干净；本轮 BMP 改动已本地提交为 `aff5632`。Magenta 的对应 HCP
+改动已本地提交为 `f0eb2f49`，且明确未 push。
 
 ## 已建立（有代码 + 有测试）
 
@@ -72,6 +73,8 @@ Magenta 的对应 HCP 改动已本地提交为 `f0eb2f49`，且明确未 push。
 - 内容寻址 case-set adapter registry；普通多 case 执行按
   `parent_run_id × case_id × attempt_id` 写入独立 lineage，checkpoint 多 case
   在 schema 扩展前继续 fail closed
+- 配置 registry：TOML 对象内容寻址、CRUD、深合并、外部文件/inline overlay，配置 digest
+  进入 manifest；`custom` benchmark + `AdapterCapability` 支持显式 digest-bound 外部 adapter
 
 **benchmark 接入**
 - BiomniBench-DA：26 case 已注册，连续 `ScoringKind`，`authoritative_reward_metric="overall"`
@@ -159,10 +162,11 @@ gold 分类只能是逐 case 显式白名单 + 未分类拒绝。
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-git log --oneline | cat                        # 23 行，HEAD db9a171
+git log --oneline | cat                        # 24 行，HEAD aff5632
 git status --porcelain | wc -l                  # 0
 git status --porcelain --ignored | grep -E "^!!.*\.py$" | grep -vE "venv|__pycache__"   # 空 = 无隐藏源码
-git remote -v | wc -l                           # 0（无远端）
-.venv311/bin/python -m pytest -q                # 171 passed
+uv run pytest -q                                # 249 passed
+uv run python -m compileall -q MagentaBench tests
+bash scripts/audit_hcp_boundary.sh              # 0 violation(s), 0 scan error(s)
 find records -type f | wc -l                    # 43
 ```

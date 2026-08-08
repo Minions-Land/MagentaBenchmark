@@ -34,6 +34,19 @@ class MagentaJsonlTrace:
     run_end: Mapping[str, object]
 
     @property
+    def effective_runtime_manifest(self) -> Mapping[str, object]:
+        """Return the final manifest after any extension-driven replacement."""
+
+        return self.runtime_manifests[-1]
+
+    @property
+    def effective_assembly_sidecar(self) -> Mapping[str, object] | None:
+        """Return the sidecar for the runtime that actually completed the run."""
+
+        assembly = self.effective_runtime_manifest.get("assembly")
+        return assembly if isinstance(assembly, Mapping) else None
+
+    @property
     def successful(self) -> bool:
         return self.run_end.get("status") == "success" and self.run_end.get(
             "exitCode"
@@ -281,6 +294,116 @@ def _require_mapping(value: object, *, label: str) -> Mapping[str, object]:
     return value
 
 
+def _validate_sha256_digest(value: object, *, label: str, nullable: bool) -> None:
+    if value is None and nullable:
+        return
+    digest = _require_mapping(value, label=label)
+    if digest.get("algorithm") != "sha256":
+        raise MagentaJsonlError(f"{label}.algorithm must be 'sha256'")
+    observed = digest.get("value")
+    if (
+        not isinstance(observed, str)
+        or len(observed) != 64
+        or any(character not in "0123456789abcdef" for character in observed)
+    ):
+        raise MagentaJsonlError(f"{label}.value must be a lowercase SHA-256")
+
+
+def _validate_assembly_sidecar(
+    assembly: Mapping[str, object], *, label: str
+) -> None:
+    """Validate Magenta's public sidecar envelope without interpreting HCP rows."""
+
+    required = {
+        "type",
+        "schemaVersion",
+        "canonicalAssemblyDigest",
+        "dependencyFileClosure",
+        "components",
+        "resolvedAddresses",
+        "activeTools",
+        "activeCapabilities",
+        "systemPromptDigest",
+        "packageProvenance",
+        "diagnostics",
+        "versions",
+        "activationReceipt",
+        "namespaces",
+    }
+    missing = sorted(required - set(assembly))
+    if missing:
+        raise MagentaJsonlError(f"{label} lacks required fields: {missing}")
+    if assembly.get("type") != "hcp_assembly":
+        raise MagentaJsonlError(f"{label}.type must be 'hcp_assembly'")
+    if assembly.get("schemaVersion") != 1:
+        raise MagentaJsonlError(f"{label}.schemaVersion must be 1")
+    _validate_sha256_digest(
+        assembly.get("canonicalAssemblyDigest"),
+        label=f"{label}.canonicalAssemblyDigest",
+        nullable=True,
+    )
+    if assembly.get("dependencyFileClosure") is not None:
+        raise MagentaJsonlError(
+            f"{label}.dependencyFileClosure must be null in schema version 1"
+        )
+    _validate_sha256_digest(
+        assembly.get("systemPromptDigest"),
+        label=f"{label}.systemPromptDigest",
+        nullable=False,
+    )
+    for field in (
+        "components",
+        "resolvedAddresses",
+        "activeTools",
+        "activeCapabilities",
+        "packageProvenance",
+        "diagnostics",
+    ):
+        if not isinstance(assembly.get(field), list):
+            raise MagentaJsonlError(f"{label}.{field} must be a list")
+    for field in ("resolvedAddresses", "activeTools", "activeCapabilities"):
+        values = assembly[field]
+        if any(not isinstance(value, str) or not value for value in values):
+            raise MagentaJsonlError(f"{label}.{field} must contain strings")
+        if values != sorted(set(values)):
+            raise MagentaJsonlError(f"{label}.{field} must be sorted and unique")
+
+    versions = _require_mapping(assembly.get("versions"), label=f"{label}.versions")
+    for field in ("magenta", "runtime"):
+        if field not in versions:
+            raise MagentaJsonlError(f"{label}.versions.{field} is required")
+        value = versions[field]
+        if value is not None and (not isinstance(value, str) or not value):
+            raise MagentaJsonlError(
+                f"{label}.versions.{field} must be a non-empty string or null"
+            )
+    activation = _require_mapping(
+        assembly.get("activationReceipt"), label=f"{label}.activationReceipt"
+    )
+    if activation.get("status") not in {"observed", "unknown"}:
+        raise MagentaJsonlError(f"{label}.activationReceipt.status is invalid")
+    activation_addresses = activation.get("addresses")
+    if not isinstance(activation_addresses, list) or any(
+        not isinstance(value, str) or not value for value in activation_addresses
+    ):
+        raise MagentaJsonlError(
+            f"{label}.activationReceipt.addresses must contain strings"
+        )
+    if activation_addresses != sorted(set(activation_addresses)):
+        raise MagentaJsonlError(
+            f"{label}.activationReceipt.addresses must be sorted and unique"
+        )
+    namespaces = _require_mapping(
+        assembly.get("namespaces"), label=f"{label}.namespaces"
+    )
+    for field in ("state", "cache", "workspace"):
+        value = namespaces.get(field)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise MagentaJsonlError(
+                f"{label}.namespaces.{field} must be a string or null"
+            )
+
+
 def _validate_runtime_manifest(
     manifest: Mapping[str, object], *, position: int
 ) -> None:
@@ -343,25 +466,12 @@ def _validate_runtime_manifest(
         raise MagentaJsonlError(f"{label}.tools requires active and available lists")
     _require_mapping(manifest.get("resources"), label=f"{label}.resources")
 
-    # HCP assembly is intentionally opaque to BMP.  Validate only the public
-    # sidecar envelope so malformed evidence cannot masquerade as a valid
-    # Magenta runtime manifest; all component fields remain uninterpreted.
+    # Component rows remain opaque to BMP. Validate only Magenta's public
+    # envelope so malformed sidecar evidence cannot masquerade as valid.
     assembly = manifest.get("assembly")
     if assembly is not None:
         assembly_obj = _require_mapping(assembly, label=f"{label}.assembly")
-        if assembly_obj.get("type") != "hcp_assembly":
-            raise MagentaJsonlError(
-                f"{label}.assembly.type must be 'hcp_assembly'"
-            )
-        if assembly_obj.get("schemaVersion") != 1:
-            raise MagentaJsonlError(
-                f"{label}.assembly.schemaVersion must be 1"
-            )
-        for field in ("components", "resolvedAddresses", "activeTools", "activeCapabilities", "diagnostics"):
-            if not isinstance(assembly_obj.get(field), list):
-                raise MagentaJsonlError(
-                    f"{label}.assembly.{field} must be a list"
-                )
+        _validate_assembly_sidecar(assembly_obj, label=f"{label}.assembly")
 
 
 def _validate_run_end(run_end: Mapping[str, object]) -> None:
@@ -567,6 +677,33 @@ def write_cli_outputs(
             status_payload["headless_protocol_error"] = str(exc)
         else:
             manifests = list(parsed_trace.runtime_manifests)
+            sidecar_refs: list[dict[str, object]] = []
+            sidecar_dir = root / "assembly_sidecars"
+            for manifest in parsed_trace.runtime_manifests:
+                sidecar = manifest.get("assembly")
+                if not isinstance(sidecar, Mapping):
+                    continue
+                sequence = manifest["sequence"]
+                encoded = json.dumps(
+                    sidecar,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8") + b"\n"
+                sidecar_dir.mkdir(parents=True, exist_ok=True)
+                sidecar_path = sidecar_dir / f"runtime-manifest-{sequence}.json"
+                temporary_path = sidecar_path.with_suffix(".json.tmp")
+                temporary_path.write_bytes(encoded)
+                os.replace(temporary_path, sidecar_path)
+                sidecar_refs.append(
+                    {
+                        "sequence": sequence,
+                        "path": str(sidecar_path.resolve()),
+                        "sha256": hashlib.sha256(encoded).hexdigest(),
+                        "size_bytes": len(encoded),
+                    }
+                )
             status_payload.update(
                 {
                     "headless_protocol_valid": True,
@@ -585,18 +722,15 @@ def write_cli_outputs(
                         for manifest in manifests
                     ],
                     "assembly_sidecar_count": len(parsed_trace.assembly_sidecars),
-                    "assembly_sidecar_sha256": [
-                        hashlib.sha256(
-                            json.dumps(
-                                sidecar,
-                                ensure_ascii=False,
-                                allow_nan=False,
-                                sort_keys=True,
-                                separators=(",", ":"),
-                            ).encode("utf-8")
-                        ).hexdigest()
-                        for sidecar in parsed_trace.assembly_sidecars
-                    ],
+                    "assembly_sidecar_refs": sidecar_refs,
+                    "effective_runtime_manifest_sequence": (
+                        parsed_trace.effective_runtime_manifest["sequence"]
+                    ),
+                    "effective_assembly_sidecar_ref": (
+                        sidecar_refs[-1]
+                        if parsed_trace.effective_assembly_sidecar is not None
+                        else None
+                    ),
                 }
             )
     status.write_text(

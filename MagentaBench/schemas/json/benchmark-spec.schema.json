@@ -1,5 +1,100 @@
 {
   "$defs": {
+    "CustomBenchmarkSpec": {
+      "additionalProperties": false,
+      "description": "Generic benchmark declaration owned by an external BMP adapter.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "authoritative_reward_metric": {
+          "minLength": 1,
+          "title": "Authoritative Reward Metric",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "content_globs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Content Globs",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "custom",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reward_pass_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reward Pass Value"
+        },
+        "scoring_kind": {
+          "$ref": "#/$defs/ScoringKind"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "source",
+        "content_globs",
+        "verifier",
+        "scoring_kind",
+        "authoritative_reward_metric"
+      ],
+      "title": "CustomBenchmarkSpec",
+      "type": "object"
+    },
     "ScoringKind": {
       "description": "Benchmark-owned verdict semantics.\n\nContinuous scoring supports metric/effect claims but not pass-rate claims;\ndownstream compilation must reject pass-rate estimands without a threshold.",
       "enum": [
@@ -199,6 +294,7 @@
   },
   "discriminator": {
     "mapping": {
+      "custom": "#/$defs/CustomBenchmarkSpec",
       "task_suite": "#/$defs/TaskSuiteBenchmarkSpec",
       "tool_agent_suite": "#/$defs/ToolAgentSuiteBenchmarkSpec"
     },
@@ -210,6 +306,9 @@
     },
     {
       "$ref": "#/$defs/ToolAgentSuiteBenchmarkSpec"
+    },
+    {
+      "$ref": "#/$defs/CustomBenchmarkSpec"
     }
   ]
 }

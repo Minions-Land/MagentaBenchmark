@@ -15,10 +15,54 @@ from MagentaBench.runner.adapter_registry import (
 from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.gates import evaluate_run_report
 from MagentaBench.runner.pipeline import Pipeline, ResumeDriftError
-from MagentaBench.schemas import ArtifactRef, CaseArtifact, CaseSetArtifact
+from MagentaBench.schemas import (
+    AdapterCapability,
+    ArtifactRef,
+    CaseArtifact,
+    CaseSetArtifact,
+)
 
 ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
+
+
+class _ExternalLoader:
+    adapter = "external.benchmark"
+    digest = "a" * 64
+
+
+def test_adapter_registry_accepts_only_digest_bound_extensions() -> None:
+    capability = AdapterCapability(
+        id="external.benchmark",
+        kind="adapter",
+        adapter="external.benchmark",
+        adapter_kind="benchmark_loader",
+        entrypoint="package.module:loader",
+        digest=_ExternalLoader.digest,
+        supported_benchmark_kinds=("custom",),
+    )
+    registry = AdapterRegistry.production().extend(
+        capability=capability,
+        benchmark_loader=_ExternalLoader(),
+    )
+    assert registry.capability("external.benchmark") == capability
+    assert registry.capabilities[-1] == capability
+    with pytest.raises(AdapterRegistryError, match="digest"):
+        AdapterRegistry.production().extend(
+            capability=capability.model_copy(update={"digest": "b" * 64}),
+            benchmark_loader=_ExternalLoader(),
+        )
+
+
+def test_pipeline_registry_injection_is_never_implicit_production(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ValueError, match="adapter-registry injection"):
+        Pipeline(
+            ROOT,
+            tmp_path / "records",
+            adapter_registry=AdapterRegistry.production(),
+        )
 
 
 def _project(tmp_path: Path) -> tuple[Path, Path]:

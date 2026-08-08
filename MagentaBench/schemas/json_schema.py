@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import (
+    AdapterCapability,
     BenchmarkArtifactAdapter,
     BenchmarkSpecAdapter,
     CaseSetActivationReceipt,
@@ -14,6 +15,9 @@ from .models import (
     CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
+    ConfigurationArtifact,
+    ConfigurationSelection,
+    ConfigurationSpec,
     CredentialRef,
     EnvironmentReceipt,
     EnvironmentSpec,
@@ -44,6 +48,10 @@ def schema_documents() -> dict[str, dict[str, Any]]:
     return {
         "benchmark-spec": BenchmarkSpecAdapter.json_schema(),
         "benchmark-artifact": BenchmarkArtifactAdapter.json_schema(),
+        "configuration-spec": ConfigurationSpec.model_json_schema(),
+        "configuration-selection": ConfigurationSelection.model_json_schema(),
+        "configuration-artifact": ConfigurationArtifact.model_json_schema(),
+        "adapter-capability": AdapterCapability.model_json_schema(),
         "subject-spec": SubjectSpecAdapter.json_schema(),
         "subject-artifact": SubjectArtifactAdapter.json_schema(),
         "execution-spec": ExecutionSpec.model_json_schema(),
