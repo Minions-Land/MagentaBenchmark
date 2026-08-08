@@ -62,7 +62,7 @@ class Execution:
     )
     execution_digest = hashlib.sha256(execution.read_bytes()).hexdigest()
     adapter_root = project / "registries/adapters"
-    adapter_root.mkdir()
+    adapter_root.mkdir(exist_ok=True)
     (adapter_root / "external-benchmark.toml").write_text(
         f'''[adapter]
 id = "external.benchmark"
