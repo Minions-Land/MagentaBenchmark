@@ -15,3 +15,9 @@ reward_pass_value = 1.0
 dataset_file = "swebench_lite_test.json"
 dataset_name = "princeton-nlp/SWE-bench_Lite"
 image_template = "sweb.eval.x86_64.{instance_id}:latest"
+allow_unpinned_image = false
+include_hints = false
+include_version = false
+
+[benchmark.config.image_digests]
+"astropy__astropy-6938" = "sha256:a64e48c6ff94271d86498cf991b41d40f0e3bf33537f7adc6c740c0f26e641e9"

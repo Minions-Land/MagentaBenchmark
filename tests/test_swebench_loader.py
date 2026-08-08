@@ -62,7 +62,12 @@ def test_swebench_loader_capability_is_source_closed() -> None:
     assert artifact.capability.id == "swebench.loader.v1"
     assert artifact.implementation_ref.sha256 == artifact.capability.digest
     assert artifact.source_closure_digest is not None
-    assert artifact.source_closure_paths == ("swebench.py",)
+    closure = set(artifact.source_closure_paths)
+    assert "MagentaBench/adapters/benchmarks/swebench.py" in closure
+    assert "MagentaBench/runner/adapter_registry.py" in closure
+    assert "MagentaBench/runner/compiler.py" in closure
+    assert "MagentaBench/runner/evidence.py" in closure
+    assert "MagentaBench/schemas/models.py" in closure
 
 
 def test_swebench_loader_activates_one_explicit_case_without_oracle(
@@ -88,8 +93,13 @@ def test_swebench_loader_activates_one_explicit_case_without_oracle(
     assert case.public["repo"] == "astropy/astropy"
     assert "test_patch" not in case.public
     assert "patch" not in case.public
+    assert "hints_text" not in case.public
+    assert "version" not in case.public
     assert case.execution_contract["container_image"] == (
         "sweb.eval.x86_64.astropy__astropy-6938:latest"
+    )
+    assert case.execution_contract["container_image_digest"] == (
+        "sha256:a64e48c6ff94271d86498cf991b41d40f0e3bf33537f7adc6c740c0f26e641e9"
     )
     assert case.verifier_contract["fail_to_pass"] == [
         "astropy/io/fits/tests/test_checksum.py::TestChecksumFunctions::test_ascii_table_data",
@@ -136,6 +146,21 @@ def test_swebench_loader_rejects_missing_explicit_case(tmp_path: Path) -> None:
     )
 
     with pytest.raises(AdapterRegistryError, match="absent from the split"):
+        _loader(mutated).resolve(mutated, tmp_path / "case-sets")
+
+
+def test_swebench_loader_rejects_unpinned_image(tmp_path: Path) -> None:
+    run = _compiled_loader_run(tmp_path)
+    benchmark = run.manifest.benchmark
+    config = dict(benchmark.config)
+    config["image_digests"] = {}
+    mutated_benchmark = benchmark.model_copy(update={"config": config})
+    mutated = replace(
+        run,
+        manifest=run.manifest.model_copy(update={"benchmark": mutated_benchmark}),
+    )
+
+    with pytest.raises(AdapterRegistryError, match="lacks an immutable image digest"):
         _loader(mutated).resolve(mutated, tmp_path / "case-sets")
 
 

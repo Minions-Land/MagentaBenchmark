@@ -116,7 +116,15 @@ class SweBenchLoader:
         config = benchmark.config
         if not isinstance(config, Mapping):
             raise AdapterRegistryError("SWE-bench benchmark config must be a table")
-        allowed = {"dataset_file", "dataset_name", "image_template"}
+        allowed = {
+            "dataset_file",
+            "dataset_name",
+            "image_template",
+            "image_digests",
+            "allow_unpinned_image",
+            "include_hints",
+            "include_version",
+        }
         unknown = sorted(set(config) - allowed)
         if unknown:
             raise AdapterRegistryError(f"unsupported SWE-bench config keys: {unknown}")
@@ -228,17 +236,46 @@ class SweBenchLoader:
         image = image_template.replace("{instance_id}", instance_id)
         if not image.strip() or any(character.isspace() for character in image):
             raise AdapterRegistryError("SWE-bench image_template produces an invalid image")
+        image_digests = config.get("image_digests", {})
+        if not isinstance(image_digests, Mapping):
+            raise AdapterRegistryError("SWE-bench image_digests must be a table")
+        image_digest = image_digests.get(instance_id)
+        allow_unpinned_image = config.get("allow_unpinned_image", False)
+        if type(allow_unpinned_image) is not bool:
+            raise AdapterRegistryError("SWE-bench allow_unpinned_image must be a boolean")
+        if image_digest is None and not allow_unpinned_image:
+            raise AdapterRegistryError(
+                f"SWE-bench case {instance_id} lacks an immutable image digest"
+            )
+        if image_digest is not None and (
+            not isinstance(image_digest, str)
+            or not image_digest.startswith("sha256:")
+            or len(image_digest) != 71
+            or any(character not in "0123456789abcdef" for character in image_digest[7:])
+        ):
+            raise AdapterRegistryError(
+                f"SWE-bench image digest is invalid for {instance_id}"
+            )
         public = {
             "instance_id": instance_id,
             "repo": row["repo"],
             "base_commit": row["base_commit"],
             "problem_statement": row["problem_statement"],
-            "hints_text": row.get("hints_text", ""),
-            "version": row.get("version", ""),
         }
+        include_hints = config.get("include_hints", False)
+        include_version = config.get("include_version", False)
+        if type(include_hints) is not bool or type(include_version) is not bool:
+            raise AdapterRegistryError(
+                "SWE-bench include_hints/include_version must be booleans"
+            )
+        if include_hints:
+            public["hints_text"] = row.get("hints_text", "")
+        if include_version:
+            public["version"] = row.get("version", "")
         execution = {
             "instance_id": instance_id,
             "container_image": image,
+            "container_image_digest": image_digest,
             "workspace_path": "/testbed",
         }
         verifier = {
