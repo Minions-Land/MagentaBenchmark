@@ -138,7 +138,7 @@ raise CompilationError(
 parent manifest。checkpoint ledger 的旧 completion map 仍以 parent run 为键，因此
 checkpoint 多 case 在 schema 扩展前会在 activation 处明确拒绝。
 
-## configuration registry（当前 HEAD）
+## configuration registry（当前代码 HEAD `08d124d`）
 
 `runner/configuration.py` 提供名字到不可变 TOML 对象的 CRUD：`index.json` 只保存
 名字、digest 和大小，实际内容位于 digest 命名的 `objects/`。编译器把

@@ -2,8 +2,9 @@
 
 > **状态修订（2026-08-08）**：`SubjectKind` 的 manifest 推导、父 run/子 attempt
 > lineage、`RecordIndex`、独立报告校验、checkpoint 字节绑定、环境路径无关身份、
-> exploratory 显式 `isolation_valid` 已提交到当前 BMP HEAD `aff5632`，并写入
-> `EVIDENCE.md` 与 `records/RETROACTIVE.md`。最终树验证为 249 tests passed、HCP
+> exploratory 显式 `isolation_valid`、配置/adapter 契约与 HCP sidecar 字节绑定已提交
+> 到当前 BMP 代码 HEAD `08d124d`，并写入 `EVIDENCE.md` 与 `records/RETROACTIVE.md`。
+> 最终树验证为 251 tests passed、HCP
 > boundary audit 0 violation；**没有任何真实 benchmark 证据因此变成有效 claim**。
 > Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到 `650de920`；当前
 > Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，但 canonical
@@ -12,9 +13,11 @@
 
 本文档决定接手者从哪继续。
 
-## 提交历史（24 个提交，`git log --oneline | cat`）
+## 代码提交历史（26 个提交，`git log --oneline -- MagentaBench`）
 
 ```
+08d124d Bind configuration and HCP sidecar bytes
+6b9cc7f Open BMP configuration and benchmark adapter contracts
 aff5632 Harden BMP lineage, ordering, and standalone verification
 db9a171 Add content-addressed case-set adapter registry
 e41944e Bind network observations to resolved policy
@@ -41,7 +44,7 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 7c2d378 Initial commit: BMP Phase 0-2 implementation
 ```
 
-当前 BMP 工作树已干净；本轮 BMP 改动已本地提交为 `aff5632`。Magenta 的对应 HCP
+当前 BMP 工作树已干净；本轮 BMP 代码改动已本地提交到 `08d124d`。Magenta 的对应 HCP
 改动已本地提交为 `f0eb2f49`，且明确未 push。
 
 ## 已建立（有代码 + 有测试）
@@ -116,7 +119,7 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 
 ### 2 · 无 git remote
 
-`git remote -v` 为空（`wc -l` → 0）。23 个提交**只存在于这台机器**。没有 bundle 文件。远端去向是用户决定。
+`git remote -v` 为空（`wc -l` → 0）。26 个提交**只存在于这台机器**。没有 bundle 文件。远端去向是用户决定。
 
 ### 3 · `claim_eligible` 对任何真实运行结构性不可达
 
@@ -162,10 +165,10 @@ gold 分类只能是逐 case 显式白名单 + 未分类拒绝。
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-git log --oneline | cat                        # 24 行，HEAD aff5632
+git log --oneline -- MagentaBench | head      # 当前代码历史以 08d124d 结尾
 git status --porcelain | wc -l                  # 0
 git status --porcelain --ignored | grep -E "^!!.*\.py$" | grep -vE "venv|__pycache__"   # 空 = 无隐藏源码
-uv run pytest -q                                # 249 passed
+uv run pytest -q                                # 251 passed
 uv run python -m compileall -q MagentaBench tests
 bash scripts/audit_hcp_boundary.sh              # 0 violation(s), 0 scan error(s)
 find records -type f | wc -l                    # 43
