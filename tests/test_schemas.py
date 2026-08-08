@@ -9,6 +9,9 @@ import pytest
 from pydantic import ValidationError
 
 from MagentaBench.schemas import (
+    AdapterCapability,
+    AdapterCapabilityArtifact,
+    ArtifactRef,
     IDENTITY_EXCLUDE,
     BackendSpec,
     BenchmarkSpecAdapter,
@@ -16,6 +19,9 @@ from MagentaBench.schemas import (
     ClaimDesign,
     ClaimReport,
     ClaimScope,
+    ConfigurationArtifact,
+    ConfigurationSelection,
+    ConfigurationSpec,
     EnvironmentReceipt,
     EnvironmentSpec,
     EvidenceBundle,
@@ -143,6 +149,7 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         "credential-ref",
         "provider-binding",
         "evidence-bundle",
+        "adapter-capability-artifact",
         "network-observation",
         "resolved-network-policy",
         "journal-record",
@@ -152,7 +159,10 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         "observation-report",
         "run-report",
         "resolved-bmp-manifest",
+        "adapter-capability-artifact",
     }.issubset(documents)
+    provenance_schema = documents["evidence-bundle"]["$defs"]["ProvenanceRecord"]
+    assert "runtime_manifest_receipt" in provenance_schema["properties"]
     assert documents["subject-spec"]["discriminator"]["propertyName"] == "kind"
     assert "claim_eligible" in documents["claim-report"]["properties"]
     assert "effect_is_causal_claim" in documents["claim-report"]["properties"]
@@ -982,6 +992,138 @@ def test_manifest_digest_is_deterministic_and_excludes_volatile_fields(
         update={"execution": first.execution.model_copy(update={"seed": 8})}
     )
     assert first.canonical_digest() != changed_identity.canonical_digest()
+
+
+def test_configuration_trees_are_deeply_immutable_and_digest_stable() -> None:
+    spec = ConfigurationSpec(
+        id="agent.config",
+        kind="configuration",
+        adapter="agent",
+        values={"agent": {"models": ["gpt-5.4"]}},
+        schema={"type": "object", "properties": {"agent": {}}},
+    )
+    selection = ConfigurationSelection(
+        values={"runtime": {"parallelism": 2}},
+    )
+    artifact = ConfigurationArtifact(
+        id="agent.config",
+        adapter="agent",
+        values=spec.values,
+        json_schema=spec.json_schema,
+        ownership={"agent.models": "agent"},
+        schema_digest="b" * 64,
+        artifact_digest="0" * 64,
+    )
+    digest = artifact.canonical_digest()
+
+    for mutate in (
+        lambda: spec.values["agent"].__setitem__("new", True),
+        lambda: spec.values["agent"]["models"].append("claude-opus-4.6"),
+        lambda: selection.values.__setitem__("new", True),
+        lambda: artifact.values["agent"]["models"].append("claude-opus-4.6"),
+        lambda: artifact.json_schema.__setitem__("required", ["agent"]),
+        lambda: artifact.ownership.__setitem__("runtime", "runtime"),
+    ):
+        with pytest.raises(TypeError, match="immutable"):
+            mutate()
+    copied = artifact.model_copy(update={"values": {"copy": {"safe": True}}})
+    with pytest.raises(TypeError, match="immutable"):
+        copied.values["copy"]["safe"] = False
+    assert artifact.canonical_digest() == digest
+
+
+@pytest.mark.parametrize("invalid", (False, 0, [], ""))
+def test_configuration_object_fields_reject_explicit_falsy_non_mappings(
+    invalid: object,
+) -> None:
+    with pytest.raises(ValidationError, match="JSON object"):
+        ConfigurationSpec(
+            id="invalid.config",
+            kind="configuration",
+            adapter="generic",
+            values=invalid,
+        )
+    with pytest.raises(ValidationError, match="JSON object"):
+        ConfigurationSelection(values=invalid)
+
+
+def test_manifest_artifact_ref_locations_are_not_identity(tmp_path: Path) -> None:
+    base = _manifest(tmp_path, created_at="now")
+
+    def metadata(root: str) -> ResolvedManifestMetadata:
+        configuration = ConfigurationArtifact(
+            id="agent.config",
+            adapter="generic",
+            source_refs=(
+                ArtifactRef(
+                    path=f"/{root}/configuration.toml",
+                    sha256="a" * 64,
+                    size_bytes=11,
+                ),
+            ),
+            schema_digest="b" * 64,
+            values={
+                "agent": {"model": "same-model"},
+                # Adapter-owned mappings can look like an ArtifactRef but are
+                # semantic configuration and must not be shape-stripped.
+                "output": {
+                    "path": "/semantic/output",
+                    "sha256": "not-an-artifact-digest",
+                    "size_bytes": 5,
+                },
+            },
+            artifact_digest="0" * 64,
+        )
+        configuration = configuration.model_copy(
+            update={"artifact_digest": configuration.canonical_digest()}
+        )
+        capability = AdapterCapability(
+            id="external.demo",
+            kind="adapter",
+            adapter="external.demo",
+            adapter_kind="benchmark_loader",
+            source="plugins/demo",
+            entrypoint="loader.py:Loader",
+            digest="c" * 64,
+        )
+        adapter_artifact = AdapterCapabilityArtifact(
+            capability=capability,
+            declaration_ref=ArtifactRef(
+                path=f"/{root}/adapter.toml",
+                sha256="d" * 64,
+                size_bytes=13,
+            ),
+            implementation_ref=ArtifactRef(
+                path=f"/{root}/loader.py",
+                sha256=capability.digest,
+                size_bytes=17,
+            ),
+            artifact_digest="0" * 64,
+        )
+        adapter_artifact = adapter_artifact.model_copy(
+            update={"artifact_digest": adapter_artifact.canonical_digest()}
+        )
+        return base.metadata.model_copy(
+            update={
+                "configuration": configuration,
+                "adapter_capabilities": (adapter_artifact,),
+            }
+        )
+
+    first = base.model_copy(update={"metadata": metadata("first/root")})
+    second = base.model_copy(update={"metadata": metadata("second/root")})
+
+    assert first.canonical_digest() == second.canonical_digest()
+    identity = first.identity_data()
+    assert "path" not in identity["metadata"]["configuration"]["source_refs"][0]
+    assert (
+        "path"
+        not in identity["metadata"]["adapter_capabilities"][0]["declaration_ref"]
+    )
+    assert (
+        identity["metadata"]["configuration"]["values"]["output"]["path"]
+        == "/semantic/output"
+    )
 
 
 def test_allowed_diff_checker_uses_exact_dotted_leaf_paths(tmp_path: Path) -> None:

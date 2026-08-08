@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import Mapping, Sequence
 
 from MagentaBench.schemas import (
+    ConfigurationActivationReceipt,
     RunStatus,
     RuntimeAssemblySidecarRef,
     RuntimeManifestReceipt,
@@ -192,6 +193,49 @@ class MagentaConfigurationReceipt:
     status: str
     path: Path | None = None
 
+    def to_bmp_activation_receipt(
+        self, *, configuration_digest: str, adapter: str = "cli-agent"
+    ) -> ConfigurationActivationReceipt:
+        """Project adapter-local activation evidence into the neutral BMP form."""
+
+        requested_paths = tuple(sorted(_projection_paths(self.requested)))
+        effective_paths = _projection_paths(self.effective)
+        if self.status == "matched":
+            activated_paths = requested_paths
+            activated_sha256 = self.requested_sha256
+            reason: tuple[str, ...] = ()
+        elif self.status in {"unobserved", "unrequested", "missing_activation_receipt"}:
+            activated_paths = ()
+            activated_sha256 = self.effective_sha256
+            reason = (f"Magenta configuration activation status: {self.status}",)
+        else:
+            activated_paths = tuple(
+                sorted(path for path in requested_paths if path in effective_paths)
+            )
+            activated_sha256 = self.effective_sha256
+            reason = (f"Magenta configuration activation status: {self.status}",)
+        return ConfigurationActivationReceipt(
+            configuration_digest=configuration_digest,
+            adapter=adapter,
+            requested_paths=requested_paths,
+            activated_paths=activated_paths,
+            requested_values=(
+                dict(self.requested) if self.status == "matched" else None
+            ),
+            activated_values=(
+                dict(self.requested) if self.status == "matched" else None
+            ),
+            requested_sha256=self.requested_sha256,
+            activated_sha256=activated_sha256,
+            status=self.status,
+            reason=reason,
+            evidence_refs=(
+                ()
+                if self.path is None
+                else (artifact_ref(self.path),)
+            ),
+        )
+
     def model_dump(self) -> dict[str, object]:
         """JSON-compatible representation used by status/evidence writers."""
 
@@ -342,16 +386,23 @@ class CliOutputArtifacts:
         yield self.answer_path
         yield self.status_path
 
-    def bind_provenance(self, provenance):
-        """Attach observed runtime lineage to a production provenance record."""
+    def bind_provenance(self, provenance, *, configuration_digest: str | None = None):
+        """Attach observed runtime/configuration lineage to provenance."""
 
         if self.runtime_manifest_receipt is None:
             raise MagentaJsonlError(
                 "Magenta CLI outputs lack a valid runtime manifest receipt"
             )
-        return provenance.model_copy(
-            update={"runtime_manifest_receipt": self.runtime_manifest_receipt}
-        )
+        updates: dict[str, object] = {
+            "runtime_manifest_receipt": self.runtime_manifest_receipt
+        }
+        if self.configuration_receipt is not None and configuration_digest is not None:
+            updates["configuration_activation"] = (
+                self.configuration_receipt.to_bmp_activation_receipt(
+                    configuration_digest=configuration_digest
+                )
+            )
+        return provenance.model_copy(update=updates)
 
     @property
     def runtime_evidence(self) -> Mapping[str, object]:
@@ -1352,6 +1403,18 @@ def _project_effective_magenta_configuration(
     ):
         if source_name in capabilities:
             projection[output_name] = capabilities[source_name]
+
+    # Magenta exposes the lock switch as the inverse of the public runtime
+    # mutability policy.  Preserve the distinction between an observed false
+    # value and an omitted field by projecting it only when the policy is
+    # explicitly boolean.
+    tool_policy = execution_obj.get("capabilityPolicy")
+    if isinstance(tool_policy, Mapping) and isinstance(
+        tool_policy.get("tools"), Mapping
+    ):
+        runtime_mutable = tool_policy["tools"].get("runtimeMutable")
+        if isinstance(runtime_mutable, bool):
+            projection["lockTools"] = not runtime_mutable
 
     # Future Magenta protocol-v1 additions may expose retry/provider values in
     # either policies or execution.  Preserve them when present, without

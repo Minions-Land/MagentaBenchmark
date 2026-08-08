@@ -383,8 +383,28 @@ def test_magenta_configuration_receipt_binds_effective_settings_and_activation(
     assert receipt.status == "matched"
     assert receipt.requested["toolSearch"] is True
     assert receipt.effective["cacheRetention"] == "long"
+    assert receipt.effective["lockTools"] is True
     assert receipt.activation_receipt is not None
     assert receipt.path is not None and receipt.path.is_file()
+    neutral = receipt.to_bmp_activation_receipt(
+        configuration_digest="a" * 64,
+    )
+    assert neutral.configuration_digest == "a" * 64
+    assert neutral.status == "matched"
+    assert neutral.requested_paths
+    assert neutral.requested_paths == neutral.activated_paths
+    provenance = ProvenanceRecord(
+        manifest_digest="0" * 64,
+        runner_digest="1" * 64,
+        benchmark_digest="2" * 64,
+        subject_digest="3" * 64,
+        backend_digest="4" * 64,
+    )
+    bound = artifacts.bind_provenance(
+        provenance,
+        configuration_digest="a" * 64,
+    )
+    assert bound.configuration_activation == neutral
     status = json.loads(artifacts.status_path.read_text())
     assert status["configuration_activation_status"] == "matched"
     assert status["activation_receipt"]["status"] == "observed"

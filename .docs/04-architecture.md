@@ -98,7 +98,9 @@ docs/governance/          # bmp-boundary-law.md（246 行）
 
 ## 编译期归因门（`compiler.py:600-626`）
 
-`ClaimScope` 与 `RunPurpose` 有一个编译期矩阵。九个 scope 目前不在 `_ACTIVE_SCOPES` 中，会触发：
+`ClaimScope` 与 `RunPurpose` 有一个编译期矩阵。`evolver` 与
+`meta_evolver` 已有中性的 `EvolutionRunEvidence` 契约并进入 active scope；
+其它研究 scope 仍会触发：
 
 ```python
 raise CompilationError(
@@ -107,7 +109,11 @@ raise CompilationError(
 )
 ```
 
-`proof_type` 对每个 scope 不同，例如 `checkpoint` 要 `CheckpointRunEvidence`、`evolver` 要 `EvolutionRunEvidence`。这些类型**目前都不存在**，因此编译就会失败。
+`proof_type` 对每个 scope 不同，例如 `checkpoint` 要
+`CheckpointLoadReceipt`，`evolver` 要 `EvolutionRunEvidence`，
+`meta_evolver` 还必须递归绑定 parent evidence。演化 subject 仍必须声明
+精确的 external execution capability；没有 capability、候选/transition
+ledger、或运行时 provenance reference 时，运行和 claim gate 都 fail closed。
 
 **为什么这样设计**：防止系统在证据机制缺失的情况下产出看起来合法的 claim。编译期拒绝优于运行后发现报告不可信。
 
@@ -149,7 +155,18 @@ manifest identity。配置可以包含任意 adapter-owned 的 agent/debugger/me
 
 `custom` benchmark kind 配合 `AdapterCapability` 和显式 digest-bound
 `AdapterRegistry.extend()`，允许外部 benchmark 提供自己的 loader、verifier 和 config
-tree，同时复用 BMP 的调度、lineage、证据和 gate。未知 adapter tuple 仍然 fail closed。
+tree，同时复用 BMP 的调度、lineage、证据和 gate。生产运行要求 loader、backend factory
+和 exact execution tuple 三类能力完整；entrypoint 的本地 import closure 也被绑定。
+配置支持 envelope/raw TOML、CLI overlay、JSON Schema 和可重放 composition。未知
+adapter tuple 仍然 fail closed。
+
+演化与 meta-evolution 不在 BMP core 内硬编码算法。适配器可以把候选生成、反馈、修订、
+拒绝候选、搜索状态和嵌套元控制器作为外部治理的 lineage 记录；BMP 统一负责 budget、
+ordering、隔离、评估器和 claim gate。`EvolutionRunEvidence` 保留每个
+generated/revised/accepted/rejected/invalid/selected candidate，并验证
+generation parent、transition 顺序、evaluator/budget/adapter digest；meta-evolver
+通过 content-addressed parent evidence 递归验证。没有正向 evidence 的运行仍不会
+获得 claim eligibility。
 
 ## EnvManager（Phase 2）
 

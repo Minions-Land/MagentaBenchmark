@@ -278,6 +278,40 @@ def test_fresh_pipeline_observation_report_round_trips_through_standalone_verifi
     assert (result.report_path.parent / "manifests").is_dir()
 
 
+def test_standalone_verifier_requires_nonbuiltin_adapter_capabilities(
+    tmp_path: Path,
+) -> None:
+    experiment = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
+    result = Pipeline(ROOT, tmp_path / "records").run(experiment)
+    assert result.report.record_index_ref is not None
+    index = json.loads(
+        Path(result.report.record_index_ref.path).read_text(encoding="utf-8")
+    )
+    manifest_path = Path(index["manifest_refs"][0]["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["benchmark"]["adapter"] = "external.demo"
+    manifest["execution"]["backend"]["adapter"] = "external.backend"
+    manifest_path.write_bytes(compact_bytes(manifest))
+
+    with pytest.raises(ReportVerificationError) as captured:
+        verify_observation_report(result.report_path)
+    assert any(
+        "missing required adapter capability ('external.demo', 'benchmark_loader')"
+        in mismatch
+        for mismatch in captured.value.mismatches
+    )
+    assert any(
+        "missing required adapter capability ('external.backend', 'backend_factory')"
+        in mismatch
+        for mismatch in captured.value.mismatches
+    )
+    assert any(
+        "missing required adapter capability ('external.demo', 'execution')"
+        in mismatch
+        for mismatch in captured.value.mismatches
+    )
+
+
 def test_standalone_verifier_checks_case_set_receipt_refs(tmp_path: Path) -> None:
     experiment = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
     result = Pipeline(ROOT, tmp_path).run(experiment)

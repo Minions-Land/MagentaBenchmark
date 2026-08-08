@@ -1,0 +1,387 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionCandidateRecord": {
+      "additionalProperties": false,
+      "description": "One immutable candidate record in an evolution ledger.\n\nBMP intentionally stores artifacts and feedback as opaque content-addressed\nrefs. Adapter-owned metadata may describe arbitrary search mechanisms but\ncannot contain credentials or other secret-like keys.",
+      "properties": {
+        "artifact_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "evaluator_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evaluator Digest"
+        },
+        "feedback_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Feedback Refs",
+          "type": "array"
+        },
+        "generation": {
+          "minimum": 0,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "parent_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Ids",
+          "type": "array"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "score_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score Metric"
+        },
+        "search_state_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Search State Refs",
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/EvolutionCandidateStatus"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "generation",
+        "status"
+      ],
+      "title": "EvolutionCandidateRecord",
+      "type": "object"
+    },
+    "EvolutionCandidateStatus": {
+      "description": "Lifecycle state retained for every candidate an evolver produced.",
+      "enum": [
+        "generated",
+        "revised",
+        "accepted",
+        "rejected",
+        "invalid",
+        "selected"
+      ],
+      "title": "EvolutionCandidateStatus",
+      "type": "string"
+    },
+    "EvolutionTransitionPhase": {
+      "description": "Neutral phases for a candidate-search transition ledger.",
+      "enum": [
+        "seed",
+        "generate",
+        "feedback",
+        "revise",
+        "select",
+        "terminate"
+      ],
+      "title": "EvolutionTransitionPhase",
+      "type": "string"
+    },
+    "EvolutionTransitionRecord": {
+      "additionalProperties": false,
+      "description": "One ordered search transition connecting candidate records.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "feedback_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Feedback Refs",
+          "type": "array"
+        },
+        "input_candidate_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Candidate Ids",
+          "type": "array"
+        },
+        "output_candidate_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Output Candidate Ids",
+          "type": "array"
+        },
+        "phase": {
+          "$ref": "#/$defs/EvolutionTransitionPhase"
+        },
+        "search_state_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Search State Refs",
+          "type": "array"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "transition_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Transition Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transition_id",
+        "sequence",
+        "phase"
+      ],
+      "title": "EvolutionTransitionRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Complete, algorithm-neutral evidence for an evolver or meta-evolver.\n\nA meta-evolver binds its parent evolver evidence by an immutable artifact\nreference. BMP does not inspect the referenced implementation; a caller\ncan recursively verify it with the same contract. Every generated,\nrejected, and invalid candidate remains in ``candidate_ledger`` so search\noutcomes cannot be made to look better by filtering failures.",
+  "properties": {
+    "adapter_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Adapter Digest",
+      "type": "string"
+    },
+    "adapter_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "attributes": {
+      "additionalProperties": true,
+      "title": "Attributes",
+      "type": "object"
+    },
+    "authoritative_metric": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Authoritative Metric"
+    },
+    "budget_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Budget Digest",
+      "type": "string"
+    },
+    "budget_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "candidate_ledger": {
+      "items": {
+        "$ref": "#/$defs/EvolutionCandidateRecord"
+      },
+      "minItems": 1,
+      "title": "Candidate Ledger",
+      "type": "array"
+    },
+    "candidate_ledger_complete": {
+      "default": true,
+      "title": "Candidate Ledger Complete",
+      "type": "boolean"
+    },
+    "evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evaluator Digest",
+      "type": "string"
+    },
+    "evaluator_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "format": {
+      "const": "bmp-evolution-evidence-v1",
+      "default": "bmp-evolution-evidence-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "evolver",
+        "meta_evolver"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "parent_evidence_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "run_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "search_state_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Search State Refs",
+      "type": "array"
+    },
+    "selected_candidate_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Candidate Id"
+    },
+    "termination_reason": {
+      "minLength": 1,
+      "title": "Termination Reason",
+      "type": "string"
+    },
+    "transition_ledger": {
+      "items": {
+        "$ref": "#/$defs/EvolutionTransitionRecord"
+      },
+      "minItems": 1,
+      "title": "Transition Ledger",
+      "type": "array"
+    },
+    "transition_ledger_complete": {
+      "default": true,
+      "title": "Transition Ledger Complete",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "run_id",
+    "kind",
+    "adapter_digest",
+    "evaluator_digest",
+    "budget_digest",
+    "candidate_ledger",
+    "transition_ledger",
+    "termination_reason"
+  ],
+  "title": "EvolutionRunEvidence",
+  "type": "object"
+}

@@ -19,11 +19,17 @@
           "minLength": 1,
           "title": "Sidecar Schema Version",
           "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
         }
       },
       "required": [
         "path",
-        "sha256"
+        "sha256",
+        "size_bytes"
       ],
       "title": "AssemblySidecarRef",
       "type": "object"

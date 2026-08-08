@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,11 @@ from MagentaBench.runner.configuration import (
     deep_merge,
 )
 from MagentaBench.runner.configuration_cli import main as configuration_main
+
+
+def _put_configuration(root: str, name: str, value: int, start) -> None:
+    start.wait()
+    ConfigurationRegistry(root).upsert(name, {"value": value})
 
 
 def test_registry_crud_is_canonical_and_content_addressed(tmp_path: Path) -> None:
@@ -61,6 +67,31 @@ def test_registry_crud_is_canonical_and_content_addressed(tmp_path: Path) -> Non
     with pytest.raises(ConfigurationNotFoundError, match="does not exist"):
         registry.get("profile.copy")
     assert not tuple(root.rglob("*.tmp"))
+
+
+def test_registry_serializes_cross_process_index_updates(tmp_path: Path) -> None:
+    root = tmp_path / "configuration-registry"
+    ConfigurationRegistry(root)
+    context = multiprocessing.get_context("fork")
+    start = context.Event()
+    processes = [
+        context.Process(
+            target=_put_configuration,
+            args=(str(root), f"parallel.{index}", index, start),
+        )
+        for index in range(8)
+    ]
+    for process in processes:
+        process.start()
+    start.set()
+    for process in processes:
+        process.join(timeout=10)
+        assert process.exitcode == 0
+
+    records = ConfigurationRegistry(root).list()
+    assert {record.name for record in records} == {
+        f"parallel.{index}" for index in range(8)
+    }
 
 
 def test_empty_toml_is_a_valid_content_addressed_configuration(

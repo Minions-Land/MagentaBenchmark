@@ -70,7 +70,9 @@ claim scope 'whole_harness' requires missing evidence class
 2. **gold 隔离可验证。** TB2.1 的 task 目录里 `solution/` 与 `tests/` 和公开题面并列。必须做到 workspace **按构造只含公开内容**，而不是挂载后过滤；并以运行后重新哈希证明没有 verifier-only 内容出现过。
 3. **归因对比。** 双臂实验：只变模型（`model` scope）与整体替换（`whole_harness` scope），两者的门标准不同且都必须诚实。
 4. **`claim` purpose 可达。** 现在结构性不可达 —— `gates.py` 的统计分支在非确定性 conformance 下必然关门，因为真实实验统计尚未实现。这是正确的关门行为，且位于其他所有 claim 工作的上游。
-5. **evolver / meta_evolver。** 需要 `EvolutionRunEvidence` 与嵌套隔离。已有来自 HarnessOpt-Bench 的具体字段清单，见 [`02-upstream-references.md`](02-upstream-references.md)。
+5. **evolver / meta_evolver。** `EvolutionRunEvidence`、候选/transition
+   ledger、内容寻址 refs 和递归 parent verifier 已实现；真正的 claim 仍要求
+   external execution capability、完整 digest binding 与 claim-ready provenance。
 
 ## 明确不做的事
 

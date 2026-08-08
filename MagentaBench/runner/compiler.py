@@ -31,12 +31,14 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 from MagentaBench.schemas import (
     ArtifactRef,
     AdapterCapability,
+    AdapterCapabilityArtifact,
     BackendSpec,
     BenchmarkSpecAdapter,
     ClaimDesign,
     ClaimReport,
     ClaimScope,
     ConfigurationArtifact,
+    ConfigurationCompositionStep,
     ConfigurationSelection,
     ConfigurationSpec,
     ExecutionSpec,
@@ -59,7 +61,20 @@ from MagentaBench.schemas.compiler import (
 )
 from MagentaBench.schemas.models import SubjectKind
 
-from .configuration import ConfigurationRegistry, ConfigurationRegistryError
+from .configuration import (
+    ConfigurationRegistry,
+    ConfigurationRegistryError,
+    apply_dotted_overrides,
+    validate_json_schema_configuration,
+    validate_json_schema_document,
+)
+from .adapter_source import (
+    AdapterSourceError,
+    closure_digest,
+    import_closure,
+    resolve_entrypoint,
+    resolve_source_root,
+)
 
 
 class CompilationError(ValueError):
@@ -68,6 +83,16 @@ class CompilationError(ValueError):
 
 class RegistryLookupError(CompilationError):
     """A referenced registry entry is missing or ambiguous."""
+
+
+_BUILTIN_BENCHMARK_LOADER_ADAPTERS = frozenset({"fake"})
+_BUILTIN_BACKEND_FACTORY_ADAPTERS = frozenset({"fake", "subprocess"})
+_BUILTIN_EXECUTION_COMPATIBILITY = frozenset(
+    {
+        ("fake", "fake", None),
+        ("fake", "subprocess", None),
+    }
+)
 
 
 class IsolationViolation(CompilationError):
@@ -239,25 +264,47 @@ def enforce_allowed_diff(
 
     if resolved_paths is None:
         # Metadata contains pair labels and run identity, not causal configuration.
+        def configuration_projection(
+            configuration: ConfigurationArtifact | None,
+        ) -> Any:
+            """Return the causal configuration surface, excluding derivations.
+
+            ``artifact_digest`` and ``schema_digest`` are identities derived
+            from the configuration recipe.  Treating those hashes as causal
+            paths makes a harmless value intervention impossible to declare,
+            while omitting source/profile/schema identity would allow a source
+            replacement to masquerade as the same intervention.  The
+            projection therefore keeps the resolved values plus the immutable
+            source and ownership/schema contract, but deliberately excludes
+            fields that are pure digest or replay metadata.  Composition is a
+            replay/provenance record; its semantic outputs are represented by
+            the fields above and it is not an independent intervention path.
+            """
+
+            if configuration is None:
+                return None
+            return {
+                "values": configuration.values,
+                "schema": configuration.json_schema,
+                "ownership": configuration.ownership,
+                "adapter": configuration.adapter,
+                "profiles": list(configuration.profiles),
+                "source_refs": [
+                    ref.identity_data() for ref in configuration.source_refs
+                ],
+            }
+
         left = {
             "benchmark": control.benchmark.model_dump(mode="json"),
             "subject": control.subject.model_dump(mode="json"),
             "execution": control.execution.model_dump(mode="json"),
-            "configuration": (
-                None
-                if control.metadata.configuration is None
-                else control.metadata.configuration.model_dump(mode="json")
-            ),
+            "configuration": configuration_projection(control.metadata.configuration),
         }
         right = {
             "benchmark": treatment.benchmark.model_dump(mode="json"),
             "subject": treatment.subject.model_dump(mode="json"),
             "execution": treatment.execution.model_dump(mode="json"),
-            "configuration": (
-                None
-                if treatment.metadata.configuration is None
-                else treatment.metadata.configuration.model_dump(mode="json")
-            ),
+            "configuration": configuration_projection(treatment.metadata.configuration),
         }
         paths = resolved_diff_paths(left, right)
     else:
@@ -384,6 +431,66 @@ class Compiler:
         spec, registry_path = self._lookup("subject", entry_id)
         return _compile_subject_artifact(spec, base_dir=registry_path.parent)
 
+    def _adapter_capability_artifact(
+        self, adapter: str, adapter_kind: str
+    ) -> AdapterCapabilityArtifact | None:
+        directory = self.registry_root / "adapters"
+        if not directory.exists():
+            return None
+        matches: list[tuple[AdapterCapability, Path]] = []
+        for path in sorted(directory.glob("*.toml")):
+            raw = self._load_toml(path)
+            if set(raw) != {"adapter"}:
+                raise CompilationError(
+                    f"adapter registry {path} requires only [adapter]"
+                )
+            try:
+                capability = AdapterCapability.model_validate(raw["adapter"])
+            except pydantic.ValidationError as exc:
+                raise CompilationError(f"invalid adapter registry {path}: {exc}") from exc
+            if (
+                capability.adapter == adapter
+                and capability.adapter_kind == adapter_kind
+            ):
+                matches.append((capability, path))
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise CompilationError(
+                f"duplicate {adapter_kind} capability {adapter!r}"
+            )
+        capability, declaration_path = matches[0]
+        try:
+            source_root = resolve_source_root(self.project_root, capability.source)
+            implementation_path = resolve_entrypoint(source_root, capability.entrypoint)
+            closure_paths = import_closure(source_root, implementation_path)
+            closure_paths_relative = tuple(
+                path.relative_to(source_root).as_posix() for path in closure_paths
+            )
+            closure_refs = tuple(
+                self._configuration_source_ref(path) for path in closure_paths
+            )
+            closure_hash = closure_digest(source_root, closure_paths)
+        except AdapterSourceError as exc:
+            raise CompilationError(str(exc)) from exc
+        implementation_ref = self._configuration_source_ref(implementation_path)
+        if implementation_ref.sha256 != capability.digest:
+            raise CompilationError(
+                f"adapter source digest mismatch: {capability.adapter!r}"
+            )
+        artifact = AdapterCapabilityArtifact(
+            capability=capability,
+            declaration_ref=self._configuration_source_ref(declaration_path),
+            implementation_ref=implementation_ref,
+            source_closure_refs=closure_refs,
+            source_closure_paths=closure_paths_relative,
+            source_closure_digest=closure_hash,
+            artifact_digest="0" * 64,
+        )
+        return artifact.model_copy(
+            update={"artifact_digest": artifact.canonical_digest()}
+        )
+
     @staticmethod
     def _resolve_configuration_source(path: Path) -> Path:
         absolute = Path(os.path.abspath(os.fspath(path.expanduser())))
@@ -427,21 +534,87 @@ class Compiler:
                 result[key] = copy.deepcopy(value)
         return result
 
+    @staticmethod
+    def _merge_configuration_ownership(
+        base: Mapping[str, str],
+        overlay: Mapping[str, Any],
+        owner: str,
+        *,
+        prefix: str = "",
+    ) -> dict[str, str]:
+        """Track the last adapter that contributed each resolved leaf path."""
+
+        result = dict(base)
+        for key, value in overlay.items():
+            path = f"{prefix}.{key}" if prefix else str(key)
+            descendants = tuple(
+                existing
+                for existing in result
+                if existing == path or existing.startswith(path + ".")
+            )
+            if isinstance(value, Mapping) and value:
+                # Deep merge preserves untouched children from earlier layers;
+                # only paths explicitly present in this overlay are reassigned.
+                result.pop(path, None)
+                result = Compiler._merge_configuration_ownership(
+                    result, value, owner, prefix=path
+                )
+            elif isinstance(value, Mapping) and any(
+                existing.startswith(path + ".") for existing in result
+            ):
+                # An empty table over an existing table is a no-op under the
+                # value merge semantics, so it must not steal child ownership.
+                continue
+            else:
+                for existing in descendants:
+                    result.pop(existing, None)
+                result[path] = owner
+        return result
+
     def _resolve_configuration(
         self,
         raw: Any,
         *,
         base_dir: Path,
+        additional_files: Iterable[str | os.PathLike[str]] = (),
+        additional_raw_files: Iterable[str | os.PathLike[str]] = (),
+        additional_profiles: Iterable[str] = (),
+        additional_values: Mapping[str, Any] | None = None,
     ) -> ConfigurationArtifact | None:
         """Resolve profiles/files/inline values into one content-addressed tree."""
 
-        if raw is None:
+        extra_files = tuple(additional_files)
+        extra_raw_files = tuple(additional_raw_files)
+        extra_profiles = tuple(additional_profiles)
+        extra_values = {} if additional_values is None else dict(additional_values)
+        if len(set(map(os.fspath, extra_files))) != len(extra_files):
+            raise CompilationError("additional configuration files must be unique")
+        if len(set(map(os.fspath, extra_raw_files))) != len(extra_raw_files):
+            raise CompilationError(
+                "additional raw configuration files must be unique"
+            )
+        if len(set(extra_profiles)) != len(extra_profiles):
+            raise CompilationError("additional configuration profiles must be unique")
+        if raw is None and not (
+            extra_files or extra_raw_files or extra_profiles or extra_values
+        ):
             return None
         try:
-            selection = ConfigurationSelection.model_validate(raw)
+            selection = ConfigurationSelection.model_validate(
+                {} if raw is None else raw
+            )
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.configuration]: {exc}") from exc
-        if not selection.profiles and not selection.files and not selection.values:
+        if not (
+            selection.profiles
+            or selection.files
+            or selection.raw_files
+            or selection.values
+            or extra_files
+            or extra_raw_files
+            or extra_profiles
+            or extra_values
+        ):
             raise CompilationError(
                 "[experiment.configuration] must select a profile, file, or value"
             )
@@ -451,10 +624,15 @@ class Compiler:
         profile_ids: list[str] = []
         source_refs: list[ArtifactRef] = []
         adapter: str | None = None
+        applied_adapters: list[str] = []
+        ownership: dict[str, str] = {}
+        composition: list[ConfigurationCompositionStep] = []
         visiting: list[str] = []
         config_registry: ConfigurationRegistry | None = None
+        applied_profile_sources: set[tuple[str, str, int]] = set()
+        profile_source_by_id: dict[str, tuple[str, int]] = {}
 
-        def load_profile(profile_id: str) -> tuple[ConfigurationSpec, Path]:
+        def load_profile(profile_id: str) -> tuple[ConfigurationSpec, Path, str]:
             nonlocal config_registry
             if config_registry is None:
                 registry_path = self.registry_root / "configurations"
@@ -471,11 +649,16 @@ class Compiler:
             except ConfigurationRegistryError as exc:
                 raise RegistryLookupError(str(exc)) from exc
             raw_document = record.data
-            if (
-                set(raw_document) == {"configuration"}
-                and isinstance(raw_document.get("configuration"), Mapping)
-                and raw_document["configuration"].get("kind") == "configuration"
-            ):
+            if "configuration" in raw_document:
+                if not (
+                    set(raw_document) == {"configuration"}
+                    and isinstance(raw_document.get("configuration"), Mapping)
+                    and raw_document["configuration"].get("kind") == "configuration"
+                ):
+                    raise CompilationError(
+                        f"configuration profile {profile_id!r} contains a malformed "
+                        "[configuration] envelope; raw documents require explicit raw_files"
+                    )
                 table = raw_document.get("configuration")
                 if not isinstance(table, Mapping):
                     raise CompilationError(
@@ -491,7 +674,7 @@ class Compiler:
                     raise CompilationError(
                         f"configuration profile id drift: name={profile_id!r}, id={spec.id!r}"
                     )
-                return spec, record.path
+                return spec, record.path, "envelope"
             try:
                 return (
                     ConfigurationSpec(
@@ -501,55 +684,120 @@ class Compiler:
                         values=raw_document,
                     ),
                     record.path,
+                    "raw",
                 )
             except pydantic.ValidationError as exc:
                 raise CompilationError(
                     f"invalid configuration profile {profile_id!r}: {exc}"
                 ) from exc
 
-        def apply_spec(spec: ConfigurationSpec, source_path: Path) -> None:
-            nonlocal values, schema, adapter
+        def apply_spec(
+            spec: ConfigurationSpec,
+            source_path: Path,
+            mode: str,
+            *,
+            root: bool = True,
+            layer_kind: str = "profile",
+        ) -> None:
+            nonlocal values, schema, adapter, ownership
             if spec.id in visiting:
                 cycle = " -> ".join((*visiting, spec.id))
                 raise CompilationError(f"configuration extends cycle: {cycle}")
             visiting.append(spec.id)
             for parent in spec.extends:
-                parent_spec, parent_path = load_profile(parent)
-                apply_spec(parent_spec, parent_path)
-            visiting.pop()
-            if adapter is None or adapter == "generic":
-                adapter = spec.adapter
-            elif spec.adapter != "generic" and adapter != spec.adapter:
-                raise CompilationError(
-                    "configuration profiles must use one adapter: "
-                    f"{adapter!r} != {spec.adapter!r}"
+                parent_spec, parent_path, parent_mode = load_profile(parent)
+                apply_spec(
+                    parent_spec,
+                    parent_path,
+                    parent_mode,
+                    root=False,
+                    layer_kind="profile",
                 )
+            visiting.pop()
+            try:
+                validate_json_schema_document(spec.json_schema)
+            except ConfigurationRegistryError as exc:
+                raise CompilationError(
+                    f"configuration profile {spec.id!r} fails its JSON Schema: {exc}"
+                ) from exc
             values = self._merge_configuration(values, spec.values)
             schema = self._merge_configuration(schema, spec.json_schema)
+            ownership = self._merge_configuration_ownership(
+                ownership, spec.values, spec.adapter
+            )
+            if spec.adapter not in applied_adapters:
+                applied_adapters.append(spec.adapter)
             if spec.id not in profile_ids:
                 profile_ids.append(spec.id)
             reference = self._configuration_source_ref(source_path)
+            previous_source = profile_source_by_id.get(spec.id)
+            current_source = (reference.sha256, reference.size_bytes)
+            if previous_source is not None and previous_source != current_source:
+                raise CompilationError(
+                    f"configuration profile id {spec.id!r} resolves to multiple source objects"
+                )
+            profile_source_by_id[spec.id] = current_source
             if (reference.sha256, reference.size_bytes) not in {
                 (item.sha256, item.size_bytes) for item in source_refs
             }:
                 source_refs.append(reference)
+            source_key = (spec.id, reference.sha256, reference.size_bytes)
+            if source_key not in applied_profile_sources:
+                applied_profile_sources.add(source_key)
+                composition.append(
+                    ConfigurationCompositionStep(
+                        kind=layer_kind,
+                        id=spec.id,
+                        source_ref=reference,
+                        mode=mode,
+                        root=root,
+                        values=spec.values,
+                        json_schema=spec.json_schema,
+                        adapter=spec.adapter,
+                        extends=spec.extends,
+                    )
+                )
 
         for profile_id in selection.profiles:
-            spec, path = load_profile(profile_id)
-            apply_spec(spec, path)
+            spec, path, mode = load_profile(profile_id)
+            apply_spec(spec, path, mode)
 
-        for relative_path in selection.files:
-            path = self._resolve_configuration_source(base_dir / relative_path)
-            document = self._load_toml(path)
-            unexpected = sorted(set(document) - {"configuration"})
-            if unexpected:
+        for profile_id in extra_profiles:
+            if profile_id in selection.profiles:
                 raise CompilationError(
-                    f"external configuration {path} contains unknown sections: {unexpected}"
+                    f"configuration profile {profile_id!r} was selected more than once"
+                )
+            spec, path, mode = load_profile(profile_id)
+            apply_spec(spec, path, mode)
+
+        envelope_paths: list[Path] = [
+            self._resolve_configuration_source(base_dir / relative_path)
+            for relative_path in selection.files
+        ]
+        envelope_paths.extend(
+            self._resolve_configuration_source(
+                Path(item).expanduser()
+                if Path(item).expanduser().is_absolute()
+                else base_dir / Path(item)
+            )
+            for item in extra_files
+        )
+        for path in envelope_paths:
+            document = self._load_toml(path)
+            if "configuration" not in document:
+                raise CompilationError(
+                    f"external configuration {path} requires a [configuration] envelope; "
+                    "raw documents require explicit raw_files"
+                )
+            unexpected = sorted(set(document) - {"configuration"})
+            if unexpected or not isinstance(document.get("configuration"), Mapping):
+                raise CompilationError(
+                    f"external configuration {path} contains a malformed [configuration] envelope"
                 )
             table = document.get("configuration")
-            if not isinstance(table, Mapping):
+            if table.get("kind") != "configuration":
                 raise CompilationError(
-                    f"external configuration {path} requires a [configuration] table"
+                    f"external configuration {path} has a malformed [configuration] envelope"
                 )
             try:
                 spec = ConfigurationSpec.model_validate(table)
@@ -557,10 +805,76 @@ class Compiler:
                 raise CompilationError(
                     f"invalid external configuration {path}: {exc}"
                 ) from exc
-            apply_spec(spec, path)
+            apply_spec(spec, path, "envelope", layer_kind="file")
+
+        raw_paths: list[Path] = [
+            self._resolve_configuration_source(base_dir / relative_path)
+            for relative_path in selection.raw_files
+        ]
+        raw_paths.extend(
+            self._resolve_configuration_source(
+                Path(item).expanduser()
+                if Path(item).expanduser().is_absolute()
+                else base_dir / Path(item)
+            )
+            for item in extra_raw_files
+        )
+        for path in raw_paths:
+            document = self._load_toml(path)
+            if "configuration" in document:
+                raise CompilationError(
+                    f"raw external configuration {path} contains a [configuration] "
+                    "table; use files for an explicit envelope"
+                )
+            digest = sha256_bytes(path.read_bytes())
+            spec = ConfigurationSpec(
+                id=f"raw-{digest[:16]}",
+                kind="configuration",
+                adapter="generic",
+                values=document,
+            )
+            apply_spec(spec, path, "raw", layer_kind="file")
 
         values = self._merge_configuration(values, selection.values)
-        if adapter is None:
+        if extra_values and any("." in str(key) for key in extra_values):
+            try:
+                values = apply_dotted_overrides(values, extra_values)
+                extra_values_tree = apply_dotted_overrides({}, extra_values)
+            except ConfigurationRegistryError as exc:
+                raise CompilationError(f"invalid configuration override: {exc}") from exc
+        else:
+            values = self._merge_configuration(values, extra_values)
+            extra_values_tree = extra_values
+        ownership = self._merge_configuration_ownership(
+            ownership, selection.values, "generic"
+        )
+        ownership = self._merge_configuration_ownership(
+            ownership, extra_values_tree, "generic"
+        )
+        if selection.values:
+            composition.append(
+                ConfigurationCompositionStep(
+                    kind="inline", values=selection.values, adapter="generic"
+                )
+            )
+        if extra_values:
+            composition.append(
+                ConfigurationCompositionStep(
+                    kind="inline", values=extra_values_tree, adapter="generic"
+                )
+            )
+        try:
+            validate_json_schema_configuration(values, schema)
+        except ConfigurationRegistryError as exc:
+            raise CompilationError(f"resolved configuration fails its JSON Schema: {exc}") from exc
+        non_generic_adapters = tuple(
+            item for item in applied_adapters if item != "generic"
+        )
+        if len(set(non_generic_adapters)) == 1:
+            adapter = non_generic_adapters[0]
+        elif len(set(non_generic_adapters)) > 1:
+            adapter = "composite"
+        else:
             adapter = "generic"
         schema_digest = sha256_bytes(canonical_json_bytes(schema))
         artifact = ConfigurationArtifact(
@@ -570,6 +884,9 @@ class Compiler:
             source_refs=tuple(source_refs),
             schema_digest=schema_digest,
             values=values,
+            json_schema=schema,
+            ownership=ownership,
+            composition=tuple(composition),
             artifact_digest="0" * 64,
         )
         return artifact.model_copy(update={"artifact_digest": artifact.canonical_digest()})
@@ -586,9 +903,16 @@ class Compiler:
         ClaimScope.conformance: "FakeConformanceEvidence",
         ClaimScope.whole_harness: "WholeHarnessArtifactEvidence",
     }
-    # Conformance is the only intended-reachable scope and remains subject to
-    # an end-to-end Pipeline proof; every research claim scope is inactive.
-    _ACTIVE_SCOPES = frozenset({ClaimScope.conformance})
+    # Evolution scopes are reachable only through an explicitly declared
+    # external execution capability and a runtime EvolutionRunEvidence
+    # provenance reference. Other research scopes remain inactive.
+    _ACTIVE_SCOPES = frozenset(
+        {
+            ClaimScope.conformance,
+            ClaimScope.evolver,
+            ClaimScope.meta_evolver,
+        }
+    )
     _SCHEDULER_ADAPTER = "magentabench.scheduler"
     _BACKEND_DEFAULT_KEYS = {
         "fake": frozenset(),
@@ -689,6 +1013,10 @@ class Compiler:
         run_index: int,
         *,
         base_dir: Path,
+        config_files: Iterable[str | os.PathLike[str]] = (),
+        raw_config_files: Iterable[str | os.PathLike[str]] = (),
+        config_profiles: Iterable[str] = (),
+        config_overrides: Mapping[str, Any] | None = None,
     ) -> CompiledRun:
         unexpected_sections = sorted(
             set(declaration) - {"experiment", "execution", "factors"}
@@ -735,6 +1063,10 @@ class Compiler:
         configuration = self._resolve_configuration(
             experiment.get("configuration"),
             base_dir=base_dir,
+            additional_files=config_files,
+            additional_raw_files=raw_config_files,
+            additional_profiles=config_profiles,
+            additional_values=config_overrides,
         )
 
         try:
@@ -757,6 +1089,9 @@ class Compiler:
         subject = self._subject_artifact(str(experiment["subject"]))
         backend, _ = self._lookup("backend", execution.backend)
         protocol, _ = self._lookup("protocol", str(experiment["protocol"]))
+        subject_interface = (
+            None if subject.kind == "fake" else getattr(subject, "interface", None)
+        )
         adapter_model = {
             "fake": "none/deterministic",
             "subprocess": "none/echo",
@@ -814,7 +1149,12 @@ class Compiler:
                 subject.adapter,
                 getattr(subject, "interface", None),
             )
-        if subject_combo not in {
+        if subject.kind in {"evolver", "meta_evolver"}:
+            # Evolver subjects have no fixed wire interface.  A production
+            # execution capability must bind their adapter/backend tuple below.
+            if not subject.adapter:
+                raise CompilationError("evolver subject adapter is missing")
+        elif subject_combo not in {
             ("fake", "fake", None),
             ("opaque_agent", "fake", "task_to_output"),
             ("opaque_agent", "cli-agent", "aosebench-container-v1"),
@@ -886,10 +1226,14 @@ class Compiler:
                     ClaimScope.whole_harness,
                     ClaimScope.model,
                     ClaimScope.conformance,
+                    ClaimScope.evolver,
+                    ClaimScope.meta_evolver,
                 },
                 RunPurpose.claim: {
                     ClaimScope.whole_harness,
                     ClaimScope.model,
+                    ClaimScope.evolver,
+                    ClaimScope.meta_evolver,
                 },
             },
         }
@@ -978,6 +1322,7 @@ class Compiler:
             allowed_diff=allowed_diff,
             factors=dict(factor_values),
             configuration=configuration,
+            adapter_capabilities=(),
             test_override=(
                 TestOverrideReceipt(reason="explicit allow_test_override=true")
                 if self.allow_test_override
@@ -998,6 +1343,68 @@ class Compiler:
             metadata=metadata,
         )
         self._validate_subject_evidence_for_scope(manifest)
+        # Test-only callers may inject a backend/adapter registry that is not
+        # represented by project TOML declarations.  Production compilation
+        # remains strict: every non-built-in loader, backend factory, and
+        # execution compatibility tuple must have an explicit capability.
+        required_capability_keys: list[tuple[str, str]] = []
+        compatibility = (benchmark.adapter, backend.adapter, subject_interface)
+        if not self.allow_test_override:
+            if (
+                benchmark.kind == "custom"
+                or benchmark.adapter not in _BUILTIN_BENCHMARK_LOADER_ADAPTERS
+            ):
+                required_capability_keys.append((benchmark.adapter, "benchmark_loader"))
+            if backend.adapter not in _BUILTIN_BACKEND_FACTORY_ADAPTERS:
+                required_capability_keys.append((backend.adapter, "backend_factory"))
+            if (
+                benchmark.kind == "custom"
+                or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
+                or subject.kind in {"evolver", "meta_evolver"}
+            ):
+                required_capability_keys.append((benchmark.adapter, "execution"))
+        resolved_capabilities: list[AdapterCapabilityArtifact] = []
+        missing_capabilities: list[tuple[str, str]] = []
+        for capability_key in dict.fromkeys(required_capability_keys):
+            adapter, adapter_kind = capability_key
+            artifact = self._adapter_capability_artifact(adapter, adapter_kind)
+            if artifact is None:
+                missing_capabilities.append(capability_key)
+            else:
+                resolved_capabilities.append(artifact)
+        if missing_capabilities:
+            raise CompilationError(
+                "missing required adapter capabilities: "
+                + ", ".join(repr(item) for item in missing_capabilities)
+            )
+        for artifact in resolved_capabilities:
+            capability = artifact.capability
+            if not capability.supports(
+                benchmark_kind=benchmark.kind,
+                subject_kind=subject.kind,
+                backend_kind=backend.kind,
+                backend_adapter=backend.adapter,
+                subject_interface=subject_interface,
+            ):
+                raise CompilationError(
+                    f"adapter capability {capability.id!r} rejects the resolved "
+                    "benchmark/subject/backend tuple"
+                )
+            if (
+                configuration is not None
+                and not capability.owns_configuration(configuration.values)
+            ):
+                raise CompilationError(
+                    f"adapter capability {capability.id!r} does not own "
+                    "any resolved configuration path"
+                )
+        manifest = manifest.model_copy(
+            update={
+                "metadata": manifest.metadata.model_copy(
+                    update={"adapter_capabilities": tuple(resolved_capabilities)}
+                )
+            }
+        )
         return CompiledRun(manifest=manifest)
 
     @staticmethod
@@ -1111,10 +1518,20 @@ class Compiler:
         experiment_path: str | os.PathLike[str],
         *,
         record_root: str | os.PathLike[str] | None = None,
+        config_files: Iterable[str | os.PathLike[str]] = (),
+        raw_config_files: Iterable[str | os.PathLike[str]] = (),
+        config_profiles: Iterable[str] = (),
+        config_overrides: Mapping[str, Any] | None = None,
     ) -> list[CompiledRun]:
         """Compile and isolation-check every run in an experiment TOML."""
 
         path = Path(experiment_path).resolve()
+        config_files = tuple(config_files)
+        raw_config_files = tuple(raw_config_files)
+        config_profiles = tuple(config_profiles)
+        config_overrides = (
+            None if config_overrides is None else dict(config_overrides)
+        )
         # Re-read registry files on every compilation so drift cannot be hidden
         # by a long-lived compiler instance.
         self._registry_cache.clear()
@@ -1167,6 +1584,10 @@ class Compiler:
                 selected,
                 index,
                 base_dir=path.parent,
+                config_files=tuple(config_files),
+                raw_config_files=tuple(raw_config_files),
+                config_profiles=tuple(config_profiles),
+                config_overrides=config_overrides,
             )
             for index, (expanded, selected) in enumerate(
                 expand_factor_sweep(base, factors)

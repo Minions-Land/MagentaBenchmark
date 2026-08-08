@@ -14,11 +14,19 @@ import os
 import re
 import tempfile
 import threading
+from contextlib import contextmanager
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
+
+import jsonschema
+
+try:  # pragma: no cover - platform-specific import
+    import fcntl
+except ImportError:  # pragma: no cover - Windows fallback
+    fcntl = None  # type: ignore[assignment]
 
 try:
     import tomllib
@@ -46,7 +54,8 @@ _SECRET_KEY_PARTS = frozenset(
 )
 _NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
     r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
-    r"max_generation|output|prompt|total)_)?tokens$"
+    r"max_generation|output|prompt|request|response|retry|total)_)?tokens$|"
+    r"^token_(?:budget|capacity|count|limit|quota|window)$"
 )
 _MIN_TOML_INTEGER = -(2**63)
 _MAX_TOML_INTEGER = 2**63 - 1
@@ -62,6 +71,53 @@ class ConfigurationNotFoundError(ConfigurationRegistryError):
 
 class ConfigurationDriftError(ConfigurationRegistryError):
     """Persisted registry paths or bytes no longer match their identity."""
+
+
+def validate_json_schema_configuration(
+    values: Mapping[str, Any], schema: Mapping[str, Any]
+) -> None:
+    """Validate one resolved configuration against its declared JSON Schema.
+
+    Configuration schemas are adapter-owned, but validation is performed by
+    BMP at the composition boundary so malformed schemas and values cannot be
+    carried into a run merely because their digests are stable.
+    """
+
+    if not isinstance(schema, Mapping):
+        raise ConfigurationRegistryError("configuration JSON Schema must be an object")
+    validate_json_schema_document(schema)
+    if not schema:
+        return
+    try:
+        validator_cls = jsonschema.validators.validator_for(schema)
+        validator = validator_cls(schema)
+        validator.validate(values)
+    except jsonschema.exceptions.SchemaError as exc:
+        raise ConfigurationRegistryError(
+            f"configuration JSON Schema is invalid: {exc.message}"
+        ) from exc
+    except jsonschema.exceptions.ValidationError as exc:
+        path = ".".join(str(part) for part in exc.absolute_path)
+        suffix = f" at {path}" if path else ""
+        raise ConfigurationRegistryError(
+            f"configuration does not satisfy JSON Schema{suffix}: {exc.message}"
+        ) from exc
+
+
+def validate_json_schema_document(schema: Mapping[str, Any]) -> None:
+    """Check JSON Schema structure without validating a configuration value."""
+
+    if not isinstance(schema, Mapping):
+        raise ConfigurationRegistryError("configuration JSON Schema must be an object")
+    if not schema:
+        return
+    try:
+        validator_cls = jsonschema.validators.validator_for(schema)
+        validator_cls.check_schema(schema)
+    except jsonschema.exceptions.SchemaError as exc:
+        raise ConfigurationRegistryError(
+            f"configuration JSON Schema is invalid: {exc.message}"
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -111,10 +167,14 @@ def _validate_key(key: object, *, path: str) -> str:
     normalized_key = normalized_key.lower()
     key_parts = frozenset(part for part in normalized_key.split("_") if part)
     secret_token_key = (
-        "tokens" in key_parts
+        ("tokens" in key_parts or "token" in key_parts)
         and _NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(normalized_key) is None
     )
-    if key_parts.intersection(_SECRET_KEY_PARTS) or secret_token_key:
+    # ``token`` is treated specially so numeric controls such as
+    # ``token_budget`` remain expressible while token-bearing credentials do
+    # not become an accidental configuration input.
+    secret_parts = key_parts - {"token"}
+    if secret_parts.intersection(_SECRET_KEY_PARTS) or secret_token_key:
         raise ConfigurationRegistryError(
             f"configuration must not contain secret-like key {key!r} at {path}"
         )
@@ -393,6 +453,7 @@ class ConfigurationRegistry:
         self._root = Path(os.path.abspath(os.fspath(expanded)))
         self._objects = self._root / "objects"
         self._index = self._root / "index.json"
+        self._lock_path = self._root / ".registry.lock"
         self._lock = threading.RLock()
 
         _reject_symlink_ancestors(self._root)
@@ -410,6 +471,13 @@ class ConfigurationRegistry:
                 f"configuration object path is not a directory: {self._objects}"
             )
         self._objects.mkdir(exist_ok=True)
+        if self._lock_path.is_symlink():
+            raise ConfigurationDriftError(
+                "configuration registry lock is a symlink"
+            )
+        if self._lock_path.exists() and not self._lock_path.is_file():
+            raise ConfigurationDriftError("configuration registry lock path drift")
+        self._lock_path.touch(exist_ok=True)
         self._root_identity = _path_identity(self._root)
         self._objects_identity = _path_identity(self._objects)
         self._assert_layout()
@@ -431,6 +499,35 @@ class ConfigurationRegistry:
             raise ConfigurationDriftError("configuration index is a symlink")
         if self._index.exists() and not self._index.is_file():
             raise ConfigurationDriftError("configuration index path drift")
+        if self._lock_path.is_symlink() or not self._lock_path.is_file():
+            raise ConfigurationDriftError("configuration registry lock path drift")
+
+    @contextmanager
+    def _process_lock(self, *, exclusive: bool):
+        """Coordinate registry transactions across independent processes."""
+
+        if fcntl is None:
+            yield
+            return
+        try:
+            handle = self._lock_path.open("r+b")
+        except OSError as exc:
+            raise ConfigurationDriftError(
+                "configuration registry lock is unavailable"
+            ) from exc
+        try:
+            mode = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            fcntl.flock(handle.fileno(), mode)
+            yield
+        except OSError as exc:
+            raise ConfigurationDriftError(
+                "configuration registry process lock failed"
+            ) from exc
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
 
     def _load_index(self) -> dict[str, dict[str, int | str]]:
         self._assert_layout()
@@ -561,21 +658,24 @@ class ConfigurationRegistry:
 
     def list(self) -> tuple[ConfigurationRecord, ...]:
         with self._lock:
-            entries = self._load_index()
-            return tuple(
-                self._verify_object(name, entries[name]) for name in sorted(entries)
-            )
+            with self._process_lock(exclusive=False):
+                entries = self._load_index()
+                return tuple(
+                    self._verify_object(name, entries[name])
+                    for name in sorted(entries)
+                )
 
     def get(self, name: str) -> ConfigurationRecord:
         normalized_name = _validate_name(name)
         with self._lock:
-            entries = self._load_index()
-            entry = entries.get(normalized_name)
-            if entry is None:
-                raise ConfigurationNotFoundError(
-                    f"configuration does not exist: {normalized_name}"
-                )
-            return self._verify_object(normalized_name, entry)
+            with self._process_lock(exclusive=False):
+                entries = self._load_index()
+                entry = entries.get(normalized_name)
+                if entry is None:
+                    raise ConfigurationNotFoundError(
+                        f"configuration does not exist: {normalized_name}"
+                    )
+                return self._verify_object(normalized_name, entry)
 
     def upsert(
         self,
@@ -590,42 +690,44 @@ class ConfigurationRegistry:
             "size_bytes": len(content),
         }
         with self._lock:
-            entries = self._load_index()
-            object_path = self._object_path(digest)
-            if object_path.is_symlink():
-                raise ConfigurationDriftError(
-                    f"configuration object is a symlink: {normalized_name}"
-                )
-            if object_path.exists():
-                try:
-                    observed_content = object_path.read_bytes()
-                except OSError as exc:
+            with self._process_lock(exclusive=True):
+                entries = self._load_index()
+                object_path = self._object_path(digest)
+                if object_path.is_symlink():
                     raise ConfigurationDriftError(
-                        "existing content-addressed configuration object is unreadable"
-                    ) from exc
-                if not object_path.is_file() or observed_content != content:
-                    raise ConfigurationDriftError(
-                        "existing content-addressed configuration object drift"
+                        f"configuration object is a symlink: {normalized_name}"
                     )
-            else:
-                _atomic_write_bytes(object_path, content)
-            current = entries.get(normalized_name)
-            if current != entry:
-                entries[normalized_name] = entry
-                self._write_index(entries)
-            return self._verify_object(normalized_name, entry)
+                if object_path.exists():
+                    try:
+                        observed_content = object_path.read_bytes()
+                    except OSError as exc:
+                        raise ConfigurationDriftError(
+                            "existing content-addressed configuration object is unreadable"
+                        ) from exc
+                    if not object_path.is_file() or observed_content != content:
+                        raise ConfigurationDriftError(
+                            "existing content-addressed configuration object drift"
+                        )
+                else:
+                    _atomic_write_bytes(object_path, content)
+                current = entries.get(normalized_name)
+                if current != entry:
+                    entries[normalized_name] = entry
+                    self._write_index(entries)
+                return self._verify_object(normalized_name, entry)
 
     def delete(self, name: str) -> bool:
         normalized_name = _validate_name(name)
         with self._lock:
-            entries = self._load_index()
-            entry = entries.get(normalized_name)
-            if entry is None:
-                return False
-            self._verify_object(normalized_name, entry)
-            del entries[normalized_name]
-            self._write_index(entries)
-            return True
+            with self._process_lock(exclusive=True):
+                entries = self._load_index()
+                entry = entries.get(normalized_name)
+                if entry is None:
+                    return False
+                self._verify_object(normalized_name, entry)
+                del entries[normalized_name]
+                self._write_index(entries)
+                return True
 
     def list_configurations(self) -> tuple[ConfigurationRecord, ...]:
         return self.list()
@@ -656,5 +758,7 @@ __all__ = [
     "canonical_toml_bytes",
     "deep_merge",
     "merge_configurations",
+    "validate_json_schema_configuration",
+    "validate_json_schema_document",
     "validate_configuration",
 ]

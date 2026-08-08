@@ -7,11 +7,19 @@ from collections import Counter
 import hashlib
 import json
 import random
+import copy
 from dataclasses import dataclass
 from math import isclose
 from pathlib import Path
 from statistics import mean
 from typing import Any, Mapping, TypeVar
+
+import jsonschema
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib
 
 from pydantic import ValidationError
 
@@ -23,13 +31,19 @@ from .models import (
     CaseSetArtifact,
     CheckpointSaveReceipt,
     ClaimReport,
+    ConfigurationActivationReceipt,
+    ConfigurationArtifact,
+    ConfigurationCompositionStep,
+    ConfigurationSpec,
     GateName,
     EvidenceBundle,
+    EvolutionRunEvidence,
     ObservationReport,
     RecordIndex,
     ResolvedBmpManifest,
     RunReport,
     RunReportAdapter,
+    RunPurpose,
     RunStatus,
     ScheduleActivationReceipt,
 )
@@ -41,6 +55,20 @@ class ReportVerificationError(ValueError):
     def __init__(self, mismatches: list[str]) -> None:
         self.mismatches = tuple(mismatches)
         super().__init__("report verification failed:\n- " + "\n- ".join(mismatches))
+
+
+# These are the exact adapters instantiated by AdapterRegistry.production().
+# Standalone verification cannot import the runtime registry without creating
+# a schemas -> runner -> schemas cycle, so keep the closed compatibility set
+# beside the manifest contract it verifies.
+_BUILTIN_BENCHMARK_LOADER_ADAPTERS = frozenset({"fake"})
+_BUILTIN_BACKEND_FACTORY_ADAPTERS = frozenset({"fake", "subprocess"})
+_BUILTIN_EXECUTION_COMPATIBILITY = frozenset(
+    {
+        ("fake", "fake", None),
+        ("fake", "subprocess", None),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -57,6 +85,15 @@ class VerifiedObservationReport:
     report_path: Path
     record_index: RecordIndex
     warnings: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class VerifiedEvolutionRunEvidence:
+    """Content-addressed evolution evidence verified outside a run report."""
+
+    evidence: EvolutionRunEvidence
+    evidence_path: Path
+    nested_parent: "VerifiedEvolutionRunEvidence | None" = None
 
 
 VerifiedRunReport = VerifiedClaimReport | VerifiedObservationReport
@@ -175,6 +212,42 @@ def _verify_bundle_artifacts(
                 bundle.provenance.container_receipt_ref,
             )
         )
+    runtime_receipt = bundle.provenance.runtime_manifest_receipt
+    if runtime_receipt is not None:
+        refs.append(
+            (
+                f"{label}.provenance.runtime_manifest_receipt.trace_ref",
+                runtime_receipt.trace_ref,
+            )
+        )
+        refs.extend(
+            (
+                f"{label}.provenance.runtime_manifest_receipt."
+                f"assembly_sidecar_refs[{index}]",
+                ArtifactRef(
+                    path=ref.path,
+                    sha256=ref.sha256,
+                    size_bytes=ref.size_bytes,
+                ),
+            )
+            for index, ref in enumerate(runtime_receipt.assembly_sidecar_refs)
+        )
+    configuration_activation = bundle.provenance.configuration_activation
+    if configuration_activation is not None:
+        refs.extend(
+            (
+                f"{label}.provenance.configuration_activation.evidence_refs[{index}]",
+                ref,
+            )
+            for index, ref in enumerate(configuration_activation.evidence_refs)
+        )
+    if bundle.provenance.evolution_evidence_ref is not None:
+        refs.append(
+            (
+                f"{label}.provenance.evolution_evidence_ref",
+                bundle.provenance.evolution_evidence_ref,
+            )
+        )
     if bundle.verifier_evidence is not None:
         refs.extend(
             (f"{label}.verifier_evidence.artifact_refs[{index}]", ref)
@@ -187,6 +260,211 @@ def _verify_bundle_artifacts(
             path_map=path_map,
             mismatches=mismatches,
         )
+
+
+def _evolution_artifact_refs(
+    evidence: EvolutionRunEvidence,
+) -> tuple[tuple[str, ArtifactRef], ...]:
+    refs: list[tuple[str, ArtifactRef]] = []
+    refs.extend(
+        (
+            f"candidate_ledger[{candidate_index}].artifact_refs[{ref_index}]",
+            ref,
+        )
+        for candidate_index, candidate in enumerate(evidence.candidate_ledger)
+        for ref_index, ref in enumerate(candidate.artifact_refs)
+    )
+    refs.extend(
+        (
+            f"candidate_ledger[{candidate_index}].feedback_refs[{ref_index}]",
+            ref,
+        )
+        for candidate_index, candidate in enumerate(evidence.candidate_ledger)
+        for ref_index, ref in enumerate(candidate.feedback_refs)
+    )
+    refs.extend(
+        (
+            f"candidate_ledger[{candidate_index}].search_state_refs[{ref_index}]",
+            ref,
+        )
+        for candidate_index, candidate in enumerate(evidence.candidate_ledger)
+        for ref_index, ref in enumerate(candidate.search_state_refs)
+    )
+    refs.extend(
+        (
+            f"transition_ledger[{transition_index}].search_state_refs[{ref_index}]",
+            ref,
+        )
+        for transition_index, transition in enumerate(evidence.transition_ledger)
+        for ref_index, ref in enumerate(transition.search_state_refs)
+    )
+    refs.extend(
+        (
+            f"transition_ledger[{transition_index}].feedback_refs[{ref_index}]",
+            ref,
+        )
+        for transition_index, transition in enumerate(evidence.transition_ledger)
+        for ref_index, ref in enumerate(transition.feedback_refs)
+    )
+    refs.extend(
+        (f"search_state_refs[{index}]", ref)
+        for index, ref in enumerate(evidence.search_state_refs)
+    )
+    for ref_name, ref in (
+        ("adapter_ref", evidence.adapter_ref),
+        ("evaluator_ref", evidence.evaluator_ref),
+        ("budget_ref", evidence.budget_ref),
+    ):
+        if ref is not None:
+            refs.append((ref_name, ref))
+    return tuple(refs)
+
+
+def _verify_evolution_file(
+    path: str | Path,
+    *,
+    path_map: Mapping[str, str],
+    mismatches: list[str],
+    seen_digests: set[str],
+    label: str,
+) -> VerifiedEvolutionRunEvidence | None:
+    source = Path(path).expanduser().resolve()
+    try:
+        content = source.read_bytes()
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot read {source}: {exc}")
+        return None
+    try:
+        evidence = EvolutionRunEvidence.model_validate_json(content)
+    except (ValidationError, ValueError) as exc:
+        mismatches.append(f"{label}: invalid evolution evidence schema: {exc}")
+        return None
+    if evidence.canonical_digest() in seen_digests:
+        mismatches.append(f"{label}: recursive parent evidence cycle detected")
+        return None
+    seen_digests.add(evidence.canonical_digest())
+
+    for ref_label, ref in _evolution_artifact_refs(evidence):
+        _verify_ref(
+            ref,
+            label=f"{label}.{ref_label}",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+
+    nested_parent: VerifiedEvolutionRunEvidence | None = None
+    if evidence.parent_evidence_ref is not None:
+        _, parent_bytes = _verify_ref(
+            evidence.parent_evidence_ref,
+            label=f"{label}.parent_evidence_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        if parent_bytes is not None:
+            try:
+                parent_path = _resolve_path(
+                    evidence.parent_evidence_ref.path, path_map
+                )
+            except ValueError as exc:
+                mismatches.append(f"{label}.parent_evidence_ref: {exc}")
+            else:
+                nested_parent = _verify_evolution_file(
+                    parent_path,
+                    path_map=path_map,
+                    mismatches=mismatches,
+                    seen_digests=seen_digests,
+                    label=f"{label}.parent_evidence",
+                )
+                if nested_parent is not None and nested_parent.evidence.kind not in {
+                    "evolver",
+                    "meta_evolver",
+                }:
+                    mismatches.append(
+                        f"{label}.parent_evidence: unsupported evidence kind "
+                        f"{nested_parent.evidence.kind!r}"
+                    )
+                elif (
+                    nested_parent is not None
+                    and evidence.kind == "meta_evolver"
+                    and nested_parent.evidence.kind != "evolver"
+                ):
+                    mismatches.append(
+                        f"{label}.parent_evidence: meta_evolver parent must be evolver evidence"
+                    )
+    return VerifiedEvolutionRunEvidence(
+        evidence=evidence,
+        evidence_path=source,
+        nested_parent=nested_parent,
+    )
+
+
+def verify_evolution_run_evidence(
+    evidence_path: str | Path,
+    *,
+    path_map: Mapping[str, str] | None = None,
+) -> VerifiedEvolutionRunEvidence:
+    """Verify an evolution evidence JSON file and all content-addressed refs.
+
+    ``path_map`` follows report verification's relocation rules. Parent
+    evidence is recursively checked, with cycle detection over canonical
+    evidence identities.
+    """
+
+    relocation = {} if path_map is None else dict(path_map)
+    mismatches: list[str] = []
+    source = Path(evidence_path).expanduser().resolve()
+    verified = _verify_evolution_file(
+        source,
+        path_map=relocation,
+        mismatches=mismatches,
+        seen_digests=set(),
+        label="evolution evidence",
+    )
+    if mismatches or verified is None:
+        raise ReportVerificationError(mismatches or ["evolution evidence verification failed"])
+    return verified
+
+
+def _configuration_merge(
+    base: Mapping[str, Any], overlay: Mapping[str, Any]
+) -> dict[str, Any]:
+    result = copy.deepcopy(dict(base))
+    for key, value in overlay.items():
+        current = result.get(key)
+        if isinstance(current, Mapping) and isinstance(value, Mapping):
+            result[key] = _configuration_merge(current, value)
+        else:
+            result[key] = copy.deepcopy(value)
+    return result
+
+
+def _configuration_ownership(
+    base: Mapping[str, str],
+    overlay: Mapping[str, Any],
+    owner: str,
+    *,
+    prefix: str = "",
+) -> dict[str, str]:
+    result = dict(base)
+    for key, value in overlay.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        descendants = tuple(
+            existing
+            for existing in result
+            if existing == path or existing.startswith(path + ".")
+        )
+        if isinstance(value, Mapping) and value:
+            result.pop(path, None)
+            result = _configuration_ownership(result, value, owner, prefix=path)
+        elif isinstance(value, Mapping) and any(
+            existing.startswith(path + ".") for existing in result
+        ):
+            continue
+        else:
+            for existing in descendants:
+                result.pop(existing, None)
+            result[path] = owner
+    return result
 
 
 def _verify_manifest_configuration(
@@ -203,13 +481,360 @@ def _verify_manifest_configuration(
         return
     if configuration.canonical_digest() != configuration.artifact_digest:
         mismatches.append(f"{label}: configuration artifact_digest drift")
+    if _compact_json_digest(configuration.json_schema) != configuration.schema_digest:
+        mismatches.append(f"{label}: configuration schema_digest drift")
+    source_contents: dict[tuple[str, int], bytes] = {}
     for index, ref in enumerate(configuration.source_refs):
-        _verify_ref(
+        _, content = _verify_ref(
             ref,
             label=f"{label}.source_refs[{index}]",
             path_map=path_map,
             mismatches=mismatches,
         )
+        if content is not None:
+            source_contents[(ref.sha256, ref.size_bytes)] = content
+    if configuration.composition:
+        _replay_configuration_composition(
+            configuration,
+            source_contents=source_contents,
+            label=label,
+            mismatches=mismatches,
+        )
+
+
+def _replay_configuration_composition(
+    configuration: Any,
+    *,
+    source_contents: Mapping[tuple[str, int], bytes],
+    label: str,
+    mismatches: list[str],
+) -> None:
+    """Replay the recorded configuration recipe and compare every projection."""
+
+    steps = tuple(configuration.composition)
+    source_keys = {
+        (ref.sha256, ref.size_bytes) for ref in configuration.source_refs
+    }
+    composition_source_keys = {
+        (step.source_ref.sha256, step.source_ref.size_bytes)
+        for step in steps
+        if step.source_ref is not None
+    }
+    if composition_source_keys != source_keys:
+        mismatches.append(
+            f"{label}.composition: source_refs/composition coverage mismatch"
+        )
+    profiles: dict[str, tuple[ConfigurationSpec, ConfigurationCompositionStep]] = {}
+    roots: list[tuple[ConfigurationCompositionStep, ConfigurationSpec | None]] = []
+
+    for index, step in enumerate(steps):
+        step_label = f"{label}.composition[{index}]"
+        spec: ConfigurationSpec | None = None
+        observed_values: Mapping[str, Any]
+        observed_schema: Mapping[str, Any]
+        observed_adapter = "generic"
+        observed_extends: tuple[str, ...] = ()
+        if step.source_ref is None:
+            observed_values = step.values
+            observed_schema = step.json_schema
+        else:
+            key = (step.source_ref.sha256, step.source_ref.size_bytes)
+            content = source_contents.get(key)
+            if content is None:
+                mismatches.append(f"{step_label}: source_ref is absent from source_refs")
+                continue
+            try:
+                document = tomllib.loads(content.decode("utf-8"))
+            except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+                mismatches.append(f"{step_label}: source TOML is malformed: {exc}")
+                continue
+            if step.mode == "envelope":
+                if (
+                    set(document) != {"configuration"}
+                    or not isinstance(document.get("configuration"), Mapping)
+                    or document["configuration"].get("kind") != "configuration"
+                ):
+                    mismatches.append(
+                        f"{step_label}: source does not contain a valid [configuration] envelope"
+                    )
+                    continue
+                try:
+                    spec = ConfigurationSpec.model_validate(document["configuration"])
+                except ValidationError as exc:
+                    mismatches.append(f"{step_label}: invalid configuration envelope: {exc}")
+                    continue
+                observed_values = spec.values
+                observed_schema = spec.json_schema
+                observed_adapter = spec.adapter
+                observed_extends = spec.extends
+                if step.id != spec.id:
+                    mismatches.append(
+                        f"{step_label}: id mismatch: recorded={step.id!r}, observed={spec.id!r}"
+                    )
+            elif step.mode == "raw":
+                if "configuration" in document:
+                    mismatches.append(
+                        f"{step_label}: raw source contains [configuration]; envelope mode required"
+                    )
+                    continue
+                try:
+                    spec = ConfigurationSpec(
+                        id=step.id or "raw-source",
+                        kind="configuration",
+                        adapter="generic",
+                        values=document,
+                    )
+                except ValidationError as exc:
+                    mismatches.append(f"{step_label}: invalid raw configuration: {exc}")
+                    continue
+                observed_values = document
+                observed_schema = {}
+                observed_adapter = spec.adapter
+                observed_extends = spec.extends
+            else:
+                mismatches.append(f"{step_label}: unknown source mode {step.mode!r}")
+                continue
+            if observed_values != step.values:
+                mismatches.append(f"{step_label}: values do not match source bytes")
+            if observed_schema != step.json_schema:
+                mismatches.append(f"{step_label}: schema does not match source bytes")
+            if observed_adapter != step.adapter:
+                mismatches.append(f"{step_label}: adapter does not match source bytes")
+            if observed_extends != step.extends:
+                mismatches.append(f"{step_label}: extends does not match source bytes")
+        if step.id is not None and spec is not None:
+            profiles[step.id] = (spec, step)
+        if step.root:
+            roots.append((step, spec))
+
+    replay_values: Mapping[str, Any] = {}
+    replay_schema: Mapping[str, Any] = {}
+    replay_ownership: Mapping[str, str] = {}
+    applied_ids: list[str] = []
+    visiting: list[str] = []
+
+    def apply_profile(profile_id: str) -> None:
+        if profile_id in visiting:
+            cycle = " -> ".join((*visiting, profile_id))
+            mismatches.append(f"{label}.composition: extends cycle: {cycle}")
+            return
+        entry = profiles.get(profile_id)
+        if entry is None:
+            mismatches.append(
+                f"{label}.composition: missing profile source for {profile_id!r}"
+            )
+            return
+        spec, _step = entry
+        visiting.append(profile_id)
+        for parent in spec.extends:
+            apply_profile(parent)
+        visiting.pop()
+        nonlocal replay_values, replay_schema, replay_ownership
+        replay_values = _configuration_merge(replay_values, spec.values)
+        replay_schema = _configuration_merge(replay_schema, spec.json_schema)
+        replay_ownership = _configuration_ownership(
+            replay_ownership, spec.values, spec.adapter
+        )
+        if profile_id not in applied_ids:
+            applied_ids.append(profile_id)
+
+    for step, spec in roots:
+        if step.kind == "profile" or (spec is not None and step.id in profiles):
+            if step.id is None:
+                mismatches.append(f"{label}.composition: profile root has no id")
+                continue
+            if step.id in profiles:
+                apply_profile(step.id)
+            else:
+                replay_values = _configuration_merge(replay_values, step.values)
+                replay_schema = _configuration_merge(replay_schema, step.json_schema)
+                replay_ownership = _configuration_ownership(
+                    replay_ownership, step.values, step.adapter
+                )
+                if step.id not in applied_ids:
+                    applied_ids.append(step.id)
+        elif spec is not None:
+            replay_values = _configuration_merge(replay_values, spec.values)
+            replay_schema = _configuration_merge(replay_schema, spec.json_schema)
+            replay_ownership = _configuration_ownership(
+                replay_ownership, spec.values, spec.adapter
+            )
+            if spec.id not in applied_ids:
+                applied_ids.append(spec.id)
+        else:
+            replay_values = _configuration_merge(replay_values, step.values)
+            replay_schema = _configuration_merge(replay_schema, step.json_schema)
+            replay_ownership = _configuration_ownership(
+                replay_ownership, step.values, step.adapter
+            )
+
+    try:
+        validator_cls = jsonschema.validators.validator_for(replay_schema)
+        validator_cls.check_schema(replay_schema)
+        validator_cls(replay_schema).validate(replay_values)
+    except jsonschema.exceptions.SchemaError as exc:
+        mismatches.append(f"{label}: replayed JSON Schema is invalid: {exc.message}")
+    except jsonschema.exceptions.ValidationError as exc:
+        mismatches.append(f"{label}: replayed values fail JSON Schema: {exc.message}")
+    if replay_values != configuration.values:
+        mismatches.append(f"{label}: replayed values differ from resolved artifact")
+    if replay_schema != configuration.json_schema:
+        mismatches.append(f"{label}: replayed schema differs from resolved artifact")
+    if replay_ownership != configuration.ownership:
+        mismatches.append(f"{label}: replayed ownership differs from resolved artifact")
+    if tuple(applied_ids) != tuple(configuration.profiles):
+        mismatches.append(
+            f"{label}: replayed profile order differs from resolved artifact"
+        )
+
+
+def _verify_manifest_adapter_capabilities(
+    manifest: ResolvedBmpManifest,
+    *,
+    label: str,
+    path_map: Mapping[str, str],
+    mismatches: list[str],
+) -> None:
+    subject_interface = (
+        None
+        if manifest.subject.kind == "fake"
+        else getattr(manifest.subject, "interface", None)
+    )
+    compatibility = (
+        manifest.benchmark.adapter,
+        manifest.execution.backend.adapter,
+        subject_interface,
+    )
+    required: set[tuple[str, str]] = set()
+    if (
+        manifest.benchmark.kind == "custom"
+        or manifest.benchmark.adapter not in _BUILTIN_BENCHMARK_LOADER_ADAPTERS
+    ):
+        required.add((manifest.benchmark.adapter, "benchmark_loader"))
+    if (
+        manifest.execution.backend.adapter
+        not in _BUILTIN_BACKEND_FACTORY_ADAPTERS
+    ):
+        required.add((manifest.execution.backend.adapter, "backend_factory"))
+    if (
+        manifest.benchmark.kind == "custom"
+        or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
+        or manifest.subject.kind in {"evolver", "meta_evolver"}
+    ):
+        required.add((manifest.benchmark.adapter, "execution"))
+
+    observed: dict[tuple[str, str], list[int]] = {}
+    for index, artifact in enumerate(manifest.metadata.adapter_capabilities):
+        key = (
+            artifact.capability.adapter,
+            artifact.capability.adapter_kind,
+        )
+        observed.setdefault(key, []).append(index)
+    for key, indices in sorted(observed.items()):
+        if len(indices) > 1:
+            mismatches.append(
+                f"{label}: duplicate adapter capability {key!r} at indices {indices}"
+            )
+    for key in sorted(required - set(observed)):
+        mismatches.append(f"{label}: missing required adapter capability {key!r}")
+    for key in sorted(set(observed) - required):
+        mismatches.append(f"{label}: unexpected adapter capability {key!r}")
+
+    for index, artifact in enumerate(manifest.metadata.adapter_capabilities):
+        artifact_label = f"{label}[{index}]"
+        if artifact.canonical_digest() != artifact.artifact_digest:
+            mismatches.append(f"{artifact_label}: artifact_digest drift")
+        _verify_ref(
+            artifact.declaration_ref,
+            label=f"{artifact_label}.declaration_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        _verify_ref(
+            artifact.implementation_ref,
+            label=f"{artifact_label}.implementation_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        closure_refs = artifact.source_closure_refs
+        closure_paths = artifact.source_closure_paths
+        if not closure_refs or artifact.source_closure_digest is None:
+            mismatches.append(
+                f"{artifact_label}: source import closure is missing"
+            )
+            continue
+        if len(closure_refs) != len(closure_paths):
+            mismatches.append(
+                f"{artifact_label}: source import closure refs/path count drift"
+            )
+            continue
+        closure_entries = [
+            {
+                "path": relative,
+                "size_bytes": ref.size_bytes,
+                "sha256": ref.sha256,
+            }
+            for relative, ref in zip(closure_paths, closure_refs, strict=True)
+        ]
+        observed_closure_digest = _compact_json_digest(
+            sorted(closure_entries, key=lambda item: item["path"])
+        )
+        if observed_closure_digest != artifact.source_closure_digest:
+            mismatches.append(f"{artifact_label}: source import closure digest drift")
+        if not any(
+            ref.sha256 == artifact.implementation_ref.sha256
+            and ref.size_bytes == artifact.implementation_ref.size_bytes
+            for ref in closure_refs
+        ):
+            mismatches.append(
+                f"{artifact_label}: source import closure omits implementation"
+            )
+        # Re-run the same static, non-importing closure discovery used by the
+        # compiler. This catches an entrypoint that was edited to import a new
+        # local helper which was absent from the recorded closure.
+        try:
+            from MagentaBench.runner.adapter_source import (
+                closure_digest,
+                import_closure,
+                resolve_entrypoint,
+                resolve_source_root,
+            )
+
+            declaration_path = _resolve_path(
+                artifact.declaration_ref.path, path_map
+            )
+            project_root = declaration_path.parent.parent.parent
+            source_root = resolve_source_root(
+                project_root, artifact.capability.source
+            )
+            entrypoint_path = resolve_entrypoint(
+                source_root, artifact.capability.entrypoint
+            )
+            observed_paths = import_closure(source_root, entrypoint_path)
+            expected_paths = tuple(
+                path.relative_to(source_root).as_posix()
+                for path in observed_paths
+            )
+            if expected_paths != tuple(closure_paths):
+                mismatches.append(
+                    f"{artifact_label}: source import closure paths drift"
+                )
+            observed_digest = closure_digest(source_root, observed_paths)
+            if observed_digest != artifact.source_closure_digest:
+                mismatches.append(
+                    f"{artifact_label}: source import closure source drift"
+                )
+        except (OSError, ValueError) as exc:
+            mismatches.append(
+                f"{artifact_label}: source import closure cannot be replayed: {exc}"
+            )
+        for closure_index, ref in enumerate(closure_refs):
+            _verify_ref(
+                ref,
+                label=f"{artifact_label}.source_closure_refs[{closure_index}]",
+                path_map=path_map,
+                mismatches=mismatches,
+            )
 
 
 def _verify_bundle_provenance(
@@ -252,6 +877,147 @@ def _verify_bundle_provenance(
         mismatches.append(f"{label}: provenance test_override drift")
     if provenance.trace_emission_claimed != bool(getattr(manifest.subject, "emits_trace", False)):
         mismatches.append(f"{label}: provenance trace_emission_claimed drift")
+    configuration = manifest.metadata.configuration
+    activation = provenance.configuration_activation
+    if configuration is None:
+        if activation is not None:
+            mismatches.append(f"{label}: undeclared configuration activation receipt")
+    elif activation is None and manifest.claim_design.purpose == RunPurpose.claim:
+        mismatches.append(f"{label}: ConfigurationActivationReceipt is missing")
+    elif activation is not None:
+        if activation.configuration_digest != configuration.artifact_digest:
+            mismatches.append(f"{label}: configuration activation digest drift")
+        expected_consumer_adapter = getattr(
+            manifest.subject, "adapter", configuration.adapter
+        )
+        if activation.adapter != expected_consumer_adapter:
+            mismatches.append(f"{label}: configuration activation adapter drift")
+        if activation.status != "matched":
+            mismatches.append(
+                f"{label}: configuration activation status is {activation.status!r}"
+            )
+    evolution_ref = provenance.evolution_evidence_ref
+    evolution_required = manifest.claim_design.purpose == RunPurpose.claim
+    if manifest.subject.kind in {"evolver", "meta_evolver"}:
+        if evolution_ref is None and evolution_required:
+            mismatches.append(f"{label}: EvolutionRunEvidence is missing")
+        elif evolution_ref is not None:
+            try:
+                evolution_path = _resolve_path(evolution_ref.path, path_map)
+            except ValueError as exc:
+                mismatches.append(f"{label}: evolution evidence path is invalid: {exc}")
+            else:
+                verified_evolution = _verify_evolution_file(
+                    evolution_path,
+                    path_map=path_map,
+                    mismatches=mismatches,
+                    seen_digests=set(),
+                    label=f"{label}.evolution_evidence",
+                )
+                if verified_evolution is not None:
+                    evidence = verified_evolution.evidence
+                    if evidence.kind != manifest.subject.kind:
+                        mismatches.append(
+                            f"{label}: evolution evidence kind does not match subject"
+                        )
+                    execution_capabilities = tuple(
+                        item.capability
+                        for item in manifest.metadata.adapter_capabilities
+                        if item.capability.adapter_kind == "execution"
+                    )
+                    if len(execution_capabilities) != 1:
+                        mismatches.append(
+                            f"{label}: evolution execution capability binding is ambiguous"
+                        )
+                    elif evidence.adapter_digest != execution_capabilities[0].digest:
+                        mismatches.append(
+                            f"{label}: evolution adapter digest does not match capability"
+                        )
+                    if evidence.evaluator_digest != manifest.benchmark.artifact_digest:
+                        mismatches.append(
+                            f"{label}: evolution evaluator digest does not match benchmark"
+                        )
+                    if evidence.budget_digest != canonical_digest(
+                        manifest.execution.budget
+                    ):
+                        mismatches.append(
+                            f"{label}: evolution budget digest does not match manifest"
+                        )
+                    if evolution_required and not evidence.claim_ready:
+                        mismatches.append(
+                            f"{label}: evolution evidence is not claim_ready"
+                        )
+                    if evidence.run_id not in {
+                        bundle.run_id,
+                        manifest.metadata.run_id,
+                    }:
+                        mismatches.append(
+                            f"{label}: evolution evidence run_id is not bound to attempt"
+                        )
+    elif evolution_ref is not None:
+        mismatches.append(f"{label}: undeclared evolution evidence reference")
+    runtime_receipt = provenance.runtime_manifest_receipt
+    if manifest.subject.kind == "hcp_harness":
+        if runtime_receipt is None:
+            mismatches.append(f"{label}: runtime manifest receipt is missing")
+        else:
+            try:
+                mapped_trace_path = _resolve_path(
+                    runtime_receipt.trace_ref.path, path_map
+                )
+                from MagentaBench.adapters.subjects.cli_agent import (
+                    MagentaJsonlError,
+                    parse_magenta_jsonl,
+                )
+
+                parsed_trace = parse_magenta_jsonl(
+                    mapped_trace_path.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeError, ValueError, MagentaJsonlError) as exc:
+                mismatches.append(
+                    f"{label}: runtime manifest trace is invalid: {exc}"
+                )
+            else:
+                expected_manifest_digests = tuple(
+                    _compact_json_digest(item)
+                    for item in parsed_trace.runtime_manifests
+                )
+                if runtime_receipt.run_id != parsed_trace.run_end.get("runId"):
+                    mismatches.append(f"{label}: runtime manifest run_id drift")
+                if runtime_receipt.manifest_sha256 != expected_manifest_digests:
+                    mismatches.append(f"{label}: runtime manifest digest lineage drift")
+                expected_sequence = int(
+                    parsed_trace.effective_runtime_manifest["sequence"]
+                )
+                if runtime_receipt.effective_sequence != expected_sequence:
+                    mismatches.append(f"{label}: effective runtime manifest drift")
+                expected_sidecars = []
+                for item in parsed_trace.runtime_manifests:
+                    sidecar = item.get("assembly")
+                    if not isinstance(sidecar, Mapping):
+                        continue
+                    encoded = json.dumps(
+                        sidecar,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ).encode("utf-8") + b"\n"
+                    expected_sidecars.append(
+                        (
+                            int(item["sequence"]),
+                            _sha256(encoded),
+                            len(encoded),
+                        )
+                    )
+                observed_sidecars = [
+                    (ref.sequence, ref.sha256, ref.size_bytes)
+                    for ref in runtime_receipt.assembly_sidecar_refs
+                ]
+                if observed_sidecars != expected_sidecars:
+                    mismatches.append(f"{label}: runtime assembly sidecar lineage drift")
+    elif runtime_receipt is not None:
+        mismatches.append(f"{label}: undeclared runtime manifest receipt")
     environment = manifest.execution.backend.environment
     if environment is None and provenance.environment_receipt is not None:
         mismatches.append(f"{label}: undeclared environment receipt")
@@ -1322,7 +2088,14 @@ def _statistics_are_substantiated(
     control_id = contrast.control_id or ordered[0][2].subject.id
     treatment_id = contrast.treatment_id or ordered[-1][2].subject.id
 
-    pairs: dict[bytes, dict[str, ResolvedBmpManifest]] = {}
+    # Keep the lineage next to its manifest.  A multi-case parent run shares
+    # one immutable manifest object across all selected cases, so recovering
+    # lineage later with ``manifest is ...`` is ambiguous and can silently
+    # attribute one case's ordering to another.
+    pairs: dict[
+        bytes,
+        dict[str, tuple[Any, ResolvedBmpManifest]],
+    ] = {}
     for lineage, _, manifest in ordered:
         factors = {
             key: value
@@ -1333,7 +2106,7 @@ def _statistics_are_substantiated(
         pair = pairs.setdefault(_canonical_key(factors), {})
         if manifest.subject.id in pair:
             return False
-        pair[manifest.subject.id] = manifest
+        pair[manifest.subject.id] = (lineage, manifest)
     if not pairs or any(
         set(pair) != {control_id, treatment_id} for pair in pairs.values()
     ):
@@ -1348,8 +2121,8 @@ def _statistics_are_substantiated(
     directions: dict[bytes, set[bool]] = {}
     counts: Counter[bytes] = Counter()
     for pair in pairs.values():
-        control = pair[control_id]
-        treatment = pair[treatment_id]
+        control_lineage, control = pair[control_id]
+        treatment_lineage, treatment = pair[treatment_id]
         outer_factors = {
             key: value
             for key, value in control.metadata.factors.items()
@@ -1364,25 +2137,11 @@ def _statistics_are_substantiated(
         # The case is part of the independent paired unit.  Keeping it in the
         # outer key prevents counterbalance evidence from one case masking a
         # missing direction in another.
-        control_lineage = next(
-            lineage
-            for lineage, _, manifest in ordered
-            if manifest is control
-        )
         outer_factors["__case_id"] = control_lineage.case_id
         outer_key = _canonical_key(outer_factors)
         directions.setdefault(outer_key, set()).add(
             positions[(control_lineage.run_id, control_lineage.case_id)]
-            < positions[
-                (
-                    next(
-                        lineage
-                        for lineage, _, manifest in ordered
-                        if manifest is treatment
-                    ).run_id,
-                    control_lineage.case_id,
-                )
-            ]
+            < positions[(treatment_lineage.run_id, treatment_lineage.case_id)]
         )
         counts[outer_key] += 1
     if not directions or any(
@@ -1905,6 +2664,12 @@ def _verify_report(
             path_map=relocation,
             mismatches=mismatches,
         )
+        _verify_manifest_adapter_capabilities(
+            manifest,
+            label=f"manifest[{position}].adapter_capabilities",
+            path_map=relocation,
+            mismatches=mismatches,
+        )
     observed_experiment_digest = _compact_json_digest(manifest_digests)
     if observed_experiment_digest != report.manifest_digest:
         mismatches.append(
@@ -2277,9 +3042,11 @@ def main(argv: list[str] | None = None) -> int:
 __all__ = [
     "ReportVerificationError",
     "VerifiedClaimReport",
+    "VerifiedEvolutionRunEvidence",
     "VerifiedObservationReport",
     "VerifiedRunReport",
     "verify_claim_report",
+    "verify_evolution_run_evidence",
     "verify_observation_report",
     "verify_run_report",
     "main",

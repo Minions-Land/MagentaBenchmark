@@ -5,12 +5,77 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib
 
 from MagentaBench.schemas import verify_run_report
 
 from .compiler import Compiler
 from .pipeline import Pipeline
+
+
+def _parse_set(value: str) -> tuple[str, Any]:
+    """Parse ``--set dotted.path=value`` through TOML's scalar grammar."""
+
+    if "=" not in value:
+        raise argparse.ArgumentTypeError("--set values must be PATH=VALUE")
+    path, encoded = value.split("=", 1)
+    if not path or not encoded:
+        raise argparse.ArgumentTypeError("--set values must be PATH=VALUE")
+    try:
+        parsed = tomllib.loads(f"value = {encoded}\n")["value"]
+    except (tomllib.TOMLDecodeError, KeyError) as exc:
+        raise argparse.ArgumentTypeError(
+            f"--set value is not valid TOML: {value!r}"
+        ) from exc
+    return path, parsed
+
+
+def _configuration_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="PATH",
+        help="Add an external [configuration] TOML envelope",
+    )
+    parser.add_argument(
+        "--raw-config",
+        action="append",
+        default=[],
+        type=Path,
+        metavar="PATH",
+        help="Add an explicitly raw TOML configuration document",
+    )
+    parser.add_argument(
+        "--profile",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="Add a named configuration registry profile",
+    )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        type=_parse_set,
+        metavar="PATH=VALUE",
+        help="Override a configuration dotted path (value uses TOML syntax)",
+    )
+
+
+def _configuration_overrides(args: argparse.Namespace) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for path, value in args.set:
+        if path in result:
+            raise ValueError(f"duplicate --set path: {path!r}")
+        result[path] = value
+    return result
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -36,14 +101,23 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume an existing checkpoint-compatible execution",
     )
+    _configuration_arguments(parser)
     return parser
 
 
 def run_main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    try:
+        overrides = _configuration_overrides(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     result = Pipeline(args.project_root, args.record_root).run(
         args.experiment,
         resume=args.resume,
+        config_files=tuple(path.resolve() for path in args.config),
+        raw_config_files=tuple(path.resolve() for path in args.raw_config),
+        config_profiles=tuple(args.profile),
+        config_overrides=overrides,
     )
     verified = verify_run_report(result.report_path)
     print(
@@ -74,8 +148,19 @@ def compile_main(argv: Sequence[str] | None = None) -> int:
         default=Path.cwd(),
         help="MagentaBench project root (default: current directory)",
     )
+    _configuration_arguments(parser)
     args = parser.parse_args(argv)
-    runs = Compiler(args.project_root).compile(args.experiment)
+    try:
+        overrides = _configuration_overrides(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    runs = Compiler(args.project_root).compile(
+        args.experiment,
+        config_files=tuple(path.resolve() for path in args.config),
+        raw_config_files=tuple(path.resolve() for path in args.raw_config),
+        config_profiles=tuple(args.profile),
+        config_overrides=overrides,
+    )
     payload = [
         {
             "run_id": run.manifest.metadata.run_id,
@@ -89,4 +174,3 @@ def compile_main(argv: Sequence[str] | None = None) -> int:
 
 
 __all__ = ["compile_main", "run_main"]
-

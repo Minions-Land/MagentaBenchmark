@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "Experiment-local composition of registry profiles and external TOML.",
+  "description": "Experiment-local composition of registry profiles and external TOML.\n\n``files`` are explicit ``[configuration]`` envelopes.  ``raw_files`` is\nan opt-in escape hatch for adapter-owned raw TOML documents; keeping the\ntwo namespaces separate prevents a malformed envelope from silently being\ninterpreted as generic configuration.",
   "properties": {
     "files": {
       "default": [],
@@ -16,6 +16,14 @@
         "type": "string"
       },
       "title": "Profiles",
+      "type": "array"
+    },
+    "raw_files": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Raw Files",
       "type": "array"
     },
     "values": {

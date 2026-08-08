@@ -29,6 +29,118 @@
       "title": "ArtifactRef",
       "type": "object"
     },
+    "ConfigurationActivationReceipt": {
+      "additionalProperties": false,
+      "description": "Neutral evidence that a resolved configuration reached the adapter.\n\nBMP owns the configuration artifact and its identity.  An adapter owns\nthe meaning of its settings and reports only a secret-free projection of\nwhat it requested and what the runtime observed.  This keeps activation\nevidence useful for arbitrary adapters without importing their protocols.",
+      "properties": {
+        "activated_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Activated Paths",
+          "type": "array"
+        },
+        "activated_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Activated Sha256",
+          "type": "string"
+        },
+        "activated_values": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated Values"
+        },
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "configuration_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Configuration Digest",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "reason": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason",
+          "type": "array"
+        },
+        "requested_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Requested Paths",
+          "type": "array"
+        },
+        "requested_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Requested Sha256",
+          "type": "string"
+        },
+        "requested_values": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Values"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "unobserved",
+            "mismatch",
+            "missing_activation_receipt",
+            "unrequested",
+            "invalid_activation_receipt",
+            "activation_unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuration_digest",
+        "adapter",
+        "requested_sha256",
+        "activated_sha256",
+        "status"
+      ],
+      "title": "ConfigurationActivationReceipt",
+      "type": "object"
+    },
     "EnvironmentReceipt": {
       "additionalProperties": false,
       "description": "Observed environment identity recorded in execution provenance.",
@@ -253,6 +365,17 @@
           "default": null,
           "title": "Commit"
         },
+        "configuration_activation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigurationActivationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "container_receipt_ref": {
           "anyOf": [
             {
@@ -280,6 +403,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/EnvironmentReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evolution_evidence_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
             },
             {
               "type": "null"
@@ -346,6 +480,17 @@
           "pattern": "^[0-9a-f]{64}$",
           "title": "Runner Digest",
           "type": "string"
+        },
+        "runtime_manifest_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeManifestReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "subject_digest": {
           "pattern": "^[0-9a-f]{64}$",
@@ -471,6 +616,107 @@
       ],
       "title": "RunStatus",
       "type": "string"
+    },
+    "RuntimeAssemblySidecarRef": {
+      "additionalProperties": false,
+      "description": "One persisted sidecar emitted by a sequenced runtime manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "sidecar_schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Sidecar Schema Version",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "RuntimeAssemblySidecarRef",
+      "type": "object"
+    },
+    "RuntimeManifestReceipt": {
+      "additionalProperties": false,
+      "description": "Public Magenta runtime-manifest lineage retained by one attempt.",
+      "properties": {
+        "assembly_sidecar_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RuntimeAssemblySidecarRef"
+          },
+          "title": "Assembly Sidecar Refs",
+          "type": "array"
+        },
+        "effective_assembly_sidecar_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeAssemblySidecarRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "effective_sequence": {
+          "minimum": 1,
+          "title": "Effective Sequence",
+          "type": "integer"
+        },
+        "manifest_sha256": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Manifest Sha256",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "trace_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        }
+      },
+      "required": [
+        "run_id",
+        "manifest_sha256",
+        "trace_ref",
+        "effective_sequence"
+      ],
+      "title": "RuntimeManifestReceipt",
+      "type": "object"
     },
     "TestOverrideReceipt": {
       "additionalProperties": false,

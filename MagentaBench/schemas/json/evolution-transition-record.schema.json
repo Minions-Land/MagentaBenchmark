@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionTransitionPhase": {
+      "description": "Neutral phases for a candidate-search transition ledger.",
+      "enum": [
+        "seed",
+        "generate",
+        "feedback",
+        "revise",
+        "select",
+        "terminate"
+      ],
+      "title": "EvolutionTransitionPhase",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One ordered search transition connecting candidate records.",
+  "properties": {
+    "attributes": {
+      "additionalProperties": true,
+      "title": "Attributes",
+      "type": "object"
+    },
+    "feedback_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Feedback Refs",
+      "type": "array"
+    },
+    "input_candidate_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Candidate Ids",
+      "type": "array"
+    },
+    "output_candidate_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Output Candidate Ids",
+      "type": "array"
+    },
+    "phase": {
+      "$ref": "#/$defs/EvolutionTransitionPhase"
+    },
+    "search_state_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Search State Refs",
+      "type": "array"
+    },
+    "sequence": {
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "transition_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Transition Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "transition_id",
+    "sequence",
+    "phase"
+  ],
+  "title": "EvolutionTransitionRecord",
+  "type": "object"
+}

@@ -1,5 +1,171 @@
 {
   "$defs": {
+    "AdapterCapability": {
+      "additionalProperties": false,
+      "description": "Declarative capability contract for a pluggable BMP adapter.\n\nThe entrypoint is metadata only until a host explicitly registers the\nimplementation object.  This keeps a TOML declaration from silently\nselecting executable code while still making supported kinds and config\npaths inspectable and hashable.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "adapter_kind": {
+          "enum": [
+            "benchmark_loader",
+            "backend_factory",
+            "execution"
+          ],
+          "title": "Adapter Kind",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "config_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Config Paths",
+          "type": "array"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "adapter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "default": ".",
+          "title": "Source",
+          "type": "string"
+        },
+        "supported_backend_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Adapters",
+          "type": "array"
+        },
+        "supported_backend_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Kinds",
+          "type": "array"
+        },
+        "supported_benchmark_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_subject_interfaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Interfaces",
+          "type": "array"
+        },
+        "supported_subject_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Kinds",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "adapter_kind",
+        "entrypoint",
+        "digest"
+      ],
+      "title": "AdapterCapability",
+      "type": "object"
+    },
+    "AdapterCapabilityArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved plugin declaration and implementation byte identity.\n\n``source_closure_*`` records the local Python helpers imported by the\nentrypoint.  Keeping relative names separate from absolute artifact refs\nmakes the digest stable across record relocation while still allowing the\nverifier to rehash every persisted byte.",
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "capability": {
+          "$ref": "#/$defs/AdapterCapability"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "implementation_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "source_closure_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Closure Digest"
+        },
+        "source_closure_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Closure Paths",
+          "type": "array"
+        },
+        "source_closure_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Source Closure Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "capability",
+        "declaration_ref",
+        "implementation_ref",
+        "artifact_digest"
+      ],
+      "title": "AdapterCapabilityArtifact",
+      "type": "object"
+    },
     "ArtifactRef": {
       "additionalProperties": false,
       "description": "Content-addressed reference to an artifact stored outside the manifest.",
@@ -48,11 +214,17 @@
           "minLength": 1,
           "title": "Sidecar Schema Version",
           "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
         }
       },
       "required": [
         "path",
-        "sha256"
+        "sha256",
+        "size_bytes"
       ],
       "title": "AssemblySidecarRef",
       "type": "object"
@@ -337,7 +509,7 @@
     },
     "ConfigurationArtifact": {
       "additionalProperties": false,
-      "description": "Resolved configuration tree bound to every profile/source byte.",
+      "description": "Resolved configuration tree bound to every profile/source byte.\n\n``json_schema`` is the merged, replayable schema tree and ``ownership``\nrecords which adapter contributed each resolved dotted path. ``adapter``\nremains a compatibility summary (``composite`` when several namespaces\nparticipate).",
       "properties": {
         "adapter": {
           "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
@@ -349,10 +521,30 @@
           "title": "Artifact Digest",
           "type": "string"
         },
+        "composition": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ConfigurationCompositionStep"
+          },
+          "title": "Composition",
+          "type": "array"
+        },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Id",
           "type": "string"
+        },
+        "json_schema": {
+          "additionalProperties": true,
+          "title": "Json Schema",
+          "type": "object"
+        },
+        "ownership": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Ownership",
+          "type": "object"
         },
         "profiles": {
           "default": [],
@@ -388,6 +580,94 @@
         "artifact_digest"
       ],
       "title": "ConfigurationArtifact",
+      "type": "object"
+    },
+    "ConfigurationCompositionStep": {
+      "additionalProperties": false,
+      "description": "One deterministic layer used to produce a resolved configuration.\n\nSource refs alone prove that the input bytes still exist, but do not prove\nhow profiles, external files, and inline overlays were ordered.  The\ncompiler records this small, JSON-only recipe so a standalone verifier can\nreplay the composition without importing adapter code.",
+      "properties": {
+        "adapter": {
+          "default": "generic",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "extends": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Extends",
+          "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "file",
+            "inline"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "envelope",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "root": {
+          "default": true,
+          "title": "Root",
+          "type": "boolean"
+        },
+        "schema": {
+          "additionalProperties": true,
+          "title": "Schema",
+          "type": "object"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "values": {
+          "additionalProperties": true,
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ConfigurationCompositionStep",
       "type": "object"
     },
     "CredentialRef": {
@@ -1211,6 +1491,14 @@
     "ResolvedManifestMetadata": {
       "additionalProperties": false,
       "properties": {
+        "adapter_capabilities": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AdapterCapabilityArtifact"
+          },
+          "title": "Adapter Capabilities",
+          "type": "array"
+        },
         "allowed_diff": {
           "default": [],
           "items": {

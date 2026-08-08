@@ -50,6 +50,19 @@
       "title": "Kind",
       "type": "string"
     },
+    "source": {
+      "default": ".",
+      "title": "Source",
+      "type": "string"
+    },
+    "supported_backend_adapters": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Backend Adapters",
+      "type": "array"
+    },
     "supported_backend_kinds": {
       "default": [],
       "items": {
@@ -64,6 +77,14 @@
         "type": "string"
       },
       "title": "Supported Benchmark Kinds",
+      "type": "array"
+    },
+    "supported_subject_interfaces": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Subject Interfaces",
       "type": "array"
     },
     "supported_subject_kinds": {

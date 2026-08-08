@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Neutral evidence that a resolved configuration reached the adapter.\n\nBMP owns the configuration artifact and its identity.  An adapter owns\nthe meaning of its settings and reports only a secret-free projection of\nwhat it requested and what the runtime observed.  This keeps activation\nevidence useful for arbitrary adapters without importing their protocols.",
+  "properties": {
+    "activated_paths": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Activated Paths",
+      "type": "array"
+    },
+    "activated_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Activated Sha256",
+      "type": "string"
+    },
+    "activated_values": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated Values"
+    },
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "configuration_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Digest",
+      "type": "string"
+    },
+    "evidence_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "protocol_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "reason": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason",
+      "type": "array"
+    },
+    "requested_paths": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Requested Paths",
+      "type": "array"
+    },
+    "requested_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Requested Sha256",
+      "type": "string"
+    },
+    "requested_values": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Values"
+    },
+    "status": {
+      "enum": [
+        "matched",
+        "unobserved",
+        "mismatch",
+        "missing_activation_receipt",
+        "unrequested",
+        "invalid_activation_receipt",
+        "activation_unknown"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "configuration_digest",
+    "adapter",
+    "requested_sha256",
+    "activated_sha256",
+    "status"
+  ],
+  "title": "ConfigurationActivationReceipt",
+  "type": "object"
+}

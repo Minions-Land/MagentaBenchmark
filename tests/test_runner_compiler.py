@@ -14,6 +14,7 @@ from MagentaBench.runner.compiler import (
     canonical_manifest_json,
     enforce_allowed_diff,
 )
+from MagentaBench.schemas import ArtifactRef, ConfigurationArtifact
 
 
 ROOT = Path(__file__).parents[1]
@@ -84,6 +85,130 @@ def test_allowed_diff_accepts_declared_subject_intervention() -> None:
     )
     paths = enforce_allowed_diff(control.manifest, treatment.manifest, allowed)
     assert paths == allowed
+
+
+def test_allowed_diff_treats_configuration_value_as_causal_surface(
+    tmp_path: Path,
+) -> None:
+    """Derived configuration digests must not become extra interventions."""
+
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source += """
+
+[experiment.configuration.values.agent]
+model = "control-model"
+"""
+    experiment = tmp_path / "configuration-diff.toml"
+    experiment.write_text(source, encoding="utf-8")
+    try:
+        run = Compiler(ROOT).compile(experiment)[0]
+    finally:
+        experiment.unlink(missing_ok=True)
+    configuration = run.manifest.metadata.configuration
+    assert configuration is not None
+    values = {
+        **configuration.values,
+        "agent": {**configuration.values.get("agent", {}), "model": "treatment-model"},
+    }
+    treatment_configuration = configuration.model_copy(update={"values": values})
+    treatment_metadata = run.manifest.metadata.model_copy(
+        update={"configuration": treatment_configuration}
+    )
+    treatment = run.manifest.model_copy(update={"metadata": treatment_metadata})
+
+    paths = enforce_allowed_diff(
+        run.manifest,
+        treatment,
+        ("configuration.values.agent.model",),
+    )
+    assert paths == ("configuration.values.agent.model",)
+
+
+def test_allowed_diff_rejects_configuration_schema_and_adapter_changes() -> None:
+    run = Compiler(ROOT).compile(EXPERIMENTS / "fake-sweep.toml")[0]
+
+    # Use a minimal synthetic configuration artifact so this test stays
+    # independent of the repository's optional configuration registry entries.
+    base = ConfigurationArtifact(
+        id="inline",
+        adapter="generic",
+        values={"agent": {"model": "control"}},
+        schema_digest="0" * 64,
+        artifact_digest="0" * 64,
+    )
+    metadata = run.manifest.metadata.model_copy(update={"configuration": base})
+    control = run.manifest.model_copy(update={"metadata": metadata})
+
+    schema_changed = base.model_copy(
+        update={"json_schema": {"type": "object"}}
+    )
+    treatment = control.model_copy(
+        update={
+            "metadata": metadata.model_copy(
+                update={"configuration": schema_changed}
+            )
+        }
+    )
+    with pytest.raises(IsolationViolation) as caught:
+        enforce_allowed_diff(control, treatment, ())
+    assert "configuration.schema.type" in caught.value.forbidden_paths
+
+    adapter_changed = base.model_copy(update={"adapter": "other-adapter"})
+    treatment = control.model_copy(
+        update={
+            "metadata": metadata.model_copy(
+                update={"configuration": adapter_changed}
+            )
+        }
+    )
+    with pytest.raises(IsolationViolation) as caught:
+        enforce_allowed_diff(control, treatment, ())
+    assert "configuration.adapter" in caught.value.forbidden_paths
+
+
+def test_allowed_diff_ignores_source_location_but_rejects_source_content_change() -> None:
+    run = Compiler(ROOT).compile(EXPERIMENTS / "fake-sweep.toml")[0]
+    source = ArtifactRef(path="/tmp/config-a.toml", sha256="a" * 64, size_bytes=7)
+    base = ConfigurationArtifact(
+        id="profile",
+        adapter="generic",
+        source_refs=(source,),
+        values={"agent": {"model": "control"}},
+        schema_digest="0" * 64,
+        artifact_digest="0" * 64,
+    )
+    metadata = run.manifest.metadata.model_copy(update={"configuration": base})
+    control = run.manifest.model_copy(update={"metadata": metadata})
+
+    relocated = source.model_copy(update={"path": "/other/location/config.toml"})
+    treatment = control.model_copy(
+        update={
+            "metadata": metadata.model_copy(
+                update={
+                    "configuration": base.model_copy(
+                        update={"source_refs": (relocated,)}
+                    )
+                }
+            )
+        }
+    )
+    assert enforce_allowed_diff(control, treatment, ()) == ()
+
+    changed = source.model_copy(update={"sha256": "b" * 64})
+    treatment = control.model_copy(
+        update={
+            "metadata": metadata.model_copy(
+                update={
+                    "configuration": base.model_copy(
+                        update={"source_refs": (changed,)}
+                    )
+                }
+            )
+        }
+    )
+    with pytest.raises(IsolationViolation) as caught:
+        enforce_allowed_diff(control, treatment, ())
+    assert "configuration.source_refs.0.sha256" in caught.value.forbidden_paths
 
 
 def test_forbidden_diff_is_rejected_and_audited_before_execution(tmp_path: Path) -> None:

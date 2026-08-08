@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionCandidateStatus": {
+      "description": "Lifecycle state retained for every candidate an evolver produced.",
+      "enum": [
+        "generated",
+        "revised",
+        "accepted",
+        "rejected",
+        "invalid",
+        "selected"
+      ],
+      "title": "EvolutionCandidateStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One immutable candidate record in an evolution ledger.\n\nBMP intentionally stores artifacts and feedback as opaque content-addressed\nrefs. Adapter-owned metadata may describe arbitrary search mechanisms but\ncannot contain credentials or other secret-like keys.",
+  "properties": {
+    "artifact_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Artifact Refs",
+      "type": "array"
+    },
+    "attributes": {
+      "additionalProperties": true,
+      "title": "Attributes",
+      "type": "object"
+    },
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "evaluator_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evaluator Digest"
+    },
+    "feedback_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Feedback Refs",
+      "type": "array"
+    },
+    "generation": {
+      "minimum": 0,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "parent_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Parent Ids",
+      "type": "array"
+    },
+    "score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Score"
+    },
+    "score_metric": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Score Metric"
+    },
+    "search_state_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Search State Refs",
+      "type": "array"
+    },
+    "status": {
+      "$ref": "#/$defs/EvolutionCandidateStatus"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "generation",
+    "status"
+  ],
+  "title": "EvolutionCandidateRecord",
+  "type": "object"
+}

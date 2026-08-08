@@ -3,12 +3,12 @@
 > **状态修订（2026-08-08）**：`SubjectKind` 的 manifest 推导、父 run/子 attempt
 > lineage、`RecordIndex`、独立报告校验、checkpoint 字节绑定、环境路径无关身份、
 > exploratory 显式 `isolation_valid`、配置/adapter 契约与 HCP sidecar 字节绑定已提交
-> 到当前 BMP 代码 HEAD `08d124d`，并写入 `EVIDENCE.md` 与 `records/RETROACTIVE.md`。
-> 最终树验证为 251 tests passed、HCP
+> 到当前 BMP 代码历史；本地工作树另有配置 composition、外部 override、adapter
+> import-closure 与 Magenta v0.1.22 adapter 改动。最终树验证为 272 tests passed、HCP
 > boundary audit 0 violation；**没有任何真实 benchmark 证据因此变成有效 claim**。
-> Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到 `650de920`；当前
+> Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到本地 merge `5ee759a1`；当前
 > Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，另有本地测试
-> 提交 `c9f8f678`；这些提交均未 push。但 canonical
+> 提交 `c9f8f678`；这些提交均未 push。源码已离线构建为 v0.1.22，但 canonical
 > assembly digest/dependency closure 仍未由 HCP 提供，因此 `magenta_hcp` 的
 > component/ablation 能力继续 fail closed。
 
@@ -77,8 +77,11 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 - 内容寻址 case-set adapter registry；普通多 case 执行按
   `parent_run_id × case_id × attempt_id` 写入独立 lineage，checkpoint 多 case
   在 schema 扩展前继续 fail closed
-- 配置 registry：TOML 对象内容寻址、CRUD、深合并、外部文件/inline overlay，配置 digest
-  进入 manifest；`custom` benchmark + `AdapterCapability` 支持显式 digest-bound 外部 adapter
+- 配置 registry：TOML 对象内容寻址、CRUD、深合并、envelope/raw 外部文件、inline/CLI
+  overlay、JSON Schema 校验与可重放 composition；配置 digest 进入 manifest；`custom`
+  benchmark + `AdapterCapability` 支持显式 digest-bound 外部 adapter（含 helper closure）
+- 项目级 `registries/adapters/*.toml` discovery：entrypoint 字节 digest、声明字节、兼容 tuple
+  都绑定到 manifest，Pipeline/standalone verifier 均拒绝漂移
 
 **benchmark 接入**
 - BiomniBench-DA：26 case 已注册，连续 `ScoringKind`，`authoritative_reward_metric="overall"`
@@ -100,11 +103,12 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 | gold 隔离契约 | 已规范，未实现。5 个要求 + 6 个变异，承重的那个是"运行中拷入 gold"必须在**运行后重新哈希**处失败，而非在挂载检查处 |
 | M3 探针契约 | 已规范，未实现。≥2 个不同种类的类型化探针；`literal_ip` 记录 IP/端口/TCP/结果/errno/错误类；`hostname` 解析失败报 `resolution_failed` **不得**暗示传输拒绝；`egress_succeeded=false` 只能来自字面 IP 传输拒绝；探针代码 digest；字节校验的产物进 `NetworkObservation.evidence_refs`；仅有 `gaierror` 的产物**不能**满足 `active_probe` |
 | `subject_kind` 类型化枚举 | 已实现：从已解析 manifest/subject kind 推导，并由 standalone verifier 与索引交叉检查；仍未有真实 benchmark claim |
+| `EvolutionRunEvidence` | 已实现：候选/transition ledger、rejected/invalid 保留、content-addressed refs、meta-evolver parent 递归校验；claim 还要求 external execution capability、digest binding 与 provenance ref |
 | `ResolutionBandReceipt` | 已由 boundary-guardian 裁定契约形状，未实现。见 `02-upstream-references.md` |
 | CMT-Bench | 未接入 |
 | `EVIDENCE.md` / `records/RETROACTIVE.md` | 已写；明确当前没有真实 benchmark 成功证据，旧 records 全部是失效反例 |
 | Phase 3c | 对比引擎泛化（非 subject vary 轴）、`ProviderBinding`/`CredentialRef` 集成、RunRecord Step 2 |
-| Phase 4 | evolver / meta_evolver |
+| Phase 4 | resolution band、held-out split 与更多 evolver/meta-evolver gate 量化 |
 
 ## 被阻塞（含原因）
 
@@ -128,11 +132,13 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 
 `ResolutionBandReceipt` 不解除这个阻塞 —— boundary-guardian 明确裁定分辨带本身不能让 `claim_eligible` 或因果 `statistics_valid` 为真。它能支撑的是**第一份真实的 exploratory ObservationReport**。
 
-### 4 · 九个 ClaimScope 编译期被拒
+### 4 · 仍未实现的 ClaimScope 编译期被拒
 
 各自指名缺失的证据类。`component` 与 `ablation` 已有中性 `magenta_hcp`
 sidecar 接口，但 HCP 尚未提供 canonical assembly digest 与 dependency
-closure，仍由 `compiler.py:452` 和 claim gate fail closed。
+closure，仍由 `compiler.py` 和 claim gate fail closed。`evolver` /
+`meta_evolver` 已有独立 `EvolutionRunEvidence`，但没有 external execution
+capability 或 claim-ready provenance 时仍然 fail closed。
 
 ### 5 · `observed_case_order` 仅在 `parallelism=1` 有效
 

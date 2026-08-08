@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,13 @@ from MagentaBench.runner.adapter_registry import (
     AdapterRegistryError,
     verify_resolved_case_set,
 )
+from MagentaBench.runner.adapter_source import (
+    AdapterSourceError,
+    closure_digest,
+    import_closure,
+    resolve_entrypoint,
+    resolve_source_root,
+)
 from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.gates import evaluate_run_report
 from MagentaBench.runner.pipeline import Pipeline, ResumeDriftError
@@ -20,6 +28,7 @@ from MagentaBench.schemas import (
     ArtifactRef,
     CaseArtifact,
     CaseSetArtifact,
+    verify_observation_report,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -41,6 +50,96 @@ class _ExternalExecutionAdapter:
     backend_adapter = "external.backend"
     subject_interface = None
     digest = "a" * 64
+
+
+class _ExternalBenchmarkExecutionAdapter:
+    benchmark_adapter = "external.benchmark"
+    backend_adapter = "external.backend"
+    subject_interface = None
+    digest = "b" * 64
+
+
+class _ExternalBenchmarkOtherExecutionAdapter:
+    benchmark_adapter = "external.benchmark"
+    backend_adapter = "other.backend"
+    subject_interface = "chat"
+    digest = "c" * 64
+
+
+def test_adapter_capability_config_paths_match_resolved_configuration_tree() -> None:
+    base = AdapterCapability(
+        id="external.configured",
+        kind="adapter",
+        adapter="external.configured",
+        adapter_kind="benchmark_loader",
+        entrypoint="package.module:loader",
+        digest="a" * 64,
+    )
+    values = {
+        "agent": {"model": "gpt-5.4", "limits": {"max_turns": 300}},
+        "debugger": {"model": "gpt-5.4-mini"},
+    }
+
+    assert base.owns_configuration(values)
+    assert base.model_copy(update={"config_paths": ("*",)}).owns_configuration(
+        values
+    )
+    assert base.model_copy(update={"config_paths": ("agent",)}).owns_configuration(
+        values
+    )
+    assert base.model_copy(
+        update={"config_paths": ("agent.limits.max_turns",)}
+    ).owns_configuration(values)
+    assert not base.model_copy(
+        update={"config_paths": ("agent.missing", "meta_agent")}
+    ).owns_configuration(values)
+
+
+def test_project_adapter_registry_loads_digest_bound_toml_plugin(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = project / "plugins/demo"
+    declarations = project / "registries/adapters"
+    source.mkdir(parents=True)
+    declarations.mkdir(parents=True)
+    module = source / "loader.py"
+    # A file cannot embed its own digest. The plugin may compute it from its
+    # source bytes at import time; BMP independently compares the same bytes.
+    module.write_text(
+        """from hashlib import sha256
+from pathlib import Path
+
+class Loader:
+    adapter = "external.demo"
+    digest = sha256(Path(__file__).read_bytes()).hexdigest()
+""",
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(module.read_bytes()).hexdigest()
+    declaration = declarations / "external-demo.toml"
+    declaration.write_text(
+        f'''[adapter]
+id = "external.demo"
+kind = "adapter"
+adapter = "external.demo"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "plugins/demo"
+entrypoint = "loader.py:Loader"
+digest = "{digest}"
+supported_benchmark_kinds = ["custom"]
+''',
+        encoding="utf-8",
+    )
+
+    registry = AdapterRegistry.from_project(project)
+    assert registry.capability("external.demo").digest == digest
+
+    declaration.write_text(
+        declaration.read_text(encoding="utf-8").replace(digest, "b" * 64),
+        encoding="utf-8",
+    )
+    with pytest.raises(AdapterRegistryError, match="source digest mismatch"):
+        AdapterRegistry.from_project(project)
 
 
 def test_adapter_registry_accepts_only_digest_bound_extensions() -> None:
@@ -90,6 +189,244 @@ def test_adapter_registry_accepts_only_digest_bound_extensions() -> None:
             capability=execution_capability.model_copy(update={"digest": "b" * 64}),
             execution_adapter=_ExternalExecutionAdapter(),
         )
+
+
+def test_adapter_registry_separates_capabilities_by_kind() -> None:
+    loader_capability = AdapterCapability(
+        id="external.benchmark",
+        kind="adapter",
+        adapter="external.benchmark",
+        adapter_kind="benchmark_loader",
+        entrypoint="package.module:loader",
+        digest=_ExternalLoader.digest,
+        supported_benchmark_kinds=("custom",),
+    )
+    execution_capability = loader_capability.model_copy(
+        update={
+            "adapter_kind": "execution",
+            "digest": _ExternalBenchmarkExecutionAdapter.digest,
+        }
+    )
+
+    registry = AdapterRegistry.production().extend(
+        capability=loader_capability,
+        benchmark_loader=_ExternalLoader(),
+    )
+    registry = registry.extend(
+        capability=execution_capability,
+        execution_adapter=_ExternalBenchmarkExecutionAdapter(),
+    )
+
+    assert registry.capability("external.benchmark", "benchmark_loader") == (
+        loader_capability
+    )
+    assert registry.capability("external.benchmark", "execution") == (
+        execution_capability
+    )
+    with pytest.raises(AdapterRegistryError, match="multiple kinds"):
+        registry.capability("external.benchmark")
+    assert {
+        capability.adapter_kind for capability in registry.capabilities
+        if capability.adapter == "external.benchmark"
+    } == {"benchmark_loader", "execution"}
+
+
+def test_execution_capabilities_are_keyed_by_full_compatibility_tuple() -> None:
+    base = AdapterCapability(
+        id="external.execution",
+        kind="adapter",
+        adapter="external.benchmark",
+        adapter_kind="execution",
+        entrypoint="package.module:execution",
+        digest=_ExternalBenchmarkExecutionAdapter.digest,
+    )
+    registry = AdapterRegistry.production().extend(
+        capability=base,
+        execution_adapter=_ExternalBenchmarkExecutionAdapter(),
+    )
+    other = base.model_copy(
+        update={
+            "id": "external.execution.other",
+            "digest": _ExternalBenchmarkOtherExecutionAdapter.digest,
+        }
+    )
+    registry = registry.extend(
+        capability=other,
+        execution_adapter=_ExternalBenchmarkOtherExecutionAdapter(),
+    )
+
+    with pytest.raises(AdapterRegistryError, match="multiple compatibility tuples"):
+        registry.capability("external.benchmark", "execution")
+    assert sum(
+        item.adapter_kind == "execution" and item.adapter == "external.benchmark"
+        for item in registry.capabilities
+    ) == 2
+
+
+def test_project_adapter_registry_rejects_duplicate_capability_kind(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    source = project / "plugins/demo"
+    declarations = project / "registries/adapters"
+    source.mkdir(parents=True)
+    declarations.mkdir(parents=True)
+    module = source / "loader.py"
+    module.write_text(
+        """from hashlib import sha256
+from pathlib import Path
+
+class Loader:
+    adapter = "external.demo"
+    digest = sha256(Path(__file__).read_bytes()).hexdigest()
+""",
+        encoding="utf-8",
+    )
+    digest = hashlib.sha256(module.read_bytes()).hexdigest()
+    declaration = f'''[adapter]
+id = "external.demo"
+kind = "adapter"
+adapter = "external.demo"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "plugins/demo"
+entrypoint = "loader.py:Loader"
+digest = "{digest}"
+'''
+    (declarations / "one.toml").write_text(declaration, encoding="utf-8")
+    (declarations / "two.toml").write_text(declaration, encoding="utf-8")
+
+    with pytest.raises(AdapterRegistryError, match="already registered"):
+        AdapterRegistry.from_project(project)
+
+
+def test_project_adapter_registry_only_imports_required_plugins(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = project / "plugins/demo"
+    declarations = project / "registries/adapters"
+    source.mkdir(parents=True)
+    declarations.mkdir(parents=True)
+    used = source / "used.py"
+    used.write_text(
+        """from hashlib import sha256
+from pathlib import Path
+
+class Loader:
+    adapter = "external.used"
+    digest = sha256(Path(__file__).read_bytes()).hexdigest()
+""",
+        encoding="utf-8",
+    )
+    used_digest = hashlib.sha256(used.read_bytes()).hexdigest()
+    (declarations / "used.toml").write_text(
+        f'''[adapter]
+id = "external.used"
+kind = "adapter"
+adapter = "external.used"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "plugins/demo"
+entrypoint = "used.py:Loader"
+digest = "{used_digest}"
+''',
+        encoding="utf-8",
+    )
+    unused = source / "unused.py"
+    unused.write_text("raise RuntimeError('unused plugin must not load')\n", encoding="utf-8")
+    unused_digest = hashlib.sha256(unused.read_bytes()).hexdigest()
+    (declarations / "unused.toml").write_text(
+        f'''[adapter]
+id = "external.unused"
+kind = "adapter"
+adapter = "external.unused"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "plugins/demo"
+entrypoint = "unused.py:Unused"
+digest = "{unused_digest}"
+''',
+        encoding="utf-8",
+    )
+
+    registry = AdapterRegistry.from_project(
+        project,
+        required_capabilities={("external.used", "benchmark_loader")},
+    )
+    assert registry.capability("external.used").adapter == "external.used"
+    with pytest.raises(AdapterRegistryError, match="cannot instantiate"):
+        AdapterRegistry.from_project(project)
+
+
+def test_adapter_source_closure_binds_local_helpers(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = project / "plugins/demo"
+    source.mkdir(parents=True)
+    entrypoint = source / "loader.py"
+    helper = source / "helper.py"
+    helper.write_text("VALUE = 'one'\n", encoding="utf-8")
+    entrypoint.write_text(
+        "from helper import VALUE\nclass Loader:\n    value = VALUE\n",
+        encoding="utf-8",
+    )
+    root = resolve_source_root(project, "plugins/demo")
+    first_closure = import_closure(root, resolve_entrypoint(root, "loader.py:Loader"))
+    assert tuple(path.name for path in first_closure) == ("helper.py", "loader.py")
+    first_digest = closure_digest(root, first_closure)
+
+    helper.write_text("VALUE = 'two'\n", encoding="utf-8")
+    second_closure = import_closure(root, resolve_entrypoint(root, "loader.py:Loader"))
+    assert closure_digest(root, second_closure) != first_digest
+
+
+def test_adapter_source_closure_binds_package_initializers(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = project / "plugins/demo"
+    package = source / "pkg"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("PREFIX = 'one'\n", encoding="utf-8")
+    (package / "helper.py").write_text(
+        "import pkg\nVALUE = pkg.PREFIX\n", encoding="utf-8"
+    )
+    entrypoint = source / "loader.py"
+    entrypoint.write_text(
+        "import pkg.helper\nclass Loader:\n    value = pkg.helper.VALUE\n",
+        encoding="utf-8",
+    )
+    root = resolve_source_root(project, "plugins/demo")
+    closure = import_closure(root, resolve_entrypoint(root, "loader.py:Loader"))
+    assert tuple(path.relative_to(root).as_posix() for path in closure) == (
+        "loader.py",
+        "pkg/__init__.py",
+        "pkg/helper.py",
+    )
+
+
+def test_adapter_source_rejects_in_root_symlinks(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    real_source = project / "plugins/real"
+    real_source.mkdir(parents=True)
+    (real_source / "loader.py").write_text(
+        "from helper import VALUE\nclass Loader:\n    value = VALUE\n",
+        encoding="utf-8",
+    )
+    (real_source / "helper-target.py").write_text("VALUE = 1\n", encoding="utf-8")
+
+    source_link = project / "plugins/source-link"
+    source_link.symlink_to(real_source, target_is_directory=True)
+    with pytest.raises(AdapterSourceError, match="adapter source contains symlink"):
+        resolve_source_root(project, "plugins/source-link")
+
+    root = resolve_source_root(project, "plugins/real")
+    entrypoint_link = real_source / "entrypoint.py"
+    entrypoint_link.symlink_to(real_source / "loader.py")
+    with pytest.raises(AdapterSourceError, match="adapter entrypoint contains symlink"):
+        resolve_entrypoint(root, "entrypoint.py:Loader")
+
+    helper_link = real_source / "helper.py"
+    helper_link.symlink_to(real_source / "helper-target.py")
+    entrypoint = resolve_entrypoint(root, "loader.py:Loader")
+    with pytest.raises(AdapterSourceError, match="adapter import contains symlink"):
+        import_closure(root, entrypoint)
 
 
 def test_pipeline_registry_injection_is_never_implicit_production(
@@ -313,6 +650,11 @@ output = "answer.txt"
     assert len({item.case_id for item in result.report.lineage}) == 2
     assert tuple(records.rglob("schedule_activation_receipt.json"))
     assert tuple(records.rglob("evidence_bundle.json"))
+    # Standalone verification must use the parent/case lineage identity for
+    # each selected bundle and shared schedule receipt.
+    assert verify_observation_report(result.report_path).report.experiment_id == (
+        result.report.experiment_id
+    )
 
 
 def test_pipeline_rejects_multi_case_checkpoint_until_ledger_is_widened(

@@ -72,9 +72,35 @@ class Pipeline:
             self.project_root, allow_test_override=allow_test_override
         )
         self.backend = backend
+        self._load_project_adapters = adapter_registry is None
         self.adapter_registry = adapter_registry or AdapterRegistry.production()
         self.allow_test_override = allow_test_override
         self.scheduler = Scheduler(record_root=self.record_root)
+
+    def _verify_adapter_activation(self, run: CompiledRun) -> None:
+        """Bind resolved capability artifacts to the active runtime registry."""
+
+        for artifact in run.manifest.metadata.adapter_capabilities:
+            if artifact.capability.adapter_kind == "execution":
+                observed = self.adapter_registry.execution_capability(run)
+            else:
+                observed = self.adapter_registry.capability(
+                    artifact.capability.adapter,
+                    artifact.capability.adapter_kind,
+                )
+            if observed != artifact.capability:
+                raise ResumeDriftError(
+                    f"active adapter capability drift: {artifact.capability.adapter!r}"
+                )
+            if artifact.source_closure_digest is not None:
+                observed_closure = self.adapter_registry.source_closure_digest(
+                    artifact.capability, run
+                )
+                if observed_closure != artifact.source_closure_digest:
+                    raise ResumeDriftError(
+                        "active adapter source closure drift: "
+                        f"{artifact.capability.adapter!r}"
+                    )
 
     @staticmethod
     def _read_json(path: Path) -> Any:
@@ -131,6 +157,7 @@ class Pipeline:
         run: CompiledRun,
         experiment_dir: Path,
     ) -> tuple[LoadedCaseSet, CaseSetActivationReceipt, Path]:
+        self._verify_adapter_activation(run)
         loader = self.adapter_registry.benchmark_loader(run)
         artifact_root = experiment_dir / "case_sets" / run.manifest_digest
         resolved = loader.resolve(run, artifact_root)
@@ -574,10 +601,26 @@ class Pipeline:
         *,
         resume: bool = False,
         stop_after: int | None = None,
+        config_files: tuple[str | Path, ...] | list[str | Path] = (),
+        raw_config_files: tuple[str | Path, ...] | list[str | Path] = (),
+        config_profiles: tuple[str, ...] | list[str] = (),
+        config_overrides: Mapping[str, Any] | None = None,
     ) -> PipelineResult:
-        compiled = self.compiler.compile(experiment_path, record_root=self.record_root)
+        compiled = self.compiler.compile(
+            experiment_path,
+            record_root=self.record_root,
+            config_files=config_files,
+            raw_config_files=raw_config_files,
+            config_profiles=config_profiles,
+            config_overrides=config_overrides,
+        )
         if not compiled:
             raise ValueError("experiment expanded to zero runs")
+        if self._load_project_adapters:
+            self.adapter_registry = AdapterRegistry.from_project(
+                self.project_root,
+                required_capabilities=AdapterRegistry.required_capability_keys(compiled),
+            )
         factories = {
             run.manifest.execution.backend.adapter: (
                 self.adapter_registry.backend_factory(run)

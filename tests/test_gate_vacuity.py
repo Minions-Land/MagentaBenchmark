@@ -12,7 +12,7 @@ import dataclasses
 from pathlib import Path
 
 from MagentaBench.runner.evidence import artifact_ref, atomic_write_json, sha256_file
-from MagentaBench.runner.gates import _evaluate_claim
+from MagentaBench.runner.gates import _evaluate_claim, _evidence_integrity_errors
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
     GateName,
@@ -23,6 +23,8 @@ from MagentaBench.schemas import (
     ResolvedNetworkPolicy,
     RunStatus,
     ScheduleActivationReceipt,
+    RuntimeAssemblySidecarRef,
+    RuntimeManifestReceipt,
     canonical_digest,
 )
 
@@ -145,6 +147,43 @@ def test_fake_pipeline_does_not_synthesize_network_isolation(
     runs = Pipeline(ROOT, tmp_path).run(EXPERIMENT).runs
     assert all(item.case.bundle.network_policy is None for item in runs)
     assert all(item.case.bundle.network_observation is None for item in runs)
+
+
+def test_gate_rechecks_runtime_manifest_receipt_artifacts(tmp_path: Path) -> None:
+    """HCP trace and sidecar refs remain byte-bound in in-process gates."""
+
+    item = _completed(tmp_path)[0]
+    trace_path = tmp_path / "runtime.jsonl"
+    trace_path.write_bytes(b'{"type":"runtime_manifest"}\n')
+    sidecar_path = tmp_path / "assembly.json"
+    sidecar_path.write_bytes(b'{"schemaVersion":1}\n')
+    sidecar = RuntimeAssemblySidecarRef(
+        sequence=1,
+        path=str(sidecar_path.resolve()),
+        sha256=sha256_file(sidecar_path),
+        size_bytes=sidecar_path.stat().st_size,
+    )
+    receipt = RuntimeManifestReceipt(
+        run_id=item.case.bundle.run_id,
+        manifest_sha256=("a" * 64,),
+        trace_ref=artifact_ref(trace_path),
+        assembly_sidecar_refs=(sidecar,),
+        effective_sequence=1,
+        effective_assembly_sidecar_ref=sidecar,
+    )
+    bundle = item.case.bundle.model_copy(
+        update={
+            "provenance": item.case.bundle.provenance.model_copy(
+                update={"runtime_manifest_receipt": receipt}
+            )
+        }
+    )
+    activated = _with_bundle(item, bundle)
+    assert not _evidence_integrity_errors(activated)
+
+    sidecar_path.write_bytes(b'{"schemaVersion":2}\n')
+    errors = _evidence_integrity_errors(activated)
+    assert any("artifact reference digest drift" in error for error in errors)
 
 
 def test_complete_plan_scores_every_run(tmp_path: Path) -> None:

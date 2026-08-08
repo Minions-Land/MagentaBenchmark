@@ -22,8 +22,20 @@ Magenta adapter, but no MagentaBench artifact or test is evidence that BMP owns
 or reimplements HCP resolution.
 
 Configuration profiles are also BMP artifacts: registry names resolve to
-content-addressed TOML objects, external/inline overlays are included in the
-resolved manifest identity, and standalone verification rehashes every source
-reference. A custom benchmark adapter must register an explicit digest-bound
-`AdapterCapability`; configuration freedom does not permit an unregistered
-loader or a silent fallback.
+content-addressed TOML objects, envelope/raw/inline/CLI overlays are recorded
+as a replayable composition, JSON Schema is checked before execution, and
+standalone verification rehashes every source reference. A custom benchmark
+adapter must register explicit digest-bound loader, backend, and exact
+execution capabilities; configuration freedom does not permit an unregistered
+loader or a silent fallback. Project-loaded adapter declarations, entrypoint
+bytes, and local import-closure bytes are manifest-bound and rehashed by
+standalone verification. Magenta v0.1.22 requested/effective settings and the
+final HCP sidecar activation receipt are retained as runtime evidence; this is
+not evidence that BMP owns HCP resolution.
+
+Evolution subjects now have a neutral `EvolutionRunEvidence` contract. It keeps
+the complete candidate and transition ledgers, content-addressed artifact and
+feedback refs, evaluator/budget/adapter digests, and recursively verifies a
+meta-evolver parent. The contract and standalone verifier are tested, but no
+real evolver benchmark report has been produced; that absence remains a
+claim-level limitation.

@@ -1,0 +1,197 @@
+{
+  "$defs": {
+    "AdapterCapability": {
+      "additionalProperties": false,
+      "description": "Declarative capability contract for a pluggable BMP adapter.\n\nThe entrypoint is metadata only until a host explicitly registers the\nimplementation object.  This keeps a TOML declaration from silently\nselecting executable code while still making supported kinds and config\npaths inspectable and hashable.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "adapter_kind": {
+          "enum": [
+            "benchmark_loader",
+            "backend_factory",
+            "execution"
+          ],
+          "title": "Adapter Kind",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "config_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Config Paths",
+          "type": "array"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "adapter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "default": ".",
+          "title": "Source",
+          "type": "string"
+        },
+        "supported_backend_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Adapters",
+          "type": "array"
+        },
+        "supported_backend_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Kinds",
+          "type": "array"
+        },
+        "supported_benchmark_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_subject_interfaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Interfaces",
+          "type": "array"
+        },
+        "supported_subject_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Kinds",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "adapter_kind",
+        "entrypoint",
+        "digest"
+      ],
+      "title": "AdapterCapability",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Resolved plugin declaration and implementation byte identity.\n\n``source_closure_*`` records the local Python helpers imported by the\nentrypoint.  Keeping relative names separate from absolute artifact refs\nmakes the digest stable across record relocation while still allowing the\nverifier to rehash every persisted byte.",
+  "properties": {
+    "artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Artifact Digest",
+      "type": "string"
+    },
+    "capability": {
+      "$ref": "#/$defs/AdapterCapability"
+    },
+    "declaration_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "implementation_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "source_closure_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Closure Digest"
+    },
+    "source_closure_paths": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Closure Paths",
+      "type": "array"
+    },
+    "source_closure_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Source Closure Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "capability",
+    "declaration_ref",
+    "implementation_ref",
+    "artifact_digest"
+  ],
+  "title": "AdapterCapabilityArtifact",
+  "type": "object"
+}

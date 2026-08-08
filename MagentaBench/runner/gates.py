@@ -17,6 +17,7 @@ from MagentaBench.schemas import (
     ClaimReport,
     EffectEstimate,
     EvidenceBundle,
+    EvolutionRunEvidence,
     Observation,
     ObservationReport,
     GateName,
@@ -735,6 +736,80 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     provenance = bundle.provenance
     if provenance.container_receipt_ref is not None:
         refs.append(provenance.container_receipt_ref)
+    runtime_receipt = provenance.runtime_manifest_receipt
+    if runtime_receipt is not None:
+        refs.append(runtime_receipt.trace_ref)
+        refs.extend(
+            ArtifactRef(
+                path=ref.path,
+                sha256=ref.sha256,
+                size_bytes=ref.size_bytes,
+            )
+            for ref in runtime_receipt.assembly_sidecar_refs
+        )
+    if provenance.evolution_evidence_ref is not None:
+        refs.append(provenance.evolution_evidence_ref)
+    configuration = manifest.metadata.configuration
+    configuration_activation = provenance.configuration_activation
+    activation_required = manifest.claim_design.purpose == RunPurpose.claim
+    if configuration is None:
+        if configuration_activation is not None:
+            errors.append("undeclared ConfigurationActivationReceipt")
+    elif configuration_activation is None and activation_required:
+        errors.append("ConfigurationActivationReceipt missing")
+    elif configuration_activation is not None:
+        if configuration_activation.configuration_digest != configuration.artifact_digest:
+            errors.append("configuration activation digest drift")
+        expected_consumer_adapter = getattr(
+            manifest.subject, "adapter", configuration.adapter
+        )
+        if configuration_activation.adapter != expected_consumer_adapter:
+            errors.append("configuration activation adapter drift")
+        if configuration_activation.status != "matched":
+            errors.append(
+                "configuration activation status is "
+                f"{configuration_activation.status!r}"
+            )
+        refs.extend(configuration_activation.evidence_refs)
+    evolution_ref = provenance.evolution_evidence_ref
+    evolution_required = manifest.claim_design.purpose == RunPurpose.claim
+    if manifest.subject.kind in {"evolver", "meta_evolver"}:
+        if evolution_ref is None and evolution_required:
+            errors.append("EvolutionRunEvidence missing")
+        elif evolution_ref is not None:
+            try:
+                evolution = EvolutionRunEvidence.model_validate_json(
+                    Path(evolution_ref.path).read_bytes()
+                )
+            except (OSError, ValueError):
+                errors.append("evolution evidence is malformed")
+            else:
+                if evolution.kind != manifest.subject.kind:
+                    errors.append("evolution evidence kind drift")
+                execution_capabilities = tuple(
+                    item.capability
+                    for item in manifest.metadata.adapter_capabilities
+                    if item.capability.adapter_kind == "execution"
+                )
+                if len(execution_capabilities) != 1:
+                    errors.append("evolution execution capability binding is ambiguous")
+                elif evolution.adapter_digest != execution_capabilities[0].digest:
+                    errors.append("evolution adapter digest drift")
+                if evolution.evaluator_digest != manifest.benchmark.artifact_digest:
+                    errors.append("evolution evaluator digest drift")
+                if evolution.budget_digest != canonical_digest(
+                    manifest.execution.budget
+                ):
+                    errors.append("evolution budget digest drift")
+                if evolution_required and not evolution.claim_ready:
+                    errors.append("evolution evidence is not claim_ready")
+                if evolution.run_id not in {
+                    bundle.run_id,
+                    manifest.metadata.run_id,
+                }:
+                    errors.append("evolution evidence run_id drift")
+    elif evolution_ref is not None:
+        errors.append("undeclared evolution evidence reference")
     verifier = bundle.verifier_evidence
     if verifier is not None:
         refs.extend(verifier.artifact_refs)

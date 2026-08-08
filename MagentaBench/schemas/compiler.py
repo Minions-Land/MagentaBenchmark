@@ -24,6 +24,7 @@ from .models import (
     Budget,
     ClaimReport,
     EvidenceBundle,
+    EvolutionRunEvidence,
     ExecutionSpec,
     ProtocolSpec,
     ResolvedBmpManifest,
@@ -259,6 +260,8 @@ def _compile_subject_artifact(
         observed_sidecar_digest = hashlib.sha256(sidecar_path.read_bytes()).hexdigest()
         if observed_sidecar_digest != sidecar.get("sha256"):
             raise ValueError("assembly sidecar digest does not match its bytes")
+        if sidecar_path.stat().st_size != sidecar.get("size_bytes"):
+            raise ValueError("assembly sidecar size does not match its bytes")
     if spec.kind != "fake":
         source = Path(_resolve_existing_source(spec.source, base_dir=base_dir))
         commit, content_digest = _source_content_digest(
@@ -389,6 +392,17 @@ def load_evidence_bundle(path: str | Path) -> EvidenceBundle:
     return EvidenceBundle.model_validate(_required_table(_load_toml(path), "evidence"))
 
 
+def load_evolution_run_evidence(path: str | Path) -> EvolutionRunEvidence:
+    """Load one evolution evidence record from JSON or a ``[evolution]`` TOML envelope."""
+
+    source = Path(path)
+    if source.suffix.lower() == ".json":
+        return EvolutionRunEvidence.model_validate_json(source.read_bytes())
+    return EvolutionRunEvidence.model_validate(
+        _required_table(_load_toml(source), "evolution")
+    )
+
+
 def load_claim_report(path: str | Path) -> ClaimReport:
     return ClaimReport.model_validate(_required_table(_load_toml(path), "claim"))
 
@@ -502,6 +516,7 @@ __all__ = [
     "load_benchmark_spec",
     "load_claim_report",
     "load_evidence_bundle",
+    "load_evolution_run_evidence",
     "load_execution_spec",
     "load_protocol_spec",
     "load_subject_spec",

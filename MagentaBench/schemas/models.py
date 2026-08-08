@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
@@ -18,6 +18,7 @@ from typing import Annotated, Any, ClassVar, Literal, Mapping, Union
 from urllib.parse import urlsplit
 
 from pydantic import (
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -38,7 +39,8 @@ SECRET_KEY_PATTERN = re.compile(
 )
 NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
     r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
-    r"max_generation|output|prompt|total)_)?tokens$",
+    r"max_generation|output|prompt|request|response|retry|total)_)?tokens$|"
+    r"^token_(?:budget|capacity|count|limit|quota|window)$",
     re.IGNORECASE,
 )
 IDENTITY_EXCLUDE: frozenset[str] = frozenset(
@@ -88,6 +90,24 @@ class StrictModel(BaseModel):
         allow_inf_nan=False,
     )
 
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> "StrictModel":
+        """Preserve recursive immutability across Pydantic's unchecked copy API."""
+
+        copied = super().model_copy(update=update, deep=deep)
+        for field_name in ("values", "json_schema", "ownership", "config"):
+            if field_name in type(copied).model_fields:
+                object.__setattr__(
+                    copied,
+                    field_name,
+                    _freeze_configuration_tree(getattr(copied, field_name)),
+                )
+        return copied
+
 
 class RegistryEntry(StrictModel):
     """Fields required on every registry declaration."""
@@ -105,10 +125,98 @@ class SourceRegistryEntry(RegistryEntry):
     commit: str | None = Field(default=None, min_length=1)
 
 
+class _FrozenDict(dict[str, Any]):
+    """JSON-serializable recursively immutable mapping used by config trees."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("configuration trees are immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> dict[str, Any]:
+        import copy
+
+        return {
+            copy.deepcopy(key, memo): copy.deepcopy(value, memo)
+            for key, value in self.items()
+        }
+
+
+class _FrozenList(list[Any]):
+    """JSON-serializable recursively immutable list used by config trees."""
+
+    def _immutable(self, *args: Any, **kwargs: Any) -> None:
+        raise TypeError("configuration trees are immutable")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    append = _immutable
+    extend = _immutable
+    insert = _immutable
+    pop = _immutable
+    remove = _immutable
+    clear = _immutable
+    sort = _immutable
+    reverse = _immutable
+    __iadd__ = _immutable
+    __imul__ = _immutable
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> list[Any]:
+        import copy
+
+        return [copy.deepcopy(value, memo) for value in self]
+
+
+def _freeze_configuration_tree(value: Any) -> Any:
+    """Recursively freeze mappings/lists while retaining JSON behavior."""
+
+    if isinstance(value, Mapping):
+        return _FrozenDict(
+            {
+                key: _freeze_configuration_tree(child)
+                for key, child in value.items()
+            }
+        )
+    if isinstance(value, (list, tuple)):
+        return _FrozenList(_freeze_configuration_tree(child) for child in value)
+    return value
+
+
 def _validate_json_configuration(value: Any, *, field_name: str) -> Any:
     """Validate an extensible configuration tree without admitting secrets."""
 
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{field_name} must be a JSON object")
     _reject_secret_like_keys(value, field_name=field_name)
+
+    def normalize(item: Any) -> Any:
+        if isinstance(item, Mapping):
+            return {
+                key: normalize(child)
+                for key, child in item.items()
+            }
+        if isinstance(item, (list, tuple)):
+            return [normalize(child) for child in item]
+        if isinstance(item, time):
+            if item.tzinfo is not None and item.utcoffset() is not None:
+                raise ValueError(
+                    f"{field_name} time values must not contain an offset"
+                )
+            return item.isoformat()
+        if isinstance(item, (datetime, date)):
+            return item.isoformat()
+        if isinstance(item, (str, int, float, bool)) or item is None:
+            return item
+        return item
+
+    normalized = normalize(value)
 
     def visit(item: Any) -> None:
         if isinstance(item, Mapping):
@@ -120,10 +228,10 @@ def _validate_json_configuration(value: Any, *, field_name: str) -> Any:
             for child in item:
                 visit(child)
 
-    visit(value)
+    visit(normalized)
     try:
         json.dumps(
-            value,
+            normalized,
             ensure_ascii=False,
             allow_nan=False,
             sort_keys=True,
@@ -131,7 +239,7 @@ def _validate_json_configuration(value: Any, *, field_name: str) -> Any:
         )
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field_name} must be JSON-compatible") from exc
-    return value
+    return normalized
 
 
 class ConfigurationSpec(RegistryEntry):
@@ -160,14 +268,31 @@ class ConfigurationSpec(RegistryEntry):
     @field_validator("values", "json_schema", mode="before")
     @classmethod
     def values_are_json_compatible(cls, value: Any, info: Any) -> Any:
-        return _validate_json_configuration(value or {}, field_name=f"ConfigurationSpec.{info.field_name}")
+        return _validate_json_configuration(
+            value, field_name=f"ConfigurationSpec.{info.field_name}"
+        )
+
+    @model_validator(mode="after")
+    def freeze_configuration_trees(self) -> "ConfigurationSpec":
+        object.__setattr__(self, "values", _freeze_configuration_tree(self.values))
+        object.__setattr__(
+            self, "json_schema", _freeze_configuration_tree(self.json_schema)
+        )
+        return self
 
 
 class ConfigurationSelection(StrictModel):
-    """Experiment-local composition of registry profiles and external TOML."""
+    """Experiment-local composition of registry profiles and external TOML.
+
+    ``files`` are explicit ``[configuration]`` envelopes.  ``raw_files`` is
+    an opt-in escape hatch for adapter-owned raw TOML documents; keeping the
+    two namespaces separate prevents a malformed envelope from silently being
+    interpreted as generic configuration.
+    """
 
     profiles: tuple[str, ...] = ()
     files: tuple[str, ...] = ()
+    raw_files: tuple[str, ...] = ()
     values: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("profiles")
@@ -197,10 +322,35 @@ class ConfigurationSelection(StrictModel):
             raise ValueError("configuration files must be unique")
         return tuple(normalized)
 
+    @field_validator("raw_files")
+    @classmethod
+    def raw_files_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for value in values:
+            candidate = value.replace("\\", "/")
+            parts = candidate.split("/")
+            if (
+                not candidate
+                or candidate.startswith("/")
+                or any(part in {"", ".", ".."} for part in parts)
+            ):
+                raise ValueError("configuration raw_files must be normalized relative paths")
+            normalized.append(candidate)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("configuration raw_files must be unique")
+        return tuple(normalized)
+
     @field_validator("values", mode="before")
     @classmethod
     def inline_values_are_json_compatible(cls, value: Any) -> Any:
-        return _validate_json_configuration(value or {}, field_name="ConfigurationSelection.values")
+        return _validate_json_configuration(
+            value, field_name="ConfigurationSelection.values"
+        )
+
+    @model_validator(mode="after")
+    def freeze_configuration_tree(self) -> "ConfigurationSelection":
+        object.__setattr__(self, "values", _freeze_configuration_tree(self.values))
+        return self
 
 
 class ArtifactRef(StrictModel):
@@ -221,8 +371,544 @@ class ArtifactRef(StrictModel):
         return {"sha256": self.sha256, "size_bytes": self.size_bytes}
 
 
+class EvolutionCandidateStatus(str, Enum):
+    """Lifecycle state retained for every candidate an evolver produced."""
+
+    generated = "generated"
+    revised = "revised"
+    accepted = "accepted"
+    rejected = "rejected"
+    invalid = "invalid"
+    selected = "selected"
+
+
+class EvolutionTransitionPhase(str, Enum):
+    """Neutral phases for a candidate-search transition ledger."""
+
+    seed = "seed"
+    generate = "generate"
+    feedback = "feedback"
+    revise = "revise"
+    select = "select"
+    terminate = "terminate"
+
+
+def _validate_evolution_refs(
+    refs: tuple[ArtifactRef, ...], *, field_name: str
+) -> tuple[ArtifactRef, ...]:
+    """Require each reference list to be content-unique and retain its order."""
+
+    identities = [(ref.sha256, ref.size_bytes) for ref in refs]
+    if len(set(identities)) != len(identities):
+        raise ValueError(f"{field_name} must not contain duplicate content refs")
+    return refs
+
+
+class EvolutionCandidateRecord(StrictModel):
+    """One immutable candidate record in an evolution ledger.
+
+    BMP intentionally stores artifacts and feedback as opaque content-addressed
+    refs. Adapter-owned metadata may describe arbitrary search mechanisms but
+    cannot contain credentials or other secret-like keys.
+    """
+
+    candidate_id: str = Field(pattern=ID_PATTERN)
+    generation: int = Field(ge=0, strict=True)
+    parent_ids: tuple[str, ...] = ()
+    artifact_refs: tuple[ArtifactRef, ...] = ()
+    feedback_refs: tuple[ArtifactRef, ...] = ()
+    status: EvolutionCandidateStatus
+    score: float | None = None
+    score_metric: str | None = Field(default=None, min_length=1)
+    evaluator_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    search_state_refs: tuple[ArtifactRef, ...] = ()
+    attributes: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("parent_ids")
+    @classmethod
+    def parent_ids_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("candidate parent_ids must be unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("candidate parent_ids must be valid BMP ids")
+        return values
+
+    @field_validator("artifact_refs")
+    @classmethod
+    def artifact_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(values, field_name="candidate artifact_refs")
+
+    @field_validator("feedback_refs")
+    @classmethod
+    def feedback_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(values, field_name="candidate feedback_refs")
+
+    @field_validator("search_state_refs")
+    @classmethod
+    def search_state_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(
+            values, field_name="candidate search_state_refs"
+        )
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def attributes_are_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value, field_name="EvolutionCandidateRecord.attributes"
+        )
+
+    @model_validator(mode="after")
+    def score_has_metric(self) -> "EvolutionCandidateRecord":
+        if (self.score is None) != (self.score_metric is None):
+            raise ValueError("candidate score and score_metric must be supplied together")
+        object.__setattr__(self, "attributes", _freeze_configuration_tree(self.attributes))
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "candidate_id": self.candidate_id,
+            "generation": self.generation,
+            "parent_ids": list(self.parent_ids),
+            "artifact_refs": [ref.identity_data() for ref in self.artifact_refs],
+            "feedback_refs": [ref.identity_data() for ref in self.feedback_refs],
+            "status": self.status.value,
+            "score": self.score,
+            "score_metric": self.score_metric,
+            "evaluator_digest": self.evaluator_digest,
+            "search_state_refs": [
+                ref.identity_data() for ref in self.search_state_refs
+            ],
+            "attributes": self.attributes,
+        }
+
+
+class EvolutionTransitionRecord(StrictModel):
+    """One ordered search transition connecting candidate records."""
+
+    transition_id: str = Field(pattern=ID_PATTERN)
+    sequence: int = Field(ge=0, strict=True)
+    phase: EvolutionTransitionPhase
+    input_candidate_ids: tuple[str, ...] = ()
+    output_candidate_ids: tuple[str, ...] = ()
+    search_state_refs: tuple[ArtifactRef, ...] = ()
+    feedback_refs: tuple[ArtifactRef, ...] = ()
+    attributes: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("input_candidate_ids", "output_candidate_ids")
+    @classmethod
+    def candidate_ids_are_unique(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("transition candidate ids must be unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("transition candidate ids must be valid BMP ids")
+        return values
+
+    @field_validator("search_state_refs")
+    @classmethod
+    def search_state_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(
+            values, field_name="transition search_state_refs"
+        )
+
+    @field_validator("feedback_refs")
+    @classmethod
+    def feedback_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(
+            values, field_name="transition feedback_refs"
+        )
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def attributes_are_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value, field_name="EvolutionTransitionRecord.attributes"
+        )
+
+    @model_validator(mode="after")
+    def phase_shape_is_coherent(self) -> "EvolutionTransitionRecord":
+        if self.phase == EvolutionTransitionPhase.seed and self.input_candidate_ids:
+            raise ValueError("seed transitions cannot consume candidate ids")
+        if self.phase == EvolutionTransitionPhase.terminate and self.output_candidate_ids:
+            raise ValueError("terminate transitions cannot produce candidate ids")
+        if self.phase != EvolutionTransitionPhase.terminate and not (
+            self.input_candidate_ids or self.output_candidate_ids
+        ):
+            raise ValueError(
+                "non-terminate transitions must reference an input or output candidate"
+            )
+        object.__setattr__(self, "attributes", _freeze_configuration_tree(self.attributes))
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "transition_id": self.transition_id,
+            "sequence": self.sequence,
+            "phase": self.phase.value,
+            "input_candidate_ids": list(self.input_candidate_ids),
+            "output_candidate_ids": list(self.output_candidate_ids),
+            "search_state_refs": [
+                ref.identity_data() for ref in self.search_state_refs
+            ],
+            "feedback_refs": [ref.identity_data() for ref in self.feedback_refs],
+            "attributes": self.attributes,
+        }
+
+
+class EvolutionRunEvidence(StrictModel):
+    """Complete, algorithm-neutral evidence for an evolver or meta-evolver.
+
+    A meta-evolver binds its parent evolver evidence by an immutable artifact
+    reference. BMP does not inspect the referenced implementation; a caller
+    can recursively verify it with the same contract. Every generated,
+    rejected, and invalid candidate remains in ``candidate_ledger`` so search
+    outcomes cannot be made to look better by filtering failures.
+    """
+
+    format: Literal["bmp-evolution-evidence-v1"] = "bmp-evolution-evidence-v1"
+    run_id: str = Field(pattern=ID_PATTERN)
+    kind: Literal["evolver", "meta_evolver"] = Field(
+        validation_alias=AliasChoices("kind", "subject_kind")
+    )
+    adapter_digest: str = Field(pattern=SHA256_PATTERN)
+    evaluator_digest: str = Field(pattern=SHA256_PATTERN)
+    budget_digest: str = Field(pattern=SHA256_PATTERN)
+    adapter_ref: ArtifactRef | None = None
+    evaluator_ref: ArtifactRef | None = None
+    budget_ref: ArtifactRef | None = None
+    authoritative_metric: str | None = Field(default=None, min_length=1)
+    candidate_ledger: tuple[EvolutionCandidateRecord, ...] = Field(
+        min_length=1,
+        validation_alias=AliasChoices("candidate_ledger", "candidates"),
+    )
+    transition_ledger: tuple[EvolutionTransitionRecord, ...] = Field(
+        min_length=1,
+        validation_alias=AliasChoices("transition_ledger", "transitions"),
+    )
+    selected_candidate_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    termination_reason: str = Field(min_length=1)
+    search_state_refs: tuple[ArtifactRef, ...] = ()
+    parent_evidence_ref: ArtifactRef | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "parent_evidence_ref", "nested_parent_evidence_ref"
+        ),
+    )
+    candidate_ledger_complete: bool = True
+    transition_ledger_complete: bool = True
+    attributes: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("search_state_refs")
+    @classmethod
+    def search_state_refs_are_unique(
+        cls, values: tuple[ArtifactRef, ...]
+    ) -> tuple[ArtifactRef, ...]:
+        return _validate_evolution_refs(values, field_name="run search_state_refs")
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def attributes_are_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value, field_name="EvolutionRunEvidence.attributes"
+        )
+
+    @model_validator(mode="after")
+    def ledgers_are_complete_and_bound(self) -> "EvolutionRunEvidence":
+        candidates = {item.candidate_id: item for item in self.candidate_ledger}
+        if len(candidates) != len(self.candidate_ledger):
+            raise ValueError("candidate ledger ids must be unique")
+        transitions = {
+            item.transition_id: item for item in self.transition_ledger
+        }
+        if len(transitions) != len(self.transition_ledger):
+            raise ValueError("transition ledger ids must be unique")
+        sequences = [item.sequence for item in self.transition_ledger]
+        if len(set(sequences)) != len(sequences) or sequences != sorted(sequences):
+            raise ValueError("transition ledger sequences must be unique and ordered")
+        if sequences != list(range(sequences[0], sequences[0] + len(sequences))):
+            raise ValueError("transition ledger sequences must be contiguous")
+        if not any(
+            item.phase == EvolutionTransitionPhase.terminate
+            for item in self.transition_ledger
+        ):
+            raise ValueError("transition ledger requires a terminate phase")
+        termination_indices = [
+            index
+            for index, item in enumerate(self.transition_ledger)
+            if item.phase == EvolutionTransitionPhase.terminate
+        ]
+        if termination_indices != [len(self.transition_ledger) - 1]:
+            raise ValueError("terminate phase must be the final transition and occur once")
+
+        for digest_name, digest, ref in (
+            ("adapter", self.adapter_digest, self.adapter_ref),
+            ("evaluator", self.evaluator_digest, self.evaluator_ref),
+            ("budget", self.budget_digest, self.budget_ref),
+        ):
+            if ref is not None and ref.sha256 != digest:
+                raise ValueError(f"{digest_name} ref digest does not match {digest_name}_digest")
+
+        for candidate in self.candidate_ledger:
+            if candidate.candidate_id in candidate.parent_ids:
+                raise ValueError("candidate cannot name itself as a parent")
+            for parent_id in candidate.parent_ids:
+                parent = candidates.get(parent_id)
+                if parent is None:
+                    raise ValueError(
+                        f"candidate {candidate.candidate_id!r} references unknown parent "
+                        f"{parent_id!r}"
+                    )
+                if parent.generation >= candidate.generation:
+                    raise ValueError(
+                        "candidate parent generation must precede child generation"
+                    )
+            if candidate.evaluator_digest is not None and (
+                candidate.evaluator_digest != self.evaluator_digest
+            ):
+                raise ValueError(
+                    f"candidate {candidate.candidate_id!r} evaluator digest differs "
+                    "from the run evaluator digest"
+                )
+
+        for transition in self.transition_ledger:
+            referenced = (
+                *transition.input_candidate_ids,
+                *transition.output_candidate_ids,
+            )
+            unknown = sorted(set(referenced) - set(candidates))
+            if unknown:
+                raise ValueError(
+                    f"transition {transition.transition_id!r} references unknown "
+                    f"candidates: {unknown}"
+                )
+            if transition.phase == EvolutionTransitionPhase.seed and any(
+                candidates[candidate_id].generation != 0
+                for candidate_id in transition.output_candidate_ids
+            ):
+                raise ValueError(
+                    "seed transitions must output generation-zero candidates"
+                )
+
+        selected = [
+            item for item in self.candidate_ledger
+            if item.status == EvolutionCandidateStatus.selected
+        ]
+        if self.selected_candidate_id is None:
+            if selected:
+                raise ValueError(
+                    "candidate ledger contains selected status without selected_candidate_id"
+                )
+        else:
+            selected_candidate = candidates.get(self.selected_candidate_id)
+            if selected_candidate is None:
+                raise ValueError("selected_candidate_id is absent from candidate ledger")
+            if selected_candidate.status != EvolutionCandidateStatus.selected:
+                raise ValueError("selected candidate must have status='selected'")
+            if selected_candidate.score is None:
+                raise ValueError("selected candidate must retain an evaluator score")
+            if selected_candidate.evaluator_digest != self.evaluator_digest:
+                raise ValueError(
+                    "selected candidate evaluator digest must match the run evaluator digest"
+                )
+            if len(selected) != 1:
+                raise ValueError("candidate ledger must contain exactly one selected candidate")
+            if not any(
+                transition.phase == EvolutionTransitionPhase.select
+                and self.selected_candidate_id in transition.output_candidate_ids
+                for transition in self.transition_ledger
+            ):
+                raise ValueError("selected candidate must be emitted by a select transition")
+
+        phases = [item.phase for item in self.transition_ledger]
+        if EvolutionTransitionPhase.seed not in phases:
+            raise ValueError("evolution transition ledger requires a seed phase")
+        terminate_positions = [
+            index
+            for index, phase in enumerate(phases)
+            if phase == EvolutionTransitionPhase.terminate
+        ]
+        if len(terminate_positions) != 1 or terminate_positions[0] != len(phases) - 1:
+            raise ValueError(
+                "evolution transition ledger requires one final terminate phase"
+            )
+
+        if self.kind == "meta_evolver" and self.parent_evidence_ref is None:
+            raise ValueError("meta_evolver evidence requires parent_evidence_ref")
+        if self.kind == "evolver" and self.parent_evidence_ref is not None:
+            raise ValueError("evolver evidence cannot carry parent_evidence_ref")
+        object.__setattr__(self, "attributes", _freeze_configuration_tree(self.attributes))
+        return self
+
+    @property
+    def evidence_complete(self) -> bool:
+        """Whether this record is eligible for a positive evolution claim gate."""
+
+        return self.candidate_ledger_complete and self.transition_ledger_complete
+
+    @property
+    def claim_ready(self) -> bool:
+        """Whether the record has the bindings needed for a positive claim.
+
+        Structural validity alone cannot prove that adapter/evaluator/budget
+        implementations were captured or that the benchmark's authoritative
+        metric was used.  Those bindings are optional for exploratory records
+        but required by a claim gate.
+        """
+
+        if not self.evidence_complete:
+            return False
+        if (
+            self.adapter_ref is None
+            or self.evaluator_ref is None
+            or self.budget_ref is None
+            or self.authoritative_metric is None
+            or self.selected_candidate_id is None
+        ):
+            return False
+        selected = next(
+            item
+            for item in self.candidate_ledger
+            if item.candidate_id == self.selected_candidate_id
+        )
+        return (
+            bool(selected.artifact_refs)
+            and selected.evaluator_digest == self.evaluator_digest
+            and selected.score_metric == self.authoritative_metric
+        )
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "format": self.format,
+            "run_id": self.run_id,
+            "kind": self.kind,
+            "adapter_digest": self.adapter_digest,
+            "evaluator_digest": self.evaluator_digest,
+            "budget_digest": self.budget_digest,
+            "adapter_ref": (
+                None if self.adapter_ref is None else self.adapter_ref.identity_data()
+            ),
+            "evaluator_ref": (
+                None if self.evaluator_ref is None else self.evaluator_ref.identity_data()
+            ),
+            "budget_ref": (
+                None if self.budget_ref is None else self.budget_ref.identity_data()
+            ),
+            "authoritative_metric": self.authoritative_metric,
+            "candidate_ledger": [item.identity_data() for item in self.candidate_ledger],
+            "transition_ledger": [
+                item.identity_data() for item in self.transition_ledger
+            ],
+            "selected_candidate_id": self.selected_candidate_id,
+            "termination_reason": self.termination_reason,
+            "search_state_refs": [
+                ref.identity_data() for ref in self.search_state_refs
+            ],
+            "parent_evidence_ref": (
+                None
+                if self.parent_evidence_ref is None
+                else self.parent_evidence_ref.identity_data()
+            ),
+            "candidate_ledger_complete": self.candidate_ledger_complete,
+            "transition_ledger_complete": self.transition_ledger_complete,
+            "attributes": self.attributes,
+        }
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class ConfigurationCompositionStep(StrictModel):
+    """One deterministic layer used to produce a resolved configuration.
+
+    Source refs alone prove that the input bytes still exist, but do not prove
+    how profiles, external files, and inline overlays were ordered.  The
+    compiler records this small, JSON-only recipe so a standalone verifier can
+    replay the composition without importing adapter code.
+    """
+
+    kind: Literal["profile", "file", "inline"]
+    id: str | None = None
+    source_ref: ArtifactRef | None = None
+    mode: Literal["envelope", "raw"] | None = None
+    root: bool = True
+    values: Mapping[str, Any] = Field(default_factory=dict)
+    model_config = ConfigDict(populate_by_name=True)
+    json_schema: Mapping[str, Any] = Field(default_factory=dict, alias="schema")
+    adapter: str = Field(default="generic", pattern=ADAPTER_PATTERN)
+    extends: tuple[str, ...] = ()
+
+    @field_validator("values", "json_schema", mode="before")
+    @classmethod
+    def composition_trees_are_json_compatible(cls, value: Any, info: Any) -> Any:
+        return _validate_json_configuration(
+            value,
+            field_name=f"ConfigurationCompositionStep.{info.field_name}",
+        )
+
+    @field_validator("id")
+    @classmethod
+    def composition_id_is_normalized(cls, value: str | None) -> str | None:
+        if value is not None and re.fullmatch(ID_PATTERN, value) is None:
+            raise ValueError("configuration composition ids must be valid BMP ids")
+        return value
+
+    @model_validator(mode="after")
+    def composition_kind_contract(self) -> "ConfigurationCompositionStep":
+        if self.kind == "inline":
+            if self.source_ref is not None or self.mode is not None:
+                raise ValueError("inline composition layers cannot carry source refs")
+        elif self.source_ref is None or self.mode is None:
+            raise ValueError("source composition layers require source_ref and mode")
+        if self.kind == "profile" and self.id is None:
+            raise ValueError("profile composition layers require an id")
+        object.__setattr__(self, "values", _freeze_configuration_tree(self.values))
+        object.__setattr__(
+            self, "json_schema", _freeze_configuration_tree(self.json_schema)
+        )
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "id": self.id,
+            "source_ref": (
+                None if self.source_ref is None else self.source_ref.identity_data()
+            ),
+            "mode": self.mode,
+            "root": self.root,
+            "values": self.values,
+            "schema": self.json_schema,
+            "adapter": self.adapter,
+            "extends": list(self.extends),
+        }
+
+
 class ConfigurationArtifact(StrictModel):
-    """Resolved configuration tree bound to every profile/source byte."""
+    """Resolved configuration tree bound to every profile/source byte.
+
+    ``json_schema`` is the merged, replayable schema tree and ``ownership``
+    records which adapter contributed each resolved dotted path. ``adapter``
+    remains a compatibility summary (``composite`` when several namespaces
+    participate).
+    """
 
     id: str = Field(pattern=ID_PATTERN)
     adapter: str = Field(pattern=ADAPTER_PATTERN)
@@ -230,14 +916,51 @@ class ConfigurationArtifact(StrictModel):
     source_refs: tuple[ArtifactRef, ...] = ()
     schema_digest: str = Field(pattern=SHA256_PATTERN)
     values: Mapping[str, Any] = Field(default_factory=dict)
+    json_schema: Mapping[str, Any] = Field(default_factory=dict)
+    ownership: Mapping[str, str] = Field(default_factory=dict)
+    composition: tuple[ConfigurationCompositionStep, ...] = ()
     artifact_digest: str = Field(pattern=SHA256_PATTERN)
 
     @field_validator("values", mode="before")
     @classmethod
     def artifact_values_are_json_compatible(cls, value: Any) -> Any:
         return _validate_json_configuration(
-            value or {}, field_name="ConfigurationArtifact.values"
+            value, field_name="ConfigurationArtifact.values"
         )
+
+    @field_validator("json_schema", mode="before")
+    @classmethod
+    def artifact_schema_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value, field_name="ConfigurationArtifact.json_schema"
+        )
+
+    @field_validator("ownership", mode="before")
+    @classmethod
+    def ownership_is_valid(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            raise ValueError("ConfigurationArtifact.ownership must be a JSON object")
+        for path, adapter in value.items():
+            if not isinstance(path, str) or not path:
+                raise ValueError(
+                    "ConfigurationArtifact.ownership paths must be non-empty strings"
+                )
+            if not isinstance(adapter, str) or re.fullmatch(ADAPTER_PATTERN, adapter) is None:
+                raise ValueError(
+                    "ConfigurationArtifact.ownership adapters must be normalized identifiers"
+                )
+        return dict(value)
+
+    @model_validator(mode="after")
+    def freeze_configuration_trees(self) -> "ConfigurationArtifact":
+        object.__setattr__(self, "values", _freeze_configuration_tree(self.values))
+        object.__setattr__(
+            self, "json_schema", _freeze_configuration_tree(self.json_schema)
+        )
+        object.__setattr__(
+            self, "ownership", _freeze_configuration_tree(self.ownership)
+        )
+        return self
 
     @model_validator(mode="after")
     def source_refs_are_unique(self) -> "ConfigurationArtifact":
@@ -254,6 +977,9 @@ class ConfigurationArtifact(StrictModel):
             "source_refs": [ref.identity_data() for ref in self.source_refs],
             "schema_digest": self.schema_digest,
             "values": self.values,
+            "json_schema": self.json_schema,
+            "ownership": self.ownership,
+            "composition": [item.identity_data() for item in self.composition],
         }
 
     def canonical_digest(self) -> str:
@@ -281,17 +1007,50 @@ class AdapterCapability(RegistryEntry):
         "benchmark_loader", "backend_factory", "execution"
     ]
     entrypoint: str = Field(min_length=1)
+    source: str = "."
     digest: str = Field(pattern=SHA256_PATTERN)
     config_paths: tuple[str, ...] = ()
     supported_benchmark_kinds: tuple[str, ...] = ()
     supported_subject_kinds: tuple[str, ...] = ()
     supported_backend_kinds: tuple[str, ...] = ()
+    supported_backend_adapters: tuple[str, ...] = ()
+    supported_subject_interfaces: tuple[str, ...] = ()
+
+    @field_validator("source")
+    @classmethod
+    def source_is_relative(cls, value: str) -> str:
+        if value == ".":
+            return value
+        return _validate_logical_relative_path(value, field_name="source")
+
+    @field_validator("entrypoint")
+    @classmethod
+    def entrypoint_has_object_name(cls, value: str) -> str:
+        module_path, separator, object_name = value.partition(":")
+        if (
+            separator != ":"
+            or not module_path
+            or not object_name
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", object_name)
+        ):
+            raise ValueError("adapter entrypoint must be module:object")
+        if module_path.endswith(".py"):
+            _validate_logical_relative_path(module_path, field_name="entrypoint module")
+        elif not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*", module_path
+        ):
+            raise ValueError(
+                "adapter entrypoint module must be a relative .py path or dotted module"
+            )
+        return value
 
     @field_validator(
         "config_paths",
         "supported_benchmark_kinds",
         "supported_subject_kinds",
         "supported_backend_kinds",
+        "supported_backend_adapters",
+        "supported_subject_interfaces",
     )
     @classmethod
     def capability_values_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
@@ -300,6 +1059,153 @@ class AdapterCapability(RegistryEntry):
         if any(not value.strip() for value in values):
             raise ValueError("adapter capability values must be non-empty")
         return values
+
+    def supports(
+        self,
+        *,
+        benchmark_kind: str,
+        subject_kind: str,
+        backend_kind: str,
+        backend_adapter: str,
+        subject_interface: str | None,
+    ) -> bool:
+        """Check the declaration's compatibility selectors without fallback."""
+
+        return (
+            (not self.supported_benchmark_kinds
+             or benchmark_kind in self.supported_benchmark_kinds)
+            and (not self.supported_subject_kinds
+                 or subject_kind in self.supported_subject_kinds)
+            and (not self.supported_backend_kinds
+                 or backend_kind in self.supported_backend_kinds)
+            and (not self.supported_backend_adapters
+                 or backend_adapter in self.supported_backend_adapters)
+            and (not self.supported_subject_interfaces
+                 or subject_interface in self.supported_subject_interfaces)
+        )
+
+    def owns_configuration(self, values: Mapping[str, Any]) -> bool:
+        """Return whether a declared path is present in the resolved tree.
+
+        ``config_paths`` describes dotted paths in configuration values, not a
+        configuration adapter id. Empty declarations and ``*`` retain the
+        historical unrestricted behavior. A table path owns its whole subtree,
+        so every mapping node is included in the set of resolved paths.
+        """
+
+        if not self.config_paths or "*" in self.config_paths:
+            return True
+
+        resolved_paths: set[str] = set()
+
+        def visit(value: Mapping[str, Any], prefix: str = "") -> None:
+            for key, child in value.items():
+                if not isinstance(key, str) or not key:
+                    continue
+                path = f"{prefix}.{key}" if prefix else key
+                resolved_paths.add(path)
+                if isinstance(child, Mapping):
+                    visit(child, path)
+
+        visit(values)
+        return any(path in resolved_paths for path in self.config_paths)
+
+
+class AdapterCapabilityArtifact(StrictModel):
+    """Resolved plugin declaration and implementation byte identity.
+
+    ``source_closure_*`` records the local Python helpers imported by the
+    entrypoint.  Keeping relative names separate from absolute artifact refs
+    makes the digest stable across record relocation while still allowing the
+    verifier to rehash every persisted byte.
+    """
+
+    capability: AdapterCapability
+    declaration_ref: ArtifactRef
+    implementation_ref: ArtifactRef
+    source_closure_refs: tuple[ArtifactRef, ...] = ()
+    source_closure_paths: tuple[str, ...] = ()
+    source_closure_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    @field_validator("source_closure_paths")
+    @classmethod
+    def closure_paths_are_normalized(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        normalized: list[str] = []
+        for value in values:
+            candidate = value.replace("\\", "/")
+            parts = candidate.split("/")
+            if (
+                not candidate
+                or candidate.startswith("/")
+                or any(part in {"", ".", ".."} for part in parts)
+            ):
+                raise ValueError(
+                    "adapter source closure paths must be normalized relative paths"
+                )
+            normalized.append(candidate)
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("adapter source closure paths must be unique")
+        return tuple(normalized)
+
+    @model_validator(mode="after")
+    def implementation_matches_declared_digest(self) -> "AdapterCapabilityArtifact":
+        if self.implementation_ref.sha256 != self.capability.digest:
+            raise ValueError(
+                "adapter implementation ref must match the declared capability digest"
+            )
+        if bool(self.source_closure_refs) != bool(self.source_closure_paths):
+            raise ValueError(
+                "adapter source closure refs and paths must be provided together"
+            )
+        if self.source_closure_refs:
+            if self.source_closure_digest is None:
+                raise ValueError("adapter source closure digest is required")
+            identities = [
+                (ref.sha256, ref.size_bytes, path)
+                for ref, path in zip(
+                    self.source_closure_refs,
+                    self.source_closure_paths,
+                    strict=True,
+                )
+            ]
+            if len({(sha, size) for sha, size, _ in identities}) != len(identities):
+                raise ValueError("adapter source closure refs must be content-unique")
+            if not any(
+                ref.sha256 == self.implementation_ref.sha256
+                and ref.size_bytes == self.implementation_ref.size_bytes
+                for ref in self.source_closure_refs
+            ):
+                raise ValueError(
+                    "adapter source closure must include the implementation ref"
+                )
+        elif self.source_closure_digest is not None:
+            raise ValueError(
+                "adapter source closure digest requires closure refs and paths"
+            )
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "capability": self.capability.model_dump(mode="json"),
+            "declaration_ref": self.declaration_ref.identity_data(),
+            "implementation_ref": self.implementation_ref.identity_data(),
+            "source_closure_refs": [
+                ref.identity_data() for ref in self.source_closure_refs
+            ],
+            "source_closure_paths": list(self.source_closure_paths),
+            "source_closure_digest": self.source_closure_digest,
+        }
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class EnvironmentBindingRef(StrictModel):
@@ -620,7 +1526,14 @@ class CustomBenchmarkSpec(SourceRegistryEntry):
     @field_validator("config", mode="before")
     @classmethod
     def config_is_json_compatible(cls, value: Any) -> Any:
-        return _validate_json_configuration(value or {}, field_name="CustomBenchmarkSpec.config")
+        return _validate_json_configuration(
+            value, field_name="CustomBenchmarkSpec.config"
+        )
+
+    @model_validator(mode="after")
+    def freeze_config_tree(self) -> "CustomBenchmarkSpec":
+        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
+        return self
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "CustomBenchmarkSpec":
@@ -740,7 +1653,14 @@ class CustomBenchmarkArtifact(AbsoluteSourceArtifact):
     @field_validator("config", mode="before")
     @classmethod
     def config_is_json_compatible(cls, value: Any) -> Any:
-        return _validate_json_configuration(value or {}, field_name="CustomBenchmarkArtifact.config")
+        return _validate_json_configuration(
+            value, field_name="CustomBenchmarkArtifact.config"
+        )
+
+    @model_validator(mode="after")
+    def freeze_config_tree(self) -> "CustomBenchmarkArtifact":
+        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
+        return self
 
     @model_validator(mode="after")
     def scoring_semantics_are_complete(self) -> "CustomBenchmarkArtifact":
@@ -767,6 +1687,7 @@ class AssemblySidecarRef(StrictModel):
 
     path: str = Field(min_length=1)
     sha256: str = Field(pattern=SHA256_PATTERN)
+    size_bytes: int = Field(ge=0)
     sidecar_schema_version: str = Field(default="0.1", min_length=1)
 
     @field_validator("path")
@@ -775,6 +1696,222 @@ class AssemblySidecarRef(StrictModel):
         if not Path(value).is_absolute():
             raise ValueError("sidecar path must be absolute")
         return value
+
+
+class RuntimeAssemblySidecarRef(StrictModel):
+    """One persisted sidecar emitted by a sequenced runtime manifest."""
+
+    sequence: int = Field(ge=1)
+    path: str = Field(min_length=1, pattern=r"^/")
+    sha256: str = Field(pattern=SHA256_PATTERN)
+    size_bytes: int = Field(ge=0)
+    sidecar_schema_version: Literal["1"] = "1"
+
+    @field_validator("path")
+    @classmethod
+    def runtime_sidecar_path_must_be_absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("runtime assembly sidecar path must be absolute")
+        return value
+
+
+class RuntimeManifestReceipt(StrictModel):
+    """Public Magenta runtime-manifest lineage retained by one attempt."""
+
+    protocol_version: Literal[1] = 1
+    run_id: str = Field(min_length=1)
+    manifest_sha256: tuple[str, ...] = Field(min_length=1)
+    trace_ref: ArtifactRef
+    assembly_sidecar_refs: tuple[RuntimeAssemblySidecarRef, ...] = ()
+    effective_sequence: int = Field(ge=1)
+    effective_assembly_sidecar_ref: RuntimeAssemblySidecarRef | None = None
+
+    @field_validator("manifest_sha256")
+    @classmethod
+    def manifest_digests_are_sha256(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if any(re.fullmatch(SHA256_PATTERN, value) is None for value in values):
+            raise ValueError("runtime manifest digests must be lowercase SHA-256")
+        return values
+
+    @model_validator(mode="after")
+    def sequences_are_contiguous_and_effective_is_final(
+        self,
+    ) -> "RuntimeManifestReceipt":
+        if self.effective_sequence != len(self.manifest_sha256):
+            raise ValueError("effective runtime manifest sequence must be final")
+        sequences = tuple(ref.sequence for ref in self.assembly_sidecar_refs)
+        if len(set(sequences)) != len(sequences) or any(
+            sequence > self.effective_sequence for sequence in sequences
+        ):
+            raise ValueError("runtime assembly sidecar sequences are invalid")
+        expected_effective = next(
+            (
+                ref
+                for ref in self.assembly_sidecar_refs
+                if ref.sequence == self.effective_sequence
+            ),
+            None,
+        )
+        if self.effective_assembly_sidecar_ref != expected_effective:
+            raise ValueError(
+                "effective assembly sidecar ref must match the final runtime manifest"
+            )
+        return self
+
+    def effective_sidecar_artifact_ref(self) -> ArtifactRef | None:
+        """Return the final sidecar as BMP's generic byte reference."""
+
+        ref = self.effective_assembly_sidecar_ref
+        if ref is None:
+            return None
+        return ArtifactRef(
+            path=ref.path,
+            sha256=ref.sha256,
+            size_bytes=ref.size_bytes,
+        )
+
+
+class ConfigurationActivationReceipt(StrictModel):
+    """Neutral evidence that a resolved configuration reached the adapter.
+
+    BMP owns the configuration artifact and its identity.  An adapter owns
+    the meaning of its settings and reports only a secret-free projection of
+    what it requested and what the runtime observed.  This keeps activation
+    evidence useful for arbitrary adapters without importing their protocols.
+    """
+
+    protocol_version: Literal[1] = 1
+    configuration_digest: str = Field(pattern=SHA256_PATTERN)
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    requested_paths: tuple[str, ...] = ()
+    activated_paths: tuple[str, ...] = ()
+    requested_values: Mapping[str, Any] | None = None
+    activated_values: Mapping[str, Any] | None = None
+    requested_sha256: str = Field(pattern=SHA256_PATTERN)
+    activated_sha256: str = Field(pattern=SHA256_PATTERN)
+    status: Literal[
+        "matched",
+        "unobserved",
+        "mismatch",
+        "missing_activation_receipt",
+        "unrequested",
+        "invalid_activation_receipt",
+        "activation_unknown",
+    ]
+    reason: tuple[str, ...] = ()
+    evidence_refs: tuple[ArtifactRef, ...] = ()
+
+    @field_validator("requested_paths", "activated_paths")
+    @classmethod
+    def paths_are_unique_dotted_names(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(
+            not value.strip()
+            or value.startswith(".")
+            or value.endswith(".")
+            or ".." in value
+            or any(not segment.strip() for segment in value.split("."))
+            for value in values
+        ):
+            raise ValueError("configuration activation paths must be dotted names")
+        if len(set(values)) != len(values):
+            raise ValueError("configuration activation paths must be unique")
+        return tuple(values)
+
+    @field_validator("requested_values", "activated_values", mode="before")
+    @classmethod
+    def values_are_secret_free_json(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        return _validate_json_configuration(
+            value, field_name="ConfigurationActivationReceipt.values"
+        )
+
+    @field_validator("reason")
+    @classmethod
+    def reasons_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("configuration activation reasons must be non-empty")
+        if len(set(values)) != len(values):
+            raise ValueError("configuration activation reasons must be unique")
+        return values
+
+    @model_validator(mode="after")
+    def activation_is_coherent(self) -> "ConfigurationActivationReceipt":
+        def projection_paths(value: Mapping[str, Any] | None) -> tuple[str, ...]:
+            if value is None:
+                return ()
+            paths: list[str] = []
+
+            def visit(item: Mapping[str, Any], prefix: str = "") -> None:
+                for key, child in item.items():
+                    path = f"{prefix}.{key}" if prefix else str(key)
+                    if isinstance(child, Mapping):
+                        visit(child, path)
+                    else:
+                        paths.append(path)
+
+            visit(value)
+            return tuple(sorted(paths))
+
+        def projection_digest(value: Mapping[str, Any] | None) -> str | None:
+            if value is None:
+                return None
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            return hashlib.sha256(encoded).hexdigest()
+
+        if self.status == "matched":
+            if self.requested_values is None or self.activated_values is None:
+                raise ValueError("matched configuration activation requires projections")
+            if projection_digest(self.requested_values) != self.requested_sha256:
+                raise ValueError("requested configuration projection digest drift")
+            if projection_digest(self.activated_values) != self.activated_sha256:
+                raise ValueError("activated configuration projection digest drift")
+            if self.requested_sha256 != self.activated_sha256:
+                raise ValueError("matched configuration activation requires equal digests")
+            if self.requested_paths != self.activated_paths:
+                raise ValueError("matched configuration activation requires equal paths")
+            if self.requested_paths != projection_paths(self.requested_values):
+                raise ValueError("requested configuration paths do not cover projection")
+            if self.activated_paths != projection_paths(self.activated_values):
+                raise ValueError("activated configuration paths do not cover projection")
+            if self.requested_values != self.activated_values:
+                raise ValueError("matched configuration activation values differ")
+            if self.reason:
+                raise ValueError("matched configuration activation cannot have reasons")
+        elif self.status in {"unobserved", "unrequested"}:
+            if self.activated_paths:
+                raise ValueError("unobserved configuration activation cannot claim paths")
+            if not self.reason:
+                raise ValueError("unobserved configuration activation requires a reason")
+        elif self.status in {"mismatch", "invalid_activation_receipt", "activation_unknown"}:
+            if (
+                self.requested_sha256 == self.activated_sha256
+                and self.requested_paths == self.activated_paths
+            ):
+                raise ValueError("mismatch configuration activation must differ")
+            if not self.reason:
+                raise ValueError("mismatch configuration activation requires a reason")
+        elif self.status == "missing_activation_receipt":
+            if self.activated_paths:
+                raise ValueError(
+                    "missing configuration activation cannot claim activated paths"
+                )
+            if not self.reason:
+                raise ValueError(
+                    "missing configuration activation requires a reason"
+                )
+        ref_keys = [(ref.sha256, ref.size_bytes) for ref in self.evidence_refs]
+        if len(set(ref_keys)) != len(ref_keys):
+            raise ValueError("configuration activation evidence refs must be unique")
+        return self
 
 
 class AssemblySubjectSpec(SourceRegistryEntry):
@@ -1504,6 +2641,7 @@ class ResolvedManifestMetadata(StrictModel):
     allowed_diff: tuple[str, ...] = ()
     factors: Mapping[str, Any] = Field(default_factory=dict)
     configuration: ConfigurationArtifact | None = None
+    adapter_capabilities: tuple[AdapterCapabilityArtifact, ...] = ()
     test_override: TestOverrideReceipt | None = None
 
     @field_validator("allowed_diff")
@@ -1537,6 +2675,37 @@ class ResolvedBmpManifest(StrictModel):
 
     def identity_data(self) -> dict[str, Any]:
         data = self.model_dump(mode="json", exclude=self.IDENTITY_EXCLUDE)
+
+        def project_artifact_refs(source: Any, serialized: Any) -> Any:
+            """Project typed nested ArtifactRefs without guessing dict shapes."""
+
+            if isinstance(source, ArtifactRef):
+                return source.identity_data()
+            if isinstance(source, BaseModel) and isinstance(serialized, Mapping):
+                projected = dict(serialized)
+                for field_name in type(source).model_fields:
+                    if field_name in projected:
+                        projected[field_name] = project_artifact_refs(
+                            getattr(source, field_name), projected[field_name]
+                        )
+                return projected
+            if isinstance(source, Mapping) and isinstance(serialized, Mapping):
+                return {
+                    key: project_artifact_refs(source[key], item)
+                    if key in source
+                    else item
+                    for key, item in serialized.items()
+                }
+            if isinstance(source, (list, tuple)) and isinstance(serialized, list):
+                return [
+                    project_artifact_refs(source_item, serialized_item)
+                    for source_item, serialized_item in zip(
+                        source, serialized, strict=True
+                    )
+                ]
+            return serialized
+
+        data = project_artifact_refs(self, data)
         data["benchmark"].pop("source", None)
         data["subject"].pop("source", None)
         environment = data["execution"]["backend"].get("environment")
@@ -1633,6 +2802,9 @@ class ProvenanceRecord(StrictModel):
     workspace_namespace: str | None = Field(default=None, min_length=1)
     environment_receipt: EnvironmentReceipt | None = None
     container_receipt_ref: ArtifactRef | None = None
+    runtime_manifest_receipt: RuntimeManifestReceipt | None = None
+    configuration_activation: ConfigurationActivationReceipt | None = None
+    evolution_evidence_ref: ArtifactRef | None = None
     test_override: TestOverrideReceipt | None = None
 
     @model_validator(mode="after")
@@ -1776,6 +2948,13 @@ class EvidenceBundle(StrictModel):
         if self.provenance.trace_emission_claimed and self.trace_ref is None:
             raise ValueError("trace_ref is required when the subject claims trace emission")
         return self
+
+    @property
+    def effective_assembly_sidecar_ref(self) -> ArtifactRef | None:
+        """Expose the runtime-effective assembly bytes through bundle lineage."""
+
+        receipt = self.provenance.runtime_manifest_receipt
+        return None if receipt is None else receipt.effective_sidecar_artifact_ref()
 
 
 class BudgetAllocation(StrictModel):
@@ -2546,8 +3725,10 @@ RunReportAdapter = TypeAdapter(RunReport)
 __all__ = [
     "BMP_VERSION",
     "AdapterCapability",
+    "AdapterCapabilityArtifact",
     "IDENTITY_EXCLUDE",
     "ArtifactRef",
+    "ConfigurationCompositionStep",
     "AttemptAllocation",
     "AttemptContext",
     "AttemptExecution",
@@ -2578,6 +3759,11 @@ __all__ = [
     "CustomBenchmarkSpec",
     "CredentialRef",
     "EffectEstimate",
+    "EvolutionCandidateRecord",
+    "EvolutionCandidateStatus",
+    "EvolutionRunEvidence",
+    "EvolutionTransitionPhase",
+    "EvolutionTransitionRecord",
     "EnvironmentBindingRef",
     "EnvironmentReceipt",
     "EnvironmentSpec",
@@ -2589,6 +3775,8 @@ __all__ = [
     "GateName",
     "GateResult",
     "AssemblySidecarRef",
+    "RuntimeAssemblySidecarRef",
+    "RuntimeManifestReceipt",
     "JournalRecord",
     "LineageRef",
     "MountSpec",

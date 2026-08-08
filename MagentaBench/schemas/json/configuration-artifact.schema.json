@@ -28,10 +28,98 @@
       ],
       "title": "ArtifactRef",
       "type": "object"
+    },
+    "ConfigurationCompositionStep": {
+      "additionalProperties": false,
+      "description": "One deterministic layer used to produce a resolved configuration.\n\nSource refs alone prove that the input bytes still exist, but do not prove\nhow profiles, external files, and inline overlays were ordered.  The\ncompiler records this small, JSON-only recipe so a standalone verifier can\nreplay the composition without importing adapter code.",
+      "properties": {
+        "adapter": {
+          "default": "generic",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "extends": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Extends",
+          "type": "array"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "enum": [
+            "profile",
+            "file",
+            "inline"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "envelope",
+                "raw"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "root": {
+          "default": true,
+          "title": "Root",
+          "type": "boolean"
+        },
+        "schema": {
+          "additionalProperties": true,
+          "title": "Schema",
+          "type": "object"
+        },
+        "source_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "values": {
+          "additionalProperties": true,
+          "title": "Values",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "ConfigurationCompositionStep",
+      "type": "object"
     }
   },
   "additionalProperties": false,
-  "description": "Resolved configuration tree bound to every profile/source byte.",
+  "description": "Resolved configuration tree bound to every profile/source byte.\n\n``json_schema`` is the merged, replayable schema tree and ``ownership``\nrecords which adapter contributed each resolved dotted path. ``adapter``\nremains a compatibility summary (``composite`` when several namespaces\nparticipate).",
   "properties": {
     "adapter": {
       "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
@@ -43,10 +131,30 @@
       "title": "Artifact Digest",
       "type": "string"
     },
+    "composition": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ConfigurationCompositionStep"
+      },
+      "title": "Composition",
+      "type": "array"
+    },
     "id": {
       "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
       "title": "Id",
       "type": "string"
+    },
+    "json_schema": {
+      "additionalProperties": true,
+      "title": "Json Schema",
+      "type": "object"
+    },
+    "ownership": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Ownership",
+      "type": "object"
     },
     "profiles": {
       "default": [],

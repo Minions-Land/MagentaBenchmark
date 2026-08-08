@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import random
+import sys
 import tomllib
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -22,6 +24,13 @@ from MagentaBench.schemas import (
 from .backend.fake import CaseExecution, FakeBackend
 from .backend.subprocess import SubprocessBackend
 from .compiler import CompiledRun
+from .adapter_source import (
+    AdapterSourceError,
+    closure_digest,
+    import_closure,
+    resolve_entrypoint,
+    resolve_source_root,
+)
 from .evidence import (
     artifact_ref,
     atomic_write_bytes,
@@ -136,6 +145,28 @@ class ExecutionAdapter(Protocol):
     def reset_state(
         self, backend: Any, case_id: str, policy: str
     ) -> Any: ...
+
+
+def _execution_capability_key(
+    adapter: str, backend: str, interface: str | None
+) -> tuple[str, str, str | None]:
+    return (adapter, backend, interface)
+
+
+def _capability_supports_run(
+    capability: AdapterCapability, run: CompiledRun
+) -> bool:
+    subject = run.manifest.subject
+    backend = run.manifest.execution.backend
+    return capability.supports(
+        benchmark_kind=run.manifest.benchmark.kind,
+        subject_kind=subject.kind,
+        backend_kind=backend.kind,
+        backend_adapter=backend.adapter,
+        subject_interface=(
+            None if subject.kind == "fake" else getattr(subject, "interface", None)
+        ),
+    )
 
 
 def _closure_digest(paths: tuple[Path, ...], package_root: Path) -> str:
@@ -609,7 +640,12 @@ class AdapterRegistry:
         execution_adapters: Mapping[
             tuple[str, str, str | None], ExecutionAdapter
         ],
-        capabilities: Mapping[str, AdapterCapability] | None = None,
+        capabilities: Mapping[
+            str | tuple[str, str] | tuple[str, str, str | None], AdapterCapability
+        ] | None = None,
+        source_closures: Mapping[
+            tuple[str, ...], str
+        ] | None = None,
     ) -> None:
         for key, loader in benchmark_loaders.items():
             if key != loader.adapter:
@@ -634,13 +670,50 @@ class AdapterRegistry:
         self._benchmark_loaders = MappingProxyType(dict(benchmark_loaders))
         self._backend_factories = MappingProxyType(dict(backend_factories))
         self._execution_adapters = MappingProxyType(dict(execution_adapters))
-        capability_values = dict(capabilities or {})
-        for key, capability in capability_values.items():
-            if key != capability.adapter:
+        capability_values: dict[tuple[Any, ...], AdapterCapability] = {}
+        for raw_key, capability in (capabilities or {}).items():
+            # Accept the historical ``{adapter: capability}`` shape when a
+            # caller has only one capability kind, while storing every
+            # capability under its unambiguous (adapter, kind) identity.
+            if isinstance(raw_key, tuple):
+                if capability.adapter_kind == "execution":
+                    if len(raw_key) != 3 or raw_key[0] != capability.adapter:
+                        raise AdapterRegistryError(
+                            f"AdapterCapability registry key mismatch: {raw_key!r}"
+                        )
+                    key = raw_key
+                else:
+                    if len(raw_key) != 2 or raw_key != (
+                        capability.adapter,
+                        capability.adapter_kind,
+                    ):
+                        raise AdapterRegistryError(
+                            f"AdapterCapability registry key mismatch: {raw_key!r}"
+                        )
+                    key = raw_key
+            else:
+                if raw_key != capability.adapter:
+                    raise AdapterRegistryError(
+                        f"AdapterCapability registry key mismatch: {raw_key!r}"
+                    )
+                if capability.adapter_kind == "execution":
+                    raise AdapterRegistryError(
+                        "execution capability requires a compatibility tuple key"
+                    )
+                key = (capability.adapter, capability.adapter_kind)
+            if key in capability_values:
                 raise AdapterRegistryError(
-                    f"AdapterCapability registry key mismatch: {key!r}"
+                    f"duplicate adapter capability key: {key!r}"
                 )
+            capability_values[key] = capability
         self._capabilities = MappingProxyType(capability_values)
+        closure_values = dict(source_closures or {})
+        unknown_closures = set(closure_values) - set(capability_values)
+        if unknown_closures:
+            raise AdapterRegistryError(
+                f"source closure has no matching capability: {sorted(unknown_closures)!r}"
+            )
+        self._source_closures = MappingProxyType(closure_values)
 
     @classmethod
     def production(cls) -> "AdapterRegistry":
@@ -669,6 +742,152 @@ class AdapterRegistry:
             },
         )
 
+    @staticmethod
+    def required_capability_keys(
+        runs: tuple[CompiledRun, ...] | list[CompiledRun]
+    ) -> set[tuple[str, str]]:
+        """Return non-built-in capability kinds needed by resolved runs."""
+
+        required: set[tuple[str, str]] = set()
+        for run in runs:
+            benchmark = run.manifest.benchmark
+            backend = run.manifest.execution.backend
+            subject = run.manifest.subject
+            interface = (
+                None if subject.kind == "fake" else getattr(subject, "interface", None)
+            )
+            if benchmark.kind == "custom" or benchmark.adapter != "fake":
+                required.add((benchmark.adapter, "benchmark_loader"))
+            if backend.adapter not in {"fake", "subprocess"}:
+                required.add((backend.adapter, "backend_factory"))
+            if benchmark.kind == "custom" or (
+                benchmark.adapter,
+                backend.adapter,
+                interface,
+            ) not in {
+                ("fake", "fake", None),
+                ("fake", "subprocess", None),
+            } or subject.kind in {"evolver", "meta_evolver"}:
+                required.add((benchmark.adapter, "execution"))
+        return required
+
+    @classmethod
+    def from_project(
+        cls,
+        project_root: str | Path,
+        *,
+        required_capabilities: set[tuple[str, str]] | None = None,
+    ) -> "AdapterRegistry":
+        """Load only the source-closed capabilities needed by one run set.
+
+        Declarations remain metadata that the compiler can inspect without
+        importing code.  Runtime module loading is intentionally filtered to
+        the adapter kinds selected by the resolved manifests, so an unrelated
+        broken plugin cannot affect a built-in benchmark.
+        """
+
+        root = Path(project_root).resolve()
+        directory = root / "registries" / "adapters"
+        registry = cls.production()
+        if not directory.exists():
+            return registry
+        if directory.is_symlink() or not directory.is_dir():
+            raise AdapterRegistryError(
+                f"adapter registry path is not a stable directory: {directory}"
+            )
+        for declaration_path in sorted(directory.glob("*.toml")):
+            if declaration_path.is_symlink():
+                raise AdapterRegistryError(
+                    f"adapter declaration must not be a symlink: {declaration_path}"
+                )
+            try:
+                document = tomllib.loads(declaration_path.read_text(encoding="utf-8"))
+                if set(document) != {"adapter"}:
+                    raise AdapterRegistryError(
+                        f"adapter declaration requires only [adapter]: {declaration_path}"
+                    )
+                capability = AdapterCapability.model_validate(document["adapter"])
+            except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, ValueError) as exc:
+                if isinstance(exc, AdapterRegistryError):
+                    raise
+                raise AdapterRegistryError(
+                    f"invalid adapter declaration {declaration_path}: {exc}"
+                ) from exc
+
+            if (
+                required_capabilities is not None
+                and (capability.adapter, capability.adapter_kind)
+                not in required_capabilities
+            ):
+                continue
+
+            # Adapter source paths are project-root relative. This avoids a
+            # registry declaration escaping its project through ``..``.
+            try:
+                _, _, object_name = capability.entrypoint.partition(":")
+                source_root = resolve_source_root(root, capability.source)
+                module_path = resolve_entrypoint(source_root, capability.entrypoint)
+                closure_paths = import_closure(source_root, module_path)
+                observed_closure_digest = closure_digest(source_root, closure_paths)
+            except AdapterSourceError as exc:
+                raise AdapterRegistryError(str(exc)) from exc
+            observed_digest = sha256_file(module_path)
+            if observed_digest != capability.digest:
+                raise AdapterRegistryError(
+                    f"adapter source digest mismatch: {capability.adapter!r}"
+                )
+            module_name = (
+                "_magentabench_adapter_"
+                + hashlib.sha256(
+                    f"{module_path}:{capability.digest}".encode("utf-8")
+                ).hexdigest()
+            )
+            spec = importlib.util.spec_from_file_location(module_name, module_path)
+            if spec is None or spec.loader is None:
+                raise AdapterRegistryError(
+                    f"cannot load adapter module: {module_path}"
+                )
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[module_name] = module
+            try:
+                sys.path.insert(0, str(source_root))
+                try:
+                    spec.loader.exec_module(module)
+                finally:
+                    if sys.path and sys.path[0] == str(source_root):
+                        sys.path.pop(0)
+                implementation = getattr(module, object_name)
+                if isinstance(implementation, type):
+                    implementation = implementation()
+                elif callable(implementation) and not hasattr(
+                    implementation, "digest"
+                ):
+                    implementation = implementation()
+            except Exception as exc:
+                sys.modules.pop(module_name, None)
+                raise AdapterRegistryError(
+                    f"cannot instantiate adapter {capability.adapter!r}: {exc}"
+                ) from exc
+            if capability.adapter_kind == "benchmark_loader":
+                registry = registry.extend(
+                    capability=capability,
+                    benchmark_loader=implementation,
+                    source_closure_digest=observed_closure_digest,
+                )
+            elif capability.adapter_kind == "backend_factory":
+                registry = registry.extend(
+                    capability=capability,
+                    backend_factory=implementation,
+                    source_closure_digest=observed_closure_digest,
+                )
+            else:
+                registry = registry.extend(
+                    capability=capability,
+                    execution_adapter=implementation,
+                    source_closure_digest=observed_closure_digest,
+                )
+        return registry
+
     def extend(
         self,
         *,
@@ -676,6 +895,7 @@ class AdapterRegistry:
         benchmark_loader: BenchmarkLoader | None = None,
         backend_factory: BackendFactory | None = None,
         execution_adapter: ExecutionAdapter | None = None,
+        source_closure_digest: str | None = None,
     ) -> "AdapterRegistry":
         """Return a registry with one explicit plugin capability installed."""
 
@@ -720,9 +940,19 @@ class AdapterRegistry:
         backend_factories = dict(self._backend_factories)
         execution_adapters = dict(self._execution_adapters)
         capabilities = dict(self._capabilities)
-        if capability.adapter in capabilities:
+        source_closures = dict(self._source_closures)
+        if capability.adapter_kind == "execution":
+            assert execution_adapter is not None
+            capability_key = _execution_capability_key(
+                execution_adapter.benchmark_adapter,
+                execution_adapter.backend_adapter,
+                execution_adapter.subject_interface,
+            )
+        else:
+            capability_key = (capability.adapter, capability.adapter_kind)
+        if capability_key in capabilities:
             raise AdapterRegistryError(
-                f"adapter capability {capability.adapter!r} is already registered"
+                f"adapter capability {capability_key!r} is already registered"
             )
         if benchmark_loader is not None and benchmark_loader.adapter in benchmark_loaders:
             raise AdapterRegistryError(
@@ -732,7 +962,9 @@ class AdapterRegistry:
             raise AdapterRegistryError(
                 f"backend factory {backend_factory.adapter!r} is already registered"
             )
-        capabilities[capability.adapter] = capability
+        capabilities[capability_key] = capability
+        if source_closure_digest is not None:
+            source_closures[capability_key] = source_closure_digest
         if benchmark_loader is not None:
             benchmark_loaders[benchmark_loader.adapter] = benchmark_loader
         if backend_factory is not None:
@@ -753,15 +985,57 @@ class AdapterRegistry:
             backend_factories=backend_factories,
             execution_adapters=execution_adapters,
             capabilities=capabilities,
+            source_closures=source_closures,
         )
 
-    def capability(self, adapter: str) -> AdapterCapability:
-        try:
-            return self._capabilities[adapter]
-        except KeyError as exc:
+    def capability(
+        self, adapter: str, adapter_kind: str | None = None
+    ) -> AdapterCapability:
+        """Return one capability, preserving the historical single-kind API.
+
+        An adapter name is no longer globally unique because one benchmark may
+        legitimately provide both a loader and an execution adapter.  Callers
+        that omit ``adapter_kind`` remain supported only when the name resolves
+        to exactly one registered kind.
+        """
+
+        if adapter_kind is not None:
+            if adapter_kind == "execution":
+                matches = [
+                    capability
+                    for key, capability in self._capabilities.items()
+                    if len(key) == 3 and key[0] == adapter
+                ]
+                if len(matches) == 1:
+                    return matches[0]
+                if not matches:
+                    raise AdapterRegistryError(
+                        f"execution capability {adapter!r} is not registered"
+                    )
+                raise AdapterRegistryError(
+                    f"execution capability {adapter!r} has multiple compatibility tuples"
+                )
+            try:
+                return self._capabilities[(adapter, adapter_kind)]
+            except KeyError as exc:
+                raise AdapterRegistryError(
+                    f"adapter capability {(adapter, adapter_kind)!r} is not registered"
+                ) from exc
+        matches = [
+            capability
+            for key, capability in self._capabilities.items()
+            if key[0] == adapter
+        ]
+        if not matches:
             raise AdapterRegistryError(
                 f"adapter capability {adapter!r} is not registered"
-            ) from exc
+            )
+        if len(matches) > 1:
+            raise AdapterRegistryError(
+                f"adapter capability {adapter!r} has multiple kinds; "
+                "specify adapter_kind"
+            )
+        return matches[0]
 
     @property
     def capabilities(self) -> tuple[AdapterCapability, ...]:
@@ -780,29 +1054,68 @@ class AdapterRegistry:
     def benchmark_loader(self, run: CompiledRun) -> BenchmarkLoader:
         adapter = run.manifest.benchmark.adapter
         try:
-            return self._benchmark_loaders[adapter]
+            loader = self._benchmark_loaders[adapter]
         except KeyError as exc:
             raise AdapterRegistryError(
                 f"no production BenchmarkLoader for adapter {adapter!r}"
             ) from exc
+        capability = self._capabilities.get((adapter, "benchmark_loader"))
+        if capability is not None and not _capability_supports_run(capability, run):
+            raise AdapterRegistryError(
+                f"BenchmarkLoader capability rejects resolved run tuple: {adapter!r}"
+            )
+        return loader
 
     def backend_factory(self, run: CompiledRun) -> BackendFactory:
         adapter = run.manifest.execution.backend.adapter
         try:
-            return self._backend_factories[adapter]
+            factory = self._backend_factories[adapter]
         except KeyError as exc:
             raise AdapterRegistryError(
                 f"no production backend factory for adapter {adapter!r}"
             ) from exc
+        capability = self._capabilities.get((adapter, "backend_factory"))
+        if capability is not None and not _capability_supports_run(capability, run):
+            raise AdapterRegistryError(
+                f"backend factory capability rejects resolved run tuple: {adapter!r}"
+            )
+        return factory
 
     def execution_adapter(self, run: CompiledRun) -> ExecutionAdapter:
         key = self.compatibility_key(run)
         try:
-            return self._execution_adapters[key]
+            adapter = self._execution_adapters[key]
         except KeyError as exc:
             raise AdapterRegistryError(
                 f"no production ExecutionAdapter for compatibility tuple {key!r}"
             ) from exc
+        capability = self._capabilities.get(key)
+        if capability is not None and not _capability_supports_run(capability, run):
+            raise AdapterRegistryError(
+                f"ExecutionAdapter capability rejects compatibility tuple {key!r}"
+            )
+        return adapter
+
+    def execution_capability(
+        self, run: CompiledRun
+    ) -> AdapterCapability | None:
+        """Return the digest-bound capability for the active execution tuple."""
+
+        key = self.compatibility_key(run)
+        return self._capabilities.get(key)
+
+    def source_closure_digest(
+        self, capability: AdapterCapability, run: CompiledRun | None = None
+    ) -> str | None:
+        """Return the independently observed local import-closure digest."""
+
+        if capability.adapter_kind == "execution":
+            if run is None:
+                return None
+            key = self.compatibility_key(run)
+        else:
+            key = (capability.adapter, capability.adapter_kind)
+        return self._source_closures.get(key)
 
 
 __all__ = [
