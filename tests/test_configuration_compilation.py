@@ -3,7 +3,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from MagentaBench.runner.compiler import Compiler
+import pytest
+
+from MagentaBench.runner.compiler import CompilationError, Compiler
 from MagentaBench.runner.configuration import ConfigurationRegistry
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import ReportVerificationError, verify_run_report
@@ -108,6 +110,32 @@ reasoning_effort = "high"
     assert config.adapter == "cli-agent"
     assert config.values["agent"]["model"] == "gpt-5.4-mini"
     assert config.source_refs[0].path == str(external.resolve())
+
+
+def test_external_configuration_symlink_is_rejected(tmp_path: Path) -> None:
+    project, experiment = _project(tmp_path)
+    experiment_dir = experiment.parent
+    target = experiment_dir / "agent-target.toml"
+    target.write_text(
+        """[configuration]
+id = "agent.external"
+kind = "configuration"
+adapter = "cli-agent"
+""",
+        encoding="utf-8",
+    )
+    linked = experiment_dir / "agent.toml"
+    linked.symlink_to(target)
+    experiment.write_text(
+        experiment.read_text(encoding="utf-8").replace(
+            '[experiment.configuration]\nprofiles = ["agent.base"]',
+            '[experiment.configuration]\nfiles = ["agent.toml"]',
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CompilationError, match="must not contain a symlink"):
+        Compiler(project).compile(experiment)
 
 
 def test_standalone_verifier_rejects_configuration_source_drift(tmp_path: Path) -> None:

@@ -268,6 +268,7 @@ def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> Non
     effective_ref = valid_status["effective_assembly_sidecar_ref"]
     assert effective_ref["sequence"] == 2
     persisted_sidecar = Path(effective_ref["path"])
+    assert persisted_sidecar.name == f'{effective_ref["sha256"]}.json'
     assert (
         hashlib.sha256(persisted_sidecar.read_bytes()).hexdigest()
         == effective_ref["sha256"]
@@ -276,6 +277,9 @@ def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> Non
     assert [
         item["sequence"] for item in valid_status["assembly_sidecar_refs"]
     ] == [1, 2]
+    persisted_sidecar.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(MagentaJsonlError, match="sidecar content drift"):
+        write_cli_outputs(valid, tmp_path / "valid")
 
     malformed = CliInvocationResult(
         command=("/opt/bin/magenta",),

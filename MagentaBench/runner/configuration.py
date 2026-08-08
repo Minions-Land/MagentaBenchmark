@@ -44,6 +44,10 @@ _SECRET_KEY_PARTS = frozenset(
         "credentials",
     }
 )
+_NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
+    r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
+    r"max_generation|output|prompt|total)_)?tokens$"
+)
 _MIN_TOML_INTEGER = -(2**63)
 _MAX_TOML_INTEGER = 2**63 - 1
 
@@ -104,8 +108,13 @@ def _validate_key(key: object, *, path: str) -> str:
     normalized_key = re.sub(
         r"(?<=[a-z0-9])(?=[A-Z])", "_", normalized_key
     ).replace("-", "_")
-    key_parts = frozenset(part for part in normalized_key.lower().split("_") if part)
-    if key_parts.intersection(_SECRET_KEY_PARTS):
+    normalized_key = normalized_key.lower()
+    key_parts = frozenset(part for part in normalized_key.split("_") if part)
+    secret_token_key = (
+        "tokens" in key_parts
+        and _NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(normalized_key) is None
+    )
+    if key_parts.intersection(_SECRET_KEY_PARTS) or secret_token_key:
         raise ConfigurationRegistryError(
             f"configuration must not contain secret-like key {key!r} at {path}"
         )

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from MagentaBench.schemas import RunStatus
+from MagentaBench.runner.evidence import atomic_write_bytes
 
 
 class CliAgentConfigurationError(ValueError):
@@ -692,15 +693,24 @@ def write_cli_outputs(
                     separators=(",", ":"),
                 ).encode("utf-8") + b"\n"
                 sidecar_dir.mkdir(parents=True, exist_ok=True)
-                sidecar_path = sidecar_dir / f"runtime-manifest-{sequence}.json"
-                temporary_path = sidecar_path.with_suffix(".json.tmp")
-                temporary_path.write_bytes(encoded)
-                os.replace(temporary_path, sidecar_path)
+                digest = hashlib.sha256(encoded).hexdigest()
+                sidecar_path = sidecar_dir / f"{digest}.json"
+                if sidecar_path.exists():
+                    if (
+                        sidecar_path.is_symlink()
+                        or not sidecar_path.is_file()
+                        or sidecar_path.read_bytes() != encoded
+                    ):
+                        raise MagentaJsonlError(
+                            "persisted Magenta assembly sidecar content drift"
+                        )
+                else:
+                    atomic_write_bytes(sidecar_path, encoded)
                 sidecar_refs.append(
                     {
                         "sequence": sequence,
                         "path": str(sidecar_path.resolve()),
-                        "sha256": hashlib.sha256(encoded).hexdigest(),
+                        "sha256": digest,
                         "size_bytes": len(encoded),
                     }
                 )

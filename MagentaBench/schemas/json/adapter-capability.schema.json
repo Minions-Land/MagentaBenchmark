@@ -10,7 +10,6 @@
     "adapter_kind": {
       "enum": [
         "benchmark_loader",
-        "subject",
         "backend_factory",
         "execution"
       ],

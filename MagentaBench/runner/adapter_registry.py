@@ -679,13 +679,26 @@ class AdapterRegistry:
     ) -> "AdapterRegistry":
         """Return a registry with one explicit plugin capability installed."""
 
+        implementations = tuple(
+            item
+            for item in (benchmark_loader, backend_factory, execution_adapter)
+            if item is not None
+        )
+        if len(implementations) != 1:
+            raise AdapterRegistryError(
+                "an adapter capability must bind exactly one implementation"
+            )
+        implementation_digest = getattr(implementations[0], "digest", None)
+        if implementation_digest != capability.digest:
+            raise AdapterRegistryError(
+                "adapter implementation digest does not match capability"
+            )
+
         if capability.adapter_kind == "benchmark_loader":
             if benchmark_loader is None or benchmark_loader.adapter != capability.adapter:
                 raise AdapterRegistryError(
                     "benchmark_loader capability requires a matching loader"
                 )
-            if benchmark_loader.digest != capability.digest:
-                raise AdapterRegistryError("benchmark loader digest does not match capability")
         elif benchmark_loader is not None:
             raise AdapterRegistryError("benchmark_loader is forbidden for this capability kind")
         if capability.adapter_kind == "backend_factory":
@@ -707,6 +720,18 @@ class AdapterRegistry:
         backend_factories = dict(self._backend_factories)
         execution_adapters = dict(self._execution_adapters)
         capabilities = dict(self._capabilities)
+        if capability.adapter in capabilities:
+            raise AdapterRegistryError(
+                f"adapter capability {capability.adapter!r} is already registered"
+            )
+        if benchmark_loader is not None and benchmark_loader.adapter in benchmark_loaders:
+            raise AdapterRegistryError(
+                f"benchmark loader {benchmark_loader.adapter!r} is already registered"
+            )
+        if backend_factory is not None and backend_factory.adapter in backend_factories:
+            raise AdapterRegistryError(
+                f"backend factory {backend_factory.adapter!r} is already registered"
+            )
         capabilities[capability.adapter] = capability
         if benchmark_loader is not None:
             benchmark_loaders[benchmark_loader.adapter] = benchmark_loader
@@ -718,6 +743,10 @@ class AdapterRegistry:
                 execution_adapter.backend_adapter,
                 execution_adapter.subject_interface,
             )
+            if key in execution_adapters:
+                raise AdapterRegistryError(
+                    f"execution adapter tuple {key!r} is already registered"
+                )
             execution_adapters[key] = execution_adapter
         return type(self)(
             benchmark_loaders=benchmark_loaders,

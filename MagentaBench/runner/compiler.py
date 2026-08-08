@@ -385,10 +385,28 @@ class Compiler:
         return _compile_subject_artifact(spec, base_dir=registry_path.parent)
 
     @staticmethod
+    def _resolve_configuration_source(path: Path) -> Path:
+        absolute = Path(os.path.abspath(os.fspath(path.expanduser())))
+        for candidate in (absolute, *absolute.parents):
+            if candidate.is_symlink():
+                raise CompilationError(
+                    f"configuration source must not contain a symlink: {candidate}"
+                )
+        try:
+            resolved = absolute.resolve(strict=True)
+        except OSError as exc:
+            raise CompilationError(
+                f"configuration source is missing or unreadable: {absolute}"
+            ) from exc
+        if not resolved.is_file():
+            raise CompilationError(
+                f"configuration source is not a file: {resolved}"
+            )
+        return resolved
+
+    @staticmethod
     def _configuration_source_ref(path: Path) -> ArtifactRef:
-        resolved = path.resolve(strict=True)
-        if resolved.is_symlink():
-            raise CompilationError(f"configuration source must not be a symlink: {resolved}")
+        resolved = Compiler._resolve_configuration_source(path)
         content = resolved.read_bytes()
         return ArtifactRef(
             path=str(resolved),
@@ -521,11 +539,7 @@ class Compiler:
             apply_spec(spec, path)
 
         for relative_path in selection.files:
-            path = (base_dir / relative_path).resolve(strict=True)
-            if path.is_symlink():
-                raise CompilationError(
-                    f"configuration source must not be a symlink: {path}"
-                )
+            path = self._resolve_configuration_source(base_dir / relative_path)
             document = self._load_toml(path)
             unexpected = sorted(set(document) - {"configuration"})
             if unexpected:

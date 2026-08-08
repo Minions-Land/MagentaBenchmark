@@ -31,6 +31,18 @@ class _ExternalLoader:
     digest = "a" * 64
 
 
+class _ExternalBackendFactory:
+    adapter = "external.backend"
+    digest = "a" * 64
+
+
+class _ExternalExecutionAdapter:
+    benchmark_adapter = "external.execution"
+    backend_adapter = "external.backend"
+    subject_interface = None
+    digest = "a" * 64
+
+
 def test_adapter_registry_accepts_only_digest_bound_extensions() -> None:
     capability = AdapterCapability(
         id="external.benchmark",
@@ -51,6 +63,32 @@ def test_adapter_registry_accepts_only_digest_bound_extensions() -> None:
         AdapterRegistry.production().extend(
             capability=capability.model_copy(update={"digest": "b" * 64}),
             benchmark_loader=_ExternalLoader(),
+        )
+
+    backend_capability = capability.model_copy(
+        update={
+            "id": "external.backend",
+            "adapter": "external.backend",
+            "adapter_kind": "backend_factory",
+        }
+    )
+    with pytest.raises(AdapterRegistryError, match="digest"):
+        AdapterRegistry.production().extend(
+            capability=backend_capability.model_copy(update={"digest": "b" * 64}),
+            backend_factory=_ExternalBackendFactory(),
+        )
+
+    execution_capability = capability.model_copy(
+        update={
+            "id": "external.execution",
+            "adapter": "external.execution",
+            "adapter_kind": "execution",
+        }
+    )
+    with pytest.raises(AdapterRegistryError, match="digest"):
+        AdapterRegistry.production().extend(
+            capability=execution_capability.model_copy(update={"digest": "b" * 64}),
+            execution_adapter=_ExternalExecutionAdapter(),
         )
 
 

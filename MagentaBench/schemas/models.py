@@ -37,7 +37,8 @@ SECRET_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
-    r"^(?:cache|completion|context|generation|input|max_context|max_generation|output|prompt|total)_?tokens$",
+    r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
+    r"max_generation|output|prompt|total)_)?tokens$",
     re.IGNORECASE,
 )
 IDENTITY_EXCLUDE: frozenset[str] = frozenset(
@@ -57,9 +58,14 @@ def _reject_secret_like_keys(value: Any, *, field_name: str) -> Any:
 
     if isinstance(value, Mapping):
         for key, item in value.items():
-            if SECRET_KEY_PATTERN.search(str(key)) and not (
-                "TOKEN" in str(key).upper()
-                and NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(str(key))
+            key_text = str(key)
+            normalized_key = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", key_text)
+            normalized_key = re.sub(
+                r"(?<=[a-z0-9])(?=[A-Z])", "_", normalized_key
+            ).replace("-", "_")
+            if SECRET_KEY_PATTERN.search(key_text) and not (
+                "TOKEN" in key_text.upper()
+                and NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(normalized_key)
             ):
                 raise ValueError(
                     f"{field_name} must not contain secret-like key {key!r}"
@@ -272,7 +278,7 @@ class AdapterCapability(RegistryEntry):
 
     kind: Literal["adapter"]
     adapter_kind: Literal[
-        "benchmark_loader", "subject", "backend_factory", "execution"
+        "benchmark_loader", "backend_factory", "execution"
     ]
     entrypoint: str = Field(min_length=1)
     digest: str = Field(pattern=SHA256_PATTERN)

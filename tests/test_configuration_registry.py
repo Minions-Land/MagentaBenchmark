@@ -149,6 +149,11 @@ def test_raw_toml_secret_like_keys_are_rejected(tmp_path: Path) -> None:
         registry.upsert("unsafe", '[provider]\napi_key = "value"\n')
     with pytest.raises(ConfigurationRegistryError, match="secret-like key"):
         registry.upsert("unsafe-acronym", '[provider]\nAPIKey = "value"\n')
+    with pytest.raises(ConfigurationRegistryError, match="secret-like key"):
+        registry.upsert("unsafe-token", '[provider]\naccess_tokens = "value"\n')
+
+    safe = registry.upsert("safe-budget", "tokens = 100\nmax_tokens = 50\n")
+    assert safe.data == {"tokens": 100, "max_tokens": 50}
 
 
 def test_upsert_rejects_unreadable_existing_object(tmp_path: Path) -> None:
