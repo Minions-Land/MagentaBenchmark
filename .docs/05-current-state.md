@@ -7,7 +7,8 @@
 > 最终树验证为 251 tests passed、HCP
 > boundary audit 0 violation；**没有任何真实 benchmark 证据因此变成有效 claim**。
 > Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到 `650de920`；当前
-> Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，但 canonical
+> Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，另有本地测试
+> 提交 `c9f8f678`；这些提交均未 push。但 canonical
 > assembly digest/dependency closure 仍未由 HCP 提供，因此 `magenta_hcp` 的
 > component/ablation 能力继续 fail closed。
 
