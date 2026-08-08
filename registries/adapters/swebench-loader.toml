@@ -1,0 +1,10 @@
+[adapter]
+id = "swebench.loader.v1"
+kind = "adapter"
+adapter = "swebench"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "MagentaBench/adapters/benchmarks"
+entrypoint = "swebench.py:SweBenchLoader"
+digest = "9d7b05e27c2eb15baaea2c0d66707e4b966a98c4e4c6320b23824b1d15088af3"
+supported_benchmark_kinds = ["custom"]

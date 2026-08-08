@@ -1,0 +1,17 @@
+[benchmark]
+id = "swebench.lite.local.v1"
+kind = "custom"
+adapter = "swebench"
+bmp_version = "0.1"
+source = "../../../HarnessX/benchmarks/swebench"
+commit = "bf5f199ee65034d55db0c536e582f1e7c8abf669"
+content_globs = ["swebench_lite_test.json"]
+verifier = "swebench.fail-to-pass.v1"
+scoring_kind = "binary"
+authoritative_reward_metric = "resolved"
+reward_pass_value = 1.0
+
+[benchmark.config]
+dataset_file = "swebench_lite_test.json"
+dataset_name = "princeton-nlp/SWE-bench_Lite"
+image_template = "sweb.eval.x86_64.{instance_id}:latest"
