@@ -4,7 +4,7 @@
 > lineage、`RecordIndex`、独立报告校验、checkpoint 字节绑定、环境路径无关身份、
 > exploratory 显式 `isolation_valid`、配置/adapter 契约与 HCP sidecar 字节绑定已提交
 > 到当前 BMP 代码历史；本地工作树另有配置 composition、外部 override、adapter
-> import-closure 与 Magenta v0.1.22 adapter 改动。最终树验证为 272 tests passed、HCP
+> import-closure、Magenta v0.1.22 adapter 与 evolution evidence 改动。最终树验证为 289 tests passed、HCP
 > boundary audit 0 violation；**没有任何真实 benchmark 证据因此变成有效 claim**。
 > Magenta checkout 已用 `PoorOtterBob` 从 canonical GitHub 更新到本地 merge `5ee759a1`；当前
 > Magenta 本地提交 `f0eb2f49` 增加了可消费的中性 HCP assembly sidecar，另有本地测试
@@ -14,9 +14,11 @@
 
 本文档决定接手者从哪继续。
 
-## 代码提交历史（26 个提交，`git log --oneline -- MagentaBench`）
+## 代码提交历史（当前以 `73f4706` 为 HEAD）
 
 ```
+73f4706 Implement flexible configuration and evolution evidence
+54ad012 Add Magenta v0.1.22 configuration adapter
 08d124d Bind configuration and HCP sidecar bytes
 6b9cc7f Open BMP configuration and benchmark adapter contracts
 aff5632 Harden BMP lineage, ordering, and standalone verification
@@ -45,7 +47,7 @@ e19b04a Phase 3a: ClaimScope/RunPurpose + compile-time attribution gates
 7c2d378 Initial commit: BMP Phase 0-2 implementation
 ```
 
-当前 BMP 工作树已干净；本轮 BMP 代码改动已本地提交到 `08d124d`。Magenta 的对应 HCP
+当前 BMP 工作树已干净；本轮 BMP 代码改动已本地提交到 `73f4706`。Magenta 的对应 HCP
 改动已本地提交为 `f0eb2f49`，且明确未 push。
 
 ## 已建立（有代码 + 有测试）
@@ -172,10 +174,10 @@ gold 分类只能是逐 case 显式白名单 + 未分类拒绝。
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-git log --oneline -- MagentaBench | head      # 当前代码历史以 08d124d 结尾
+git log --oneline -- MagentaBench | head      # 当前代码历史以 73f4706 结尾
 git status --porcelain | wc -l                  # 0
 git status --porcelain --ignored | grep -E "^!!.*\.py$" | grep -vE "venv|__pycache__"   # 空 = 无隐藏源码
-uv run pytest -q                                # 251 passed
+uv run pytest -q                                # 289 passed
 uv run python -m compileall -q MagentaBench tests
 bash scripts/audit_hcp_boundary.sh              # 0 violation(s), 0 scan error(s)
 find records -type f | wc -l                    # 43

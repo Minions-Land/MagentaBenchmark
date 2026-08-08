@@ -144,7 +144,7 @@ ledger、或运行时 provenance reference 时，运行和 claim gate 都 fail c
 parent manifest。checkpoint ledger 的旧 completion map 仍以 parent run 为键，因此
 checkpoint 多 case 在 schema 扩展前会在 activation 处明确拒绝。
 
-## configuration registry（当前代码 HEAD `08d124d`）
+## configuration registry（当前代码 HEAD `73f4706`）
 
 `runner/configuration.py` 提供名字到不可变 TOML 对象的 CRUD：`index.json` 只保存
 名字、digest 和大小，实际内容位于 digest 命名的 `objects/`。编译器把
@@ -182,8 +182,7 @@ generation parent、transition 顺序、evaluator/budget/adapter digest；meta-e
 | `gates.py:516` | 统计分支关门 `else` |
 | `gates.py:590-594` | `test_override` 拒绝被标记血统 |
 | `gates.py:641-664` | 集合差分覆盖 + 推导 `expected_run_count` |
-| `compiler.py:337` | `_ACTIVE_SCOPES = frozenset({ClaimScope.conformance})` |
-| `compiler.py:374` | `_ACTIVE_SCOPES` 定义 |
+| `compiler.py` | `_ACTIVE_SCOPES` 与 external capability 归因门 |
 | `compiler.py:424` | 唯一的 `allow_test_override` 检查站 |
 | `compiler.py:426` | `PipelineAdapterActivationReceipt` 写入 |
 | `compiler.py:447`/`633` | scope 不在 `_ACTIVE_SCOPES` 的拒绝位置 |

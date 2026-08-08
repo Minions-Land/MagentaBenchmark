@@ -58,9 +58,11 @@ claim scope 'whole_harness' requires missing evidence class
 <...>; runtime support is not active
 ```
 
-当前 `_ACTIVE_SCOPES = frozenset({ClaimScope.conformance})`（`runner/compiler.py:374`），且进一步收窄到已被真实 Pipeline 跑通的那一个 adapter 元组。
+当前 `_ACTIVE_SCOPES` 包含 `conformance`、`evolver`、`meta_evolver`（`runner/compiler.py`）。
+演化 scope 只有在 external execution capability、完整 `EvolutionRunEvidence`
+和 claim-ready provenance 都存在时才可形成正向证据；其它研究 scope 仍在编译期拒绝。
 
-**为什么只剩 conformance**：见 [`05-current-state.md`](05-current-state.md)。简短版本 —— 唯一存在的真实运行产物是一次 AOSE 零成本 dry-run，其 subject entrypoint 是 `/usr/bin/true`，证据包里 `status=no_output`、`verifier_evidence=null`、`output_refs=[]`。没有任何完整产物能支撑 `whole_harness` 处于激活状态。这是基于产物证据的判定，不是推测。
+**为什么真实 benchmark claim 仍未开放**：见 [`05-current-state.md`](05-current-state.md)。现有真实产物仍只有一次 AOSE 零成本 dry-run，其 subject entrypoint 是 `/usr/bin/true`，证据包里 `status=no_output`、`verifier_evidence=null`、`output_refs=[]`。演化证据契约已具备，但尚无真实 evolver 运行产物。这是基于产物证据的判定，不是推测。
 
 ## 目标状态
 
