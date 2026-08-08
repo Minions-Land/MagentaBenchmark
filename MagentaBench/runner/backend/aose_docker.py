@@ -17,7 +17,13 @@ from MagentaBench.adapters.benchmarks.aosebench import AoseTask, check_outputs
 from MagentaBench.schemas import EvidenceBundle, ProvenanceRecord, RunStatus, UsageRecord
 
 from ..compiler import CompiledRun
-from ..evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
+from ..evidence import (
+    artifact_ref,
+    atomic_write_bytes,
+    atomic_write_json,
+    sha256_file,
+    source_closure_digest,
+)
 from .fake import CaseExecution
 
 
@@ -143,6 +149,10 @@ class AoseDockerBackend:
     def _probe_mounts(self, image: str, task: AoseTask) -> dict[str, object]:
         if task.data_path is None:
             raise AoseDockerError("AOSE task data path is required")
+        data_refs = task.data_content_refs
+        data_digest = source_closure_digest(task.data_path.resolve(), data_refs)
+        if data_digest is None:
+            raise AoseDockerError("AOSE task data content digest is missing")
         instruction = self._run(
             [
                 self.docker_executable,
@@ -186,6 +196,10 @@ class AoseDockerBackend:
             raise AoseDockerError("read-only data mount accepted a write probe")
         return {
             "instruction_sha256": host_instruction_digest,
+            "data_content_sha256": data_digest,
+            "data_content_refs": [
+                ref.model_dump(mode="json") for ref in data_refs
+            ],
             "instruction_probe_returncode": instruction.returncode,
             "data_readonly_probe_returncode": readonly.returncode,
             "data_readonly_probe_stderr": readonly.stderr[-1000:],

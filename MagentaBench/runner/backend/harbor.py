@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -175,6 +176,33 @@ def _incomplete_phase(result: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _exception_status(exception_type: str) -> RunStatus:
+    """Classify a completed native phase from Harbor's exception family.
+
+    Harbor records ``finished_at`` even when a phase terminates by exception,
+    so exception ownership must take precedence over a generic ``Timeout``
+    suffix.  In particular, ``VerifierTimeoutError`` is verifier failure, not
+    an agent wall-time exhaustion.
+    """
+
+    value = exception_type.lower()
+    if any(word in value for word in ("docker", "infra", "environment", "sandbox")):
+        return RunStatus.infra_error
+    if "agentsetup" in value or "agent_setup" in value or "harness" in value:
+        return RunStatus.harness_fault
+    if "verifier" in value or "reward" in value:
+        return RunStatus.verifier_error
+    if "agent" in value or "authentication" in value:
+        if "timeout" in value or "timedout" in value:
+            return RunStatus.timeout
+        return RunStatus.agent_error
+    if "output" in value or "parse" in value:
+        return RunStatus.invalid_output
+    if "timeout" in value or "timedout" in value:
+        return RunStatus.timeout
+    return RunStatus.invalid_output
+
+
 def _status_from_result(
     result: Mapping[str, Any],
     *,
@@ -185,7 +213,7 @@ def _status_from_result(
 
     if result.get("_bmp_parse_error"):
         return RunStatus.invalid_output
-    if result.get("_bmp_missing_trial_dir"):
+    if result.get("_bmp_missing_trial_dir") or result.get("_bmp_job_without_trials"):
         return RunStatus.infra_error
     incomplete_phase = _incomplete_phase(result)
     exception = result.get("exception_info")
@@ -203,22 +231,7 @@ def _status_from_result(
     if incomplete_phase == "verifier":
         return RunStatus.verifier_error
     if isinstance(exception, Mapping):
-        exception_type = str(exception.get("exception_type", "")).lower()
-        if "timeout" in exception_type or "timedout" in exception_type:
-            return RunStatus.timeout
-        if "harness" in exception_type:
-            return RunStatus.harness_fault
-        if "verifier" in exception_type or "reward" in exception_type:
-            return RunStatus.verifier_error
-        if "agent" in exception_type or "authentication" in exception_type:
-            return RunStatus.agent_error
-        if "output" in exception_type or "parse" in exception_type:
-            return RunStatus.invalid_output
-        if any(word in exception_type for word in ("docker", "infra", "environment", "sandbox")):
-            return RunStatus.infra_error
-        # A native ExceptionInfo without a known family is not safely
-        # attributable; preserve the artifact and force an invalid observation.
-        return RunStatus.invalid_output
+        return _exception_status(exception_type)
 
     verifier = result.get("verifier_result")
     agent = result.get("agent_result")
@@ -251,6 +264,33 @@ def _status_from_result(
             return RunStatus.no_output
     # Native fields were present but insufficient to classify the trial.
     return RunStatus.invalid_output
+
+
+def _native_wall_seconds(result: Mapping[str, Any]) -> float | None:
+    raw = result.get("wall_clock_seconds")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw >= 0:
+        return float(raw)
+
+    def parsed(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        text = value.strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            observed = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)
+        return observed
+
+    started = parsed(result.get("started_at"))
+    finished = parsed(result.get("finished_at"))
+    if started is None or finished is None:
+        return None
+    elapsed = (finished - started).total_seconds()
+    return elapsed if elapsed >= 0 else None
 
 
 def _inside(root: Path, source: Path) -> Path:
@@ -305,10 +345,34 @@ def _trial_payloads(result_root: Path) -> list[tuple[str, Mapping[str, Any], Pat
             continue
         if isinstance(loaded, Mapping):
             loaded_files.append((result_path, loaded))
-    # A native JobResult is authoritative for its trial_results; nested
-    # trial-level result.json files are artifacts, not additional attempts.
-    job_files = [item for item in loaded_files if isinstance(item[1].get("trial_results"), list)]
-    source_files = job_files or loaded_files
+    # Older Harbor JobResult projections embedded ``trial_results``.  Harbor
+    # 0.20's on-disk JobResult instead contains aggregate ``stats`` while each
+    # authoritative TrialResult lives in a child directory.  Never turn that
+    # aggregate into a second synthetic trial.
+    embedded_job_files = [
+        item
+        for item in loaded_files
+        if isinstance(item[1].get("trial_results"), list)
+    ]
+    aggregate_job_files = [
+        item
+        for item in loaded_files
+        if isinstance(item[1].get("n_total_trials"), int)
+        and isinstance(item[1].get("stats"), Mapping)
+        and "trial_name" not in item[1]
+    ]
+    aggregate_job_paths = tuple(path for path, _ in aggregate_job_files)
+    if embedded_job_files:
+        source_files = embedded_job_files
+    else:
+        aggregate_paths = set(aggregate_job_paths)
+        source_files = [item for item in loaded_files if item[0] not in aggregate_paths]
+        if not source_files and aggregate_job_files:
+            result_path, loaded = aggregate_job_files[0]
+            payload = dict(loaded)
+            payload["_bmp_result_path"] = str(result_path)
+            payload["_bmp_job_without_trials"] = True
+            source_files = [(result_path, payload)]
     payloads: list[tuple[str, Mapping[str, Any], Path]] = []
     for result_path, loaded in source_files:
         trials = loaded.get("trial_results")
@@ -318,6 +382,7 @@ def _trial_payloads(result_root: Path) -> list[tuple[str, Mapping[str, Any], Pat
                     label = str(trial.get("trial_name", trial.get("id", f"trial-{index:04d}")))
                     candidate_dir = result_path.parent / label
                     payload = dict(trial)
+                    payload["_bmp_job_result_paths"] = [str(result_path)]
                     if candidate_dir.is_dir():
                         base_dir = candidate_dir
                         payload["_bmp_result_path"] = str(candidate_dir / "result.json")
@@ -329,6 +394,10 @@ def _trial_payloads(result_root: Path) -> list[tuple[str, Mapping[str, Any], Pat
         else:
             payload = dict(loaded)
             payload.setdefault("_bmp_result_path", str(result_path))
+            if aggregate_job_paths:
+                payload["_bmp_job_result_paths"] = [
+                    str(path) for path in aggregate_job_paths
+                ]
             payloads.append((str(payload.get("trial_name", result_path.parent.name)), payload, result_path.parent))
     return payloads
 
@@ -360,12 +429,24 @@ def parse_harbor_results(
     if not payloads:
         payloads = [(case_id, {}, result_root)]
     cases: list[CaseExecution] = []
+    sanitized_names: dict[str, str] = {}
     for index, (trial_name, result, trial_root) in enumerate(payloads):
         safe_trial = re.sub(r"[^A-Za-z0-9_.-]+", "_", trial_name).strip("_") or f"trial-{index:04d}"
+        previous_name = sanitized_names.get(safe_trial)
+        if previous_name is not None and previous_name != trial_name:
+            raise HarborConfigurationError(
+                "native trial names collide after sanitization: "
+                f"{previous_name!r} and {trial_name!r} -> {safe_trial!r}"
+            )
+        sanitized_names[safe_trial] = trial_name
         combined_case = f"{case_id}__{safe_trial}"
         if not _CASE_ID.fullmatch(combined_case):
             raise HarborConfigurationError(f"invalid native trial identity: {combined_case!r}")
         case_dir = result_root / "bmp_cases" / combined_case
+        if case_dir.exists() and any(case_dir.iterdir()):
+            raise HarborConfigurationError(
+                f"native trial evidence already exists and is immutable: {combined_case!r}"
+            )
         case_dir.mkdir(parents=True, exist_ok=True)
         artifact_dir = case_dir / "harbor_artifacts"
         result_source = Path(str(result.get("_bmp_result_path", trial_root / "result.json")))
@@ -377,6 +458,9 @@ def parse_harbor_results(
                 for path in trial_root.rglob("*")
                 if path.is_file() and "bmp_cases" not in path.parts
             ]
+        sources.extend(
+            Path(str(path)) for path in result.get("_bmp_job_result_paths", ())
+        )
         refs: dict[Path, Any] = {}
         for source in sorted(set(sources)):
             relative = _inside(result_root, source).relative_to(result_root)
@@ -419,7 +503,6 @@ def parse_harbor_results(
                 artifact_refs=(result_ref,) if result_ref else (),
                 details={
                     "trial_name": trial_name,
-                    "native_result": dict(verifier),
                     "rewards": _verifier_rewards(verifier),
                     "authoritative_reward_metric": authoritative_reward_key,
                     "scoring_semantics_declared": (
@@ -456,7 +539,7 @@ def parse_harbor_results(
                     else None
                 ),
                 cost=usage_source.get("cost_usd"),
-                wall_clock_seconds=float(result.get("wall_clock_seconds", 0.0) or 0.0),
+                wall_clock_seconds=_native_wall_seconds(result),
             ),
             provenance=ProvenanceRecord(
                 manifest_digest=run.manifest_digest,

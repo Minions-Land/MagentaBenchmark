@@ -17,11 +17,32 @@ from typing import Any, Mapping, Sequence
 
 from MagentaBench.schemas import ArtifactRef, RunStatus
 
-from ...runner.evidence import artifact_ref, atomic_write_json
+from ...runner.evidence import artifact_ref, atomic_write_json, source_closure_digest
 
 
 class AoseBenchConfigurationError(ValueError):
     """A task or container contract is incomplete."""
+
+
+def _data_content_refs(root: Path) -> tuple[ArtifactRef, ...]:
+    root = root.resolve(strict=True)
+    if not root.is_dir():
+        raise AoseBenchConfigurationError(
+            f"AOSE task data must be a directory: {root}"
+        )
+    refs: list[ArtifactRef] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if path.is_symlink():
+            raise AoseBenchConfigurationError(
+                f"AOSE task data contains a symlink: {path}"
+            )
+        if path.is_file():
+            refs.append(artifact_ref(path))
+        elif not path.is_dir():
+            raise AoseBenchConfigurationError(
+                f"AOSE task data contains a non-regular entry: {path}"
+            )
+    return tuple(refs)
 
 
 @dataclass(frozen=True)
@@ -33,6 +54,22 @@ class AoseTask:
     task_config: Mapping[str, Any]
     instruction_digest: str
     data_path: Path | None = None
+
+    @property
+    def data_content_refs(self) -> tuple[ArtifactRef, ...]:
+        """Content-addressed closure of the read-only Biomni data mount."""
+
+        if self.data_path is None:
+            return ()
+        return _data_content_refs(self.data_path)
+
+    @property
+    def data_content_digest(self) -> str | None:
+        if self.data_path is None:
+            return None
+        return source_closure_digest(
+            self.data_path.resolve(), self.data_content_refs
+        )
 
     @property
     def agent_timeout_seconds(self) -> float:
@@ -84,6 +121,9 @@ def load_task(
         data_path = Path(data_root).expanduser().resolve() / task_id / "environment" / "data"
         if not data_path.is_dir():
             raise AoseBenchConfigurationError(f"AOSEBench task data is missing: {data_path}")
+        # Resolve and hash the closure during admission, not after execution.
+        data_refs = _data_content_refs(data_path)
+        source_closure_digest(data_path, data_refs)
     return AoseTask(
         task_id=task_id,
         task_dir=task_dir,

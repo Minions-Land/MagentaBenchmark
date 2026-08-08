@@ -6,6 +6,7 @@
       "properties": {
         "path": {
           "minLength": 1,
+          "pattern": "^/",
           "title": "Path",
           "type": "string"
         },
@@ -657,6 +658,149 @@
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "pass",
+              "verified_fail",
+              "scored"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "output_refs": {
+            "minItems": 1
+          },
+          "verifier_evidence": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "output_refs",
+          "verifier_evidence"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "pass"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verifier_evidence": {
+            "properties": {
+              "passed": {
+                "const": true
+              }
+            },
+            "required": [
+              "passed"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "verified_fail"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verifier_evidence": {
+            "properties": {
+              "passed": {
+                "const": false
+              }
+            },
+            "required": [
+              "passed"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "scored"
+          }
+        },
+        "required": [
+          "status"
+        ]
+      },
+      "then": {
+        "properties": {
+          "verifier_evidence": {
+            "properties": {
+              "passed": {
+                "type": "null"
+              },
+              "score": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "passed",
+              "score"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "provenance": {
+            "properties": {
+              "trace_emission_claimed": {
+                "const": true
+              }
+            },
+            "required": [
+              "trace_emission_claimed"
+            ]
+          }
+        },
+        "required": [
+          "provenance"
+        ]
+      },
+      "then": {
+        "properties": {
+          "trace_ref": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "trace_ref"
+        ]
+      }
+    }
+  ],
   "properties": {
     "checkpoint_ref": {
       "anyOf": [

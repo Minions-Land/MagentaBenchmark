@@ -14,6 +14,7 @@ from MagentaBench.schemas import (
     CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
+    RecordIndex,
     RunPurpose,
     RunReport,
     ScheduleActivationReceipt,
@@ -252,7 +253,12 @@ class Pipeline:
         return actual
 
     def _validate_checkpoint(
-        self, checkpoint_path: Path, plan_path: Path, runs: list[CompiledRun]
+        self,
+        checkpoint_path: Path,
+        plan_path: Path,
+        runs: list[CompiledRun],
+        *,
+        accepted_save_plan_digests: set[str] | None = None,
     ) -> None:
         try:
             checkpoint = self._read_json(checkpoint_path)
@@ -267,6 +273,31 @@ class Pipeline:
             ) from exc
         if plan_digest != sha256_file(plan_path):
             raise ResumeDriftError("resume checkpoint references a drifted plan")
+        if accepted_save_plan_digests is None:
+            accepted_save_plan_digests = {plan_digest}
+        else:
+            # The checkpoint root remains bound to the active plan.  The
+            # additional digests are only for immutable ancestor snapshots
+            # retained across an explicit save -> save_and_resume transition.
+            accepted_save_plan_digests = set(accepted_save_plan_digests)
+            accepted_save_plan_digests.add(plan_digest)
+        retained_plan_digests = checkpoint.get("retained_plan_sha256", ())
+        if isinstance(retained_plan_digests, str):
+            retained_plan_digests = (retained_plan_digests,)
+        if not isinstance(retained_plan_digests, (list, tuple)):
+            raise ResumeDriftError(
+                "resume checkpoint retained plan digest metadata is malformed"
+            )
+        for retained_digest in retained_plan_digests:
+            if (
+                not isinstance(retained_digest, str)
+                or len(retained_digest) != 64
+                or any(char not in "0123456789abcdef" for char in retained_digest)
+            ):
+                raise ResumeDriftError(
+                    "resume checkpoint retained plan digest metadata is malformed"
+                )
+            accepted_save_plan_digests.add(retained_digest)
         if not isinstance(completed, dict) or next_index != len(completed):
             raise ResumeDriftError("resume checkpoint completion ledger is inconsistent")
         if next_index < 0 or next_index > len(runs):
@@ -283,7 +314,8 @@ class Pipeline:
             or set(schedule_receipt_paths) != expected_ids
         ):
             raise ResumeDriftError("resume checkpoint schedule receipt path lineage drift")
-        for run in runs[:next_index]:
+        save_root = (checkpoint_path.parent / "checkpoint_saves").resolve()
+        for position, run in enumerate(runs[:next_index], start=1):
             run_id = run.manifest.metadata.run_id
             receipt_path = Path(schedule_receipt_paths[run_id])
             if (
@@ -311,6 +343,52 @@ class Pipeline:
                 raise ResumeDriftError(
                     f"resume checkpoint schedule receipt malformed: {run_id}"
                 ) from exc
+            save_receipt = receipt.checkpoint_save_ref
+            if save_receipt is None:
+                raise ResumeDriftError(
+                    f"resume checkpoint save receipt missing: {run_id}"
+                )
+            expected_save_path = (
+                save_root / f"{position:04d}-{run_id}.json"
+            ).resolve()
+            observed_save_path = Path(save_receipt.path).resolve()
+            if observed_save_path != expected_save_path:
+                raise ResumeDriftError(
+                    f"resume checkpoint save path drift: {run_id}"
+                )
+            if save_receipt.write_completion_sequence != position:
+                raise ResumeDriftError(
+                    f"resume checkpoint save sequence drift: {run_id}"
+                )
+            if (
+                not observed_save_path.is_file()
+                or observed_save_path.stat().st_size != save_receipt.size_bytes
+                or sha256_file(observed_save_path) != save_receipt.written_digest
+            ):
+                raise ResumeDriftError(
+                    f"resume checkpoint save artifact byte drift: {run_id}"
+                )
+            try:
+                saved_checkpoint = self._read_json(observed_save_path)
+            except (OSError, ValueError) as exc:
+                raise ResumeDriftError(
+                    f"resume checkpoint save artifact malformed: {run_id}"
+                ) from exc
+            prefix_ids = {
+                prefix.manifest.metadata.run_id for prefix in runs[:position]
+            }
+            if (
+                saved_checkpoint.get("plan_sha256")
+                not in accepted_save_plan_digests
+                or saved_checkpoint.get("next_index") != position
+                or not isinstance(saved_checkpoint.get("completed"), dict)
+                or set(saved_checkpoint["completed"]) != prefix_ids
+                or saved_checkpoint["completed"]
+                != {key: completed[key] for key in prefix_ids}
+            ):
+                raise ResumeDriftError(
+                    f"resume checkpoint save artifact lineage drift: {run_id}"
+                )
             for ref in bundle_refs:
                 bundle_path = Path(ref.path)
                 if (
@@ -369,7 +447,13 @@ class Pipeline:
     ) -> None:
         if receipt.run_id != run.manifest.metadata.run_id:
             raise ResumeDriftError("resume schedule evidence run_id drift")
-        if receipt.order_seed != run.manifest.execution.seed:
+        expected_seed = (
+            run.manifest.execution.seed
+            if run.manifest.execution.protocol is not None
+            and run.manifest.execution.protocol.case_order == "seeded_random"
+            else None
+        )
+        if receipt.order_seed != expected_seed:
             raise ResumeDriftError("resume schedule evidence order_seed drift")
         if receipt.scheduler_digest != self.scheduler.scheduler_digest:
             raise ResumeDriftError("resume schedule evidence scheduler digest drift")
@@ -382,6 +466,12 @@ class Pipeline:
             raise ResumeDriftError(
                 "resume schedule observed_case_order allocation drift"
             )
+        protocol = run.manifest.execution.protocol
+        if protocol is not None and protocol.case_order in {"custom", "explicit"}:
+            if receipt.observed_case_order != tuple(protocol.explicit_case_ids):
+                raise ResumeDriftError(
+                    "resume schedule explicit case order drift"
+                )
         budget = run.manifest.execution.budget
         for field in ("max_tokens", "max_cost"):
             declared = getattr(budget, field)
@@ -511,6 +601,11 @@ class Pipeline:
         )
         experiment_id = compiled[0].manifest.metadata.experiment_id
         experiment_dir = self.record_root / experiment_id
+        if not resume and experiment_dir.exists() and any(experiment_dir.iterdir()):
+            raise ResumeDriftError(
+                "record root already contains an execution instance for "
+                f"experiment {experiment_id!r}; use resume=true or choose a new record_root"
+            )
         experiment_dir.mkdir(parents=True, exist_ok=True)
         activated_case_sets = {
             run.manifest.metadata.run_id: self._activate_case_set(
@@ -522,14 +617,23 @@ class Pipeline:
             run_id: activation[0]
             for run_id, activation in activated_case_sets.items()
         }
-        # Run-by-case coverage, pairing, and checkpoint identities must land
-        # together; parent run IDs cannot honestly represent multiple cases.
+        # A schedule receipt can carry one selected attempt per case, and the
+        # report will materialize each selected case as its own lineage entry.
+        # Checkpoint ledgers still key their completion map by parent run_id;
+        # keep that feature fail-closed for multi-case runs until its on-disk
+        # schema is widened to a parent/case key.
         for run_id, loaded_case_set in loaded_case_sets.items():
-            if len(loaded_case_set.cases) != 1:
+            protocol = next(
+                run.manifest.execution.protocol
+                for run in compiled
+                if run.manifest.metadata.run_id == run_id
+            )
+            if len(loaded_case_set.cases) > 1 and protocol is not None and protocol.checkpoint_policy != "disabled":
                 raise RuntimeError(
-                    "multi-case execution identity is unimplemented: "
+                    "multi-case checkpoint identity is not implemented: "
                     f"compiled arm {run_id!r} resolved "
-                    f"{len(loaded_case_set.cases)} selected cases"
+                    f"{len(loaded_case_set.cases)} selected cases; "
+                    "use checkpoint_policy=disabled"
                 )
         if self.backend is None:
             factory = next(iter(factories.values()))
@@ -543,6 +647,8 @@ class Pipeline:
         plan = self._plan(compiled, loaded_case_sets)
         checkpoint_load_ref: CheckpointLoadReceipt | None = None
         ancestor_schedule_receipt_ref: ArtifactRef | None = None
+        accepted_save_plan_digests: set[str] | None = None
+        retained_plan_digests: tuple[str, ...] = ()
         resume_prefix_count = 0
         resume_schedule_paths: dict[str, str] = {}
         resume_old_runs: list[CompiledRun] = []
@@ -573,7 +679,6 @@ class Pipeline:
             )
             checkpoint = self._read_json(checkpoint_path)
             previous_plan_digest = sha256_file(plan_path)
-            previous_checkpoint_digest = sha256_file(checkpoint_path)
             next_index = int(checkpoint["next_index"])
             if next_index < 1:
                 raise ResumeDriftError("resume requires at least one saved ancestor run")
@@ -583,18 +688,48 @@ class Pipeline:
                 checkpoint["schedule_receipt_paths"][ancestor_run_id]
             )
             ancestor_schedule_receipt_ref = artifact_ref(ancestor_receipt_path)
+            ancestor_receipt = ScheduleActivationReceipt.model_validate(
+                self._read_json(ancestor_receipt_path)
+            )
+            ancestor_save = ancestor_receipt.checkpoint_save_ref
+            if ancestor_save is None:
+                raise ResumeDriftError(
+                    "ancestor schedule receipt lacks checkpoint save evidence"
+                )
+            ancestor_checkpoint_digest = ancestor_save.written_digest
+            previous_checkpoint_plan_digest = checkpoint.get("plan_sha256")
+            if previous_plan_digest != previous_checkpoint_plan_digest:
+                raise ResumeDriftError("loaded checkpoint plan digest drift")
+            raw_retained_plan_digests = checkpoint.get("retained_plan_sha256", ())
+            if isinstance(raw_retained_plan_digests, str):
+                raw_retained_plan_digests = (raw_retained_plan_digests,)
+            if not isinstance(raw_retained_plan_digests, (list, tuple)):
+                raise ResumeDriftError(
+                    "resume checkpoint retained plan digest metadata is malformed"
+                )
+            retained_plan_digests = tuple(raw_retained_plan_digests)
             atomic_write_json(plan_path, plan)
+            new_plan_digest = sha256_file(plan_path)
+            if previous_plan_digest != new_plan_digest:
+                retained_plan_digests = tuple(
+                    dict.fromkeys((*retained_plan_digests, previous_plan_digest))
+                )
+            checkpoint["plan_sha256"] = new_plan_digest
+            checkpoint["retained_plan_sha256"] = list(retained_plan_digests)
+            atomic_write_json(checkpoint_path, checkpoint)
             checkpoint_load_ref = CheckpointLoadReceipt(
-                loaded_checkpoint_digest=previous_checkpoint_digest,
+                loaded_checkpoint_digest=ancestor_checkpoint_digest,
                 resolved_plan_digest=sha256_file(plan_path),
                 schedule_receipt_digest=ancestor_schedule_receipt_ref.sha256,
                 selected_bundle_digests=tuple(checkpoint["completed"].values()),
             )
-            if previous_plan_digest != checkpoint["plan_sha256"]:
-                raise ResumeDriftError("loaded checkpoint plan digest drift")
+            # Retained ancestor save artifacts were written under the old
+            # checkpoint plan. New saves after the transition use the active
+            # plan, so the final ledger must accept both immutable identities.
+            accepted_save_plan_digests = {previous_plan_digest}
             resume_root = (
                 experiment_dir
-                / f"resume-execution-{previous_checkpoint_digest[:12]}"
+                / f"resume-execution-{ancestor_checkpoint_digest[:12]}"
             )
             self.backend = self.adapter_registry.backend_factory(compiled[0]).build(
                 compiled[0],
@@ -709,27 +844,29 @@ class Pipeline:
                     receipt_path=receipt_path,
                 )
                 executed_ids.append(run.manifest.metadata.run_id)
-            if len(schedule.selected) != 1:
+            if not schedule.selected:
                 raise RuntimeError(
-                    "schedule did not produce exactly one selected candidate per case"
+                    "schedule did not produce a selected candidate for any case"
                 )
-            case = schedule.selected[0]
-            completed.append(
-                CompletedRun(
-                    plan=execution_run,
-                    case=case,
-                    schedule_receipt=schedule.receipt,
-                    schedule_receipt_path=schedule.receipt_path,
-                    schedule_receipt_sha256=sha256_file(schedule.receipt_path),
-                    scheduler_digest=self.scheduler.scheduler_digest,
-                    pipeline_digest=self.scheduler.pipeline_digest,
-                    runner_digest=self.backend.runner_digest,
-                    case_set_receipt=case_set_receipt,
-                    case_set_receipt_path=case_set_receipt_path,
-                    case_set_receipt_sha256=sha256_file(case_set_receipt_path),
-                    case_set_digest=case_set_receipt.case_set_digest,
+            receipt_sha256 = sha256_file(schedule.receipt_path)
+            case_set_receipt_sha256 = sha256_file(case_set_receipt_path)
+            for case in schedule.selected:
+                completed.append(
+                    CompletedRun(
+                        plan=execution_run,
+                        case=case,
+                        schedule_receipt=schedule.receipt,
+                        schedule_receipt_path=schedule.receipt_path,
+                        schedule_receipt_sha256=receipt_sha256,
+                        scheduler_digest=self.scheduler.scheduler_digest,
+                        pipeline_digest=self.scheduler.pipeline_digest,
+                        runner_digest=self.backend.runner_digest,
+                        case_set_receipt=case_set_receipt,
+                        case_set_receipt_path=case_set_receipt_path,
+                        case_set_receipt_sha256=case_set_receipt_sha256,
+                        case_set_digest=case_set_receipt.case_set_digest,
+                    )
                 )
-            )
 
             token_values = [
                 item.schedule_receipt.budget_ledger.total_usage.total_tokens
@@ -777,6 +914,8 @@ class Pipeline:
                     for item in completed
                 },
             }
+            if retained_plan_digests:
+                checkpoint["retained_plan_sha256"] = list(retained_plan_digests)
             if (
                 protocol.checkpoint_policy in {"save", "save_and_resume"}
                 and run_index >= resume_prefix_count
@@ -803,8 +942,13 @@ class Pipeline:
                     run.manifest.metadata.run_id
                 ] = completed[-1].schedule_receipt_sha256
                 atomic_write_json(checkpoint_path, checkpoint)
-                self._validate_checkpoint(checkpoint_path, plan_path, compiled)
-            if stop_after is not None and len(completed) >= stop_after:
+                self._validate_checkpoint(
+                    checkpoint_path,
+                    plan_path,
+                    compiled,
+                    accepted_save_plan_digests=accepted_save_plan_digests,
+                )
+            if stop_after is not None and run_index + 1 >= stop_after:
                 self._append_event(
                     events_path,
                     {"seq": len(completed) + 1, "event": "interrupted"},
@@ -813,22 +957,54 @@ class Pipeline:
                     f"injected interruption after {len(completed)} run(s)"
                 )
 
-        protocol = compiled[0].manifest.execution.protocol
-        deterministic = bool(getattr(protocol, "deterministic_conformance", False))
+        # Materialize the exact manifest bytes before creating the index. The
+        # index is deliberately written before the report so the report can
+        # carry a stable content reference without a report/index hash cycle.
+        manifest_dir = experiment_dir / "manifests"
+        manifest_refs: list[ArtifactRef] = []
+        # The record index contains one manifest per parent run.  Multiple
+        # selected cases share that immutable manifest and are represented by
+        # separate lineage entries below.
+        report_plans: list[CompiledRun] = []
+        seen_manifest_digests: set[str] = set()
+        for item in completed:
+            if item.plan.manifest_digest in seen_manifest_digests:
+                continue
+            seen_manifest_digests.add(item.plan.manifest_digest)
+            report_plans.append(item.plan)
+        for run in report_plans:
+            manifest_path = manifest_dir / f"{run.manifest_digest}.json"
+            write_immutable_json(
+                manifest_path,
+                run.manifest,
+                label="resolved manifest",
+            )
+            manifest_refs.append(artifact_ref(manifest_path))
         experiment_digest = sha256_bytes(
-            canonical_json_bytes([run.manifest_digest for run in compiled])
+            canonical_json_bytes([run.manifest_digest for run in report_plans])
         )
-        report = evaluate_run_report(
+        aggregate_path = experiment_dir / "aggregate.json"
+        index_path = experiment_dir / "record_index.json"
+        record_index = RecordIndex(
+            format="bmp-record-index-v1",
             experiment_id=experiment_id,
-            experiment_digest=experiment_digest,
+            manifest_refs=tuple(manifest_refs),
+            aggregate_path=str(aggregate_path.resolve()),
+        )
+        write_immutable_json(index_path, record_index, label="record index")
+        record_index_ref = artifact_ref(index_path)
+        report = evaluate_run_report(
             completed=completed,
             expected_run_ids=tuple(
-                run.manifest.metadata.run_id for run in compiled
+                (
+                    f"{run.manifest.metadata.run_id}::{case_id}"
+                    if len(loaded_case_sets[run.manifest.metadata.run_id].cases) > 1
+                    else run.manifest.metadata.run_id
+                )
+                for run in compiled
+                for case_id in loaded_case_sets[run.manifest.metadata.run_id].artifact.ordered_case_ids
             ),
-            control_id=control_id,
-            treatment_id=treatment_id,
-            deterministic_conformance=deterministic,
-            counterbalanced=counterbalanced,
+            record_index_ref=record_index_ref,
         )
         report_name = (
             "claim_report.json"
@@ -849,12 +1025,19 @@ class Pipeline:
                 for item in completed
             ],
             "schedule_receipts": {
-                item.plan.manifest.metadata.run_id: item.schedule_receipt_sha256
+                (
+                    f"{item.plan.manifest.metadata.run_id}::{item.case.case_id}"
+                    if sum(
+                        other.plan.manifest.metadata.run_id
+                        == item.plan.manifest.metadata.run_id
+                        for other in completed
+                    ) > 1
+                    else item.plan.manifest.metadata.run_id
+                ): item.schedule_receipt_sha256
                 for item in completed
             },
             "run_report_sha256": sha256_file(report_path),
         }
-        aggregate_path = experiment_dir / "aggregate.json"
         atomic_write_json(aggregate_path, aggregate)
         if resume:
             atomic_write_json(

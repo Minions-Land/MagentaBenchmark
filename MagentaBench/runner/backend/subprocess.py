@@ -21,7 +21,6 @@ from MagentaBench.schemas import (
     RunStatus,
     UsageRecord,
     VerifierEvidence,
-    canonical_digest,
 )
 
 from ..compiler import CompiledRun
@@ -89,6 +88,14 @@ class SubprocessBackend:
                     "fake subprocess conformance requires backend.executable"
                 )
             return (backend.executable, subject.fixed_answer)
+        launch_argv = getattr(subject, "launch_argv", None)
+        if launch_argv is not None:
+            command = tuple(str(item) for item in launch_argv)
+            if not command or not command[0]:
+                raise SubprocessConfigurationError(
+                    f"subject {subject.id!r} has an empty launch_argv"
+                )
+            return command
         entrypoint = getattr(subject, "entrypoint", None)
         if not entrypoint:
             raise SubprocessConfigurationError(
@@ -228,7 +235,8 @@ class SubprocessBackend:
         if (
             environment_spec is not None
             and self.environment_receipt is not None
-            and self.environment_receipt.spec_digest != canonical_digest(environment_spec)
+            and self.environment_receipt.spec_digest
+            != environment_spec.canonical_digest()
         ):
             raise SubprocessConfigurationError("EnvironmentReceipt does not match backend environment")
         resolved_command = tuple(command) if command is not None else self._command(run)

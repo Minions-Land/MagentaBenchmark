@@ -86,3 +86,25 @@ def test_harbor_symlink_artifact_escape_is_rejected(tmp_path: Path) -> None:
     (trial / "answer.txt").symlink_to(outside)
     with pytest.raises(HarborConfigurationError, match="symlink"):
         _parse_test_result(run, result_root=root)
+
+
+def test_trial_names_that_sanitize_to_the_same_path_are_rejected(
+    tmp_path: Path,
+) -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    root = tmp_path / "harbor-results"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps(
+            {
+                "trial_results": [
+                    {"trial_name": "a b", "verifier_result": {"rewards": {"score": 1}}},
+                    {"trial_name": "a_b", "verifier_result": {"rewards": {"score": 0}}},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HarborConfigurationError, match="collide after sanitization"):
+        _parse_test_results(run, result_root=root)

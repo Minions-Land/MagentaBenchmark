@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -15,7 +16,13 @@ from MagentaBench.runner.pipeline import (
     Pipeline,
     ResumeDriftError,
 )
-from MagentaBench.schemas import ObservationReport, RunStatus, ScheduleActivationReceipt
+from MagentaBench.schemas import (
+    ObservationReport,
+    ReportVerificationError,
+    RunStatus,
+    ScheduleActivationReceipt,
+)
+from MagentaBench.schemas import verify_run_report
 
 
 ROOT = Path(__file__).parents[1]
@@ -119,6 +126,11 @@ def test_end_to_end_fake_sweep_writes_evidence_and_observation(tmp_path: Path) -
     assert result.report.observations[0].metric == "exact_match"
     assert result.report.observations[0].value == 0.5
     assert result.report.observations[0].n_runs == 8
+    assert result.report.isolation_valid is False
+    assert any(
+        "NetworkObservation missing" in reason
+        for reason in result.report.isolation_reasons
+    )
     assert len(result.report.lineage) == 8
     assert {
         item.schedule_receipt_ref.sha256 for item in result.report.lineage
@@ -204,6 +216,18 @@ def test_interrupted_resume_records_cross_run_checkpoint_lineage(
         == item.schedule_receipt.ancestor_schedule_receipt_ref.sha256
         for item in resumed.runs[3:]
     )
+    for item in resumed.runs[3:]:
+        load = item.schedule_receipt.checkpoint_load_ref
+        ancestor_ref = item.schedule_receipt.ancestor_schedule_receipt_ref
+        assert load is not None and ancestor_ref is not None
+        ancestor = ScheduleActivationReceipt.model_validate_json(
+            Path(ancestor_ref.path).read_bytes()
+        )
+        assert ancestor.checkpoint_save_ref is not None
+        assert (
+            load.loaded_checkpoint_digest
+            == ancestor.checkpoint_save_ref.written_digest
+        )
     receipt = json.loads(
         (records / "fake-conformance-sweep/resume_receipt.json").read_text(
             encoding="utf-8"
@@ -211,6 +235,32 @@ def test_interrupted_resume_records_cross_run_checkpoint_lineage(
     )
     assert len(receipt["reused"]) == 3
     assert len(receipt["rerun"]) == 5
+    verified = verify_run_report(resumed.report_path)
+    assert len(verified.report.lineage) == 8
+
+
+def test_resume_after_final_checkpoint_persists_transition_identity(
+    tmp_path: Path,
+) -> None:
+    """A no-op policy transition remains resumable on a later invocation."""
+
+    project, experiment = _copy_resume_project(tmp_path, "complete-resume-project")
+    records = tmp_path / "complete-resume-records"
+    with pytest.raises(InjectedInterruption):
+        Pipeline(project, records).run(experiment, stop_after=8)
+
+    _activate_save_and_resume(project)
+    first = Pipeline(project, records).run(experiment, resume=True)
+    second = Pipeline(project, records).run(experiment, resume=True)
+
+    assert len(first.runs) == len(second.runs) == 8
+    experiment_root = records / "fake-conformance-sweep"
+    checkpoint = json.loads((experiment_root / "checkpoint.json").read_text())
+    plan_digest = hashlib.sha256(
+        (experiment_root / "plan.json").read_bytes()
+    ).hexdigest()
+    assert checkpoint["plan_sha256"] == plan_digest
+    assert checkpoint["retained_plan_sha256"]
 
 
 def test_schedule_receipt_identity_mutations_are_rejected(tmp_path: Path) -> None:
@@ -355,6 +405,14 @@ def test_resume_drift_aborts_nonzero_path(tmp_path: Path) -> None:
         Pipeline(ROOT, tmp_path).run(experiment, resume=True)
 
 
+def test_fresh_rerun_same_record_root_fails_closed(tmp_path: Path) -> None:
+    experiment = EXPERIMENTS / "fake-sweep.toml"
+    Pipeline(ROOT, tmp_path).run(experiment)
+
+    with pytest.raises(ResumeDriftError, match="execution instance"):
+        Pipeline(ROOT, tmp_path).run(experiment)
+
+
 def test_resume_refuses_benchmark_scoring_semantics_drift(tmp_path: Path) -> None:
     project = tmp_path / "project"
     shutil.copytree(ROOT / "registries", project / "registries")
@@ -404,6 +462,37 @@ def test_resume_refuses_post_checkpoint_schedule_receipt_tamper(
 
     with pytest.raises(ResumeDriftError, match="schedule receipt digest drift"):
         Pipeline(project, records).run(experiment, resume=True)
+
+
+def test_resume_refuses_checkpoint_save_artifact_tamper(tmp_path: Path) -> None:
+    project, experiment = _copy_resume_project(tmp_path, "save-tamper-project")
+    records = tmp_path / "save-tamper-records"
+    with pytest.raises(InjectedInterruption):
+        Pipeline(project, records).run(experiment, stop_after=1)
+    _activate_save_and_resume(project)
+    save_path = next(
+        (records / "fake-conformance-sweep" / "checkpoint_saves").glob("*.json")
+    )
+    save_path.write_bytes(save_path.read_bytes() + b"\n")
+
+    with pytest.raises(ResumeDriftError, match="save artifact byte drift"):
+        Pipeline(project, records).run(experiment, resume=True)
+
+
+def test_standalone_verifier_rehashes_checkpoint_save_artifact(
+    tmp_path: Path,
+) -> None:
+    project, experiment = _project_with_checkpoint_policy(tmp_path, "save")
+    records = tmp_path / "standalone-save-records"
+    result = Pipeline(project, records).run(experiment)
+    verify_run_report(result.report_path)
+    save_path = next(
+        (records / "fake-conformance-sweep" / "checkpoint_saves").glob("*.json")
+    )
+    save_path.write_bytes(save_path.read_bytes() + b"\n")
+
+    with pytest.raises(ReportVerificationError, match="checkpoint_save"):
+        verify_run_report(result.report_path)
 
 
 @pytest.mark.parametrize("mutation", ["delete", "extra", "missing"])

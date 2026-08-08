@@ -1,4 +1,4 @@
-"""Pydantic contracts for Benchmark Measurement Protocol (BMP) 0.1.
+"""Pydantic contracts for the benchmark-side BMP 0.1 protocol.
 
 Hand-written TOML declarations are parsed into ``*Spec`` models.  Compilation
 normalizes and pins them into ``*Artifact`` and ``Resolved*`` models suitable
@@ -95,7 +95,7 @@ class SourceRegistryEntry(RegistryEntry):
 class ArtifactRef(StrictModel):
     """Content-addressed reference to an artifact stored outside the manifest."""
 
-    path: str = Field(min_length=1)
+    path: str = Field(min_length=1, pattern=r"^/")
     sha256: str = Field(pattern=SHA256_PATTERN)
     size_bytes: int = Field(ge=0)
 
@@ -288,6 +288,16 @@ class NetworkObservation(StrictModel):
         ):
             raise ValueError("unobservable network mode cannot claim observed activity")
         return self
+
+
+class SubjectKind(str, Enum):
+    """Resolved kind of the subject that actually entered an execution path."""
+
+    hcp_harness = "hcp_harness"
+    opaque_agent = "opaque_agent"
+    evolver = "evolver"
+    meta_evolver = "meta_evolver"
+    fake = "fake"
 
 
 class JournalRecord(StrictModel):
@@ -730,6 +740,33 @@ class EnvironmentSpec(StrictModel):
             raise ValueError("environment variable names must be unique")
         return values
 
+    def identity_data(self) -> dict[str, Any]:
+        """Return path-independent environment identity.
+
+        Host mount paths are provenance.  The declared content digest and the
+        runtime-visible mount shape identify the environment across checkouts.
+        """
+
+        return {
+            "id": self.id,
+            "bmp_version": self.bmp_version,
+            "python_version": self.python_version,
+            "packages": list(self.packages),
+            "env_var_names": list(self.env_var_names),
+            "mounts": [mount.identity_data() for mount in self.mounts],
+            "build_timeout_seconds": self.build_timeout_seconds,
+        }
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
 
 class PackageRecord(StrictModel):
     """Installed package name/version observed by an environment builder.
@@ -876,13 +913,37 @@ class ProtocolSpec(RegistryEntry):
     kind: ProtocolKind
     rollouts_per_case: int = Field(default=1, ge=1)
     parallelism: int = Field(default=1, ge=1)
-    case_order: Literal["fixed", "seeded_random", "random"] = "fixed"
+    case_order: Literal[
+        "fixed", "seeded_random", "random", "custom", "explicit"
+    ] = "fixed"
+    explicit_case_ids: tuple[str, ...] = ()
     adaptive_budget: bool = False
     candidate_selection: Literal["single", "exact", "best_of_n"]
     state_reset: Literal["per_case", "per_rollout", "never"] = "per_case"
     budget: Budget | None = None
     checkpoint_policy: Literal["disabled", "save", "resume", "save_and_resume"] = "disabled"
     deterministic_conformance: bool = False
+
+    @field_validator("explicit_case_ids")
+    @classmethod
+    def explicit_ids_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("explicit case ids must be valid BMP ids")
+        if len(set(values)) != len(values):
+            raise ValueError("explicit case ids must be unique")
+        return values
+
+    @model_validator(mode="after")
+    def explicit_ids_match_order_policy(self) -> "ProtocolSpec":
+        if self.case_order in {"custom", "explicit"} and not self.explicit_case_ids:
+            raise ValueError(
+                "explicit_case_ids must be non-empty when case_order is custom or explicit"
+            )
+        if self.case_order not in {"custom", "explicit"} and self.explicit_case_ids:
+            raise ValueError(
+                "explicit_case_ids are forbidden unless case_order is custom or explicit"
+            )
+        return self
 
 
 class ExecutionSpec(StrictModel):
@@ -976,7 +1037,9 @@ class CaseSetArtifact(StrictModel):
     loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
     loader_digest: str = Field(pattern=SHA256_PATTERN)
     selection_method: Literal["all_cases", "explicit_case_ids"] = "all_cases"
-    case_order: Literal["fixed", "seeded_random"] = "fixed"
+    case_order: Literal[
+        "fixed", "seeded_random", "random", "custom", "explicit"
+    ] = "fixed"
     order_seed: int | None = None
     source_content_digest: str = Field(pattern=SHA256_PATTERN)
     source_content_refs: tuple[ArtifactRef, ...]
@@ -995,7 +1058,21 @@ class CaseSetArtifact(StrictModel):
         if self.case_order == "seeded_random" and self.order_seed is None:
             raise ValueError("order_seed is required for seeded_random case order")
         if self.case_order != "seeded_random" and self.order_seed is not None:
-            raise ValueError("order_seed is forbidden for fixed case order")
+            raise ValueError("order_seed is forbidden for non-seeded case order")
+        if (
+            self.case_order in {"custom", "explicit"}
+            and self.selection_method != "explicit_case_ids"
+        ):
+            raise ValueError(
+                "explicit case order requires selection_method=explicit_case_ids"
+            )
+        if (
+            self.case_order not in {"custom", "explicit"}
+            and self.selection_method == "explicit_case_ids"
+        ):
+            raise ValueError(
+                "selection_method=explicit_case_ids requires explicit case order"
+            )
         source_identities = [
             (ref.sha256, ref.size_bytes) for ref in self.source_content_refs
         ]
@@ -1303,6 +1380,92 @@ class ProvenanceRecord(StrictModel):
 
 
 class EvidenceBundle(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "status": {
+                                "enum": ["pass", "verified_fail", "scored"]
+                            }
+                        },
+                        "required": ["status"],
+                    },
+                    "then": {
+                        "properties": {
+                            "output_refs": {"minItems": 1},
+                            "verifier_evidence": {"type": "object"},
+                        },
+                        "required": ["output_refs", "verifier_evidence"],
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"status": {"const": "pass"}},
+                        "required": ["status"],
+                    },
+                    "then": {
+                        "properties": {
+                            "verifier_evidence": {
+                                "properties": {"passed": {"const": True}},
+                                "required": ["passed"],
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"status": {"const": "verified_fail"}},
+                        "required": ["status"],
+                    },
+                    "then": {
+                        "properties": {
+                            "verifier_evidence": {
+                                "properties": {"passed": {"const": False}},
+                                "required": ["passed"],
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"status": {"const": "scored"}},
+                        "required": ["status"],
+                    },
+                    "then": {
+                        "properties": {
+                            "verifier_evidence": {
+                                "properties": {
+                                    "passed": {"type": "null"},
+                                    "score": {"type": "number"},
+                                },
+                                "required": ["passed", "score"],
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "provenance": {
+                                "properties": {
+                                    "trace_emission_claimed": {"const": True}
+                                },
+                                "required": ["trace_emission_claimed"],
+                            }
+                        },
+                        "required": ["provenance"],
+                    },
+                    "then": {
+                        "properties": {"trace_ref": {"type": "object"}},
+                        "required": ["trace_ref"],
+                    },
+                },
+            ]
+        }
+    )
+
     run_id: str = Field(pattern=ID_PATTERN)
     status: RunStatus
     output_refs: tuple[ArtifactRef, ...] = ()
@@ -1548,7 +1711,7 @@ class CheckpointSaveReceipt(StrictModel):
     written_digest: str = Field(pattern=SHA256_PATTERN)
     size_bytes: int = Field(ge=0, strict=True)
     write_completion_sequence: int = Field(ge=1, strict=True)
-    path: str = Field(min_length=1)
+    path: str = Field(min_length=1, pattern=r"^/")
 
     @field_validator("path")
     @classmethod
@@ -1587,7 +1750,9 @@ class ScheduleActivationReceipt(StrictModel):
     observed_attempt_count: int = Field(ge=0, strict=True)
     declared_parallelism: int = Field(ge=1, strict=True)
     observed_max_concurrency: int = Field(ge=0, strict=True)
-    declared_case_order: Literal["fixed", "seeded_random", "random"]
+    declared_case_order: Literal[
+        "fixed", "seeded_random", "random", "custom", "explicit"
+    ]
     observed_case_order: tuple[str, ...]
     declared_state_reset: Literal["per_case", "per_rollout", "never"]
     observed_state_reset_count: int = Field(ge=0, strict=True)
@@ -1794,21 +1959,59 @@ class GateName(str, Enum):
     claim_eligible = "claim_eligible"
 
 
-REQUIRED_GATE_NAMES = frozenset(
-    {
-        GateName.execution_valid,
-        GateName.protocol_valid,
-        GateName.isolation_valid,
-        GateName.scoring_valid,
-        GateName.statistics_valid,
-    }
+REQUIRED_GATE_ORDER = (
+    GateName.execution_valid,
+    GateName.protocol_valid,
+    GateName.isolation_valid,
+    GateName.scoring_valid,
+    GateName.statistics_valid,
 )
+REQUIRED_GATE_NAMES = frozenset(REQUIRED_GATE_ORDER)
 
 
 class GateResult(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"valid": {"const": False}},
+                        "required": ["valid"],
+                    },
+                    "then": {
+                        "properties": {
+                            "reason": {"type": "string", "minLength": 1}
+                        },
+                        "required": ["reason"],
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"valid": {"const": True}},
+                        "required": ["valid"],
+                    },
+                    "then": {
+                        "properties": {"evidence_refs": {"minItems": 1}},
+                        "required": ["evidence_refs"],
+                    },
+                },
+            ]
+        }
+    )
+
     valid: bool
     reason: str | None = None
     evidence_refs: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def valid_gate_has_positive_evidence(self) -> "GateResult":
+        if self.valid and not self.evidence_refs:
+            raise ValueError("valid gate requires positive evidence_refs")
+        if any(not ref.strip() for ref in self.evidence_refs):
+            raise ValueError("gate evidence_refs must be non-empty")
+        if len(set(self.evidence_refs)) != len(self.evidence_refs):
+            raise ValueError("gate evidence_refs must be unique")
+        return self
 
     @model_validator(mode="after")
     def invalid_gate_has_reason(self) -> "GateResult":
@@ -1835,8 +2038,11 @@ class EffectEstimate(StrictModel):
 
 
 class LineageRef(StrictModel):
+    """Bindings from one parent plan run to its selected child attempt."""
+
     run_id: str = Field(pattern=ID_PATTERN)
-    case_id: str | None = None
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
     evidence_bundle_ref: ArtifactRef
     schedule_receipt_ref: ArtifactRef
     case_set_receipt_ref: ArtifactRef
@@ -1848,7 +2054,7 @@ class RecordIndex(StrictModel):
     format: Literal["bmp-record-index-v1"]
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_refs: tuple[ArtifactRef, ...]
-    aggregate_path: str = Field(min_length=1)
+    aggregate_path: str = Field(min_length=1, pattern=r"^/")
 
     @field_validator("aggregate_path")
     @classmethod
@@ -1874,13 +2080,48 @@ class Observation(StrictModel):
 class ObservationReport(StrictModel):
     """Exploratory observations with no claim eligibility or causal fields."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {"isolation_valid": {"const": True}},
+                        "required": ["isolation_valid"],
+                    },
+                    "then": {
+                        "properties": {"isolation_reasons": {"maxItems": 0}}
+                    },
+                    "else": {
+                        "properties": {"isolation_reasons": {"minItems": 1}}
+                    },
+                }
+            ]
+        }
+    )
+
     purpose: Literal[RunPurpose.exploratory]
+    subject_kind: SubjectKind
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
+    isolation_valid: bool
+    isolation_reasons: tuple[str, ...]
     observations: tuple[Observation, ...] = ()
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
     record_index_ref: ArtifactRef | None = None
+
+    @model_validator(mode="after")
+    def isolation_result_is_explicit(self) -> "ObservationReport":
+        reasons = self.isolation_reasons
+        if self.isolation_valid and reasons:
+            raise ValueError("valid exploratory isolation cannot have failure reasons")
+        if not self.isolation_valid and not reasons:
+            raise ValueError("invalid exploratory isolation requires failure reasons")
+        if any(not reason.strip() for reason in reasons):
+            raise ValueError("exploratory isolation reasons must be non-empty")
+        if len(set(reasons)) != len(reasons):
+            raise ValueError("exploratory isolation reasons must be unique")
+        return self
 
     @field_validator("failure_breakdown")
     @classmethod
@@ -1893,14 +2134,100 @@ class ObservationReport(StrictModel):
 
 
 class ClaimReport(StrictModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "gates": {
+                                "properties": {
+                                    name.value: {
+                                        "properties": {"valid": {"const": True}},
+                                        "required": ["valid"],
+                                    }
+                                    for name in REQUIRED_GATE_ORDER
+                                },
+                                "required": [
+                                    name.value for name in REQUIRED_GATE_ORDER
+                                ],
+                            }
+                        },
+                        "required": ["gates"],
+                    },
+                    "then": {
+                        "properties": {"claim_eligible": {"const": True}}
+                    },
+                    "else": {
+                        "properties": {"claim_eligible": {"const": False}}
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "claim_eligible": {"const": True},
+                            "effect": {"type": "object"},
+                        },
+                        "required": ["claim_eligible", "effect"],
+                    },
+                    "then": {
+                        "properties": {
+                            "effect_is_causal_claim": {"const": True}
+                        }
+                    },
+                    "else": {
+                        "properties": {
+                            "effect_is_causal_claim": {"const": False}
+                        }
+                    },
+                },
+            ]
+        }
+    )
+
     purpose: Literal[RunPurpose.claim]
+    subject_kind: SubjectKind
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
-    gates: Mapping[GateName, GateResult]
+    gates: Mapping[GateName, GateResult] = Field(
+        json_schema_extra={
+            "propertyNames": {
+                "enum": [name.value for name in REQUIRED_GATE_ORDER]
+            },
+            "minProperties": len(REQUIRED_GATE_NAMES),
+            "maxProperties": len(REQUIRED_GATE_NAMES),
+        }
+    )
     effect: EffectEstimate | None = None
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
     record_index_ref: ArtifactRef | None = None
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def validate_derived_wire_fields(cls, value: Any, handler: Any) -> "ClaimReport":
+        """Accept serialized computed fields only when they equal derivation.
+
+        Production persistence includes computed fields.  They are redundant
+        wire evidence, never caller-controlled overrides.
+        """
+
+        supplied: dict[str, Any] = {}
+        if isinstance(value, Mapping):
+            value = dict(value)
+            for name in ("claim_eligible", "effect_is_causal_claim"):
+                if name in value:
+                    supplied[name] = value.pop(name)
+        result = handler(value)
+        for name, expected in (
+            ("claim_eligible", result.claim_eligible),
+            ("effect_is_causal_claim", result.effect_is_causal_claim),
+        ):
+            if name in supplied and (
+                not isinstance(supplied[name], bool) or supplied[name] != expected
+            ):
+                raise ValueError(f"serialized {name} contradicts derived value")
+        return result
 
     @field_validator("gates")
     @classmethod
@@ -2016,6 +2343,7 @@ __all__ = [
     "RunStatus",
     "ScheduleActivationReceipt",
     "ScoringKind",
+    "SubjectKind",
     "SUBJECT_KIND_SCOPE_MATRIX",
     "SubjectArtifact",
     "SubjectArtifactAdapter",

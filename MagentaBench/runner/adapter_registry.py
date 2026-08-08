@@ -189,6 +189,18 @@ def verify_resolved_case_set(
     protocol = run.manifest.execution.protocol
     if protocol is None or artifact.case_order != protocol.case_order:
         raise AdapterRegistryError("case-set order policy drift")
+    expected_selection_method = (
+        "explicit_case_ids"
+        if protocol.case_order in {"custom", "explicit"}
+        else "all_cases"
+    )
+    if artifact.selection_method != expected_selection_method:
+        raise AdapterRegistryError("case-set selection method drift")
+    if protocol.case_order in {"custom", "explicit"}:
+        if artifact.ordered_case_ids != protocol.explicit_case_ids:
+            raise AdapterRegistryError(
+                "case-set explicit case order does not match resolved protocol"
+            )
     expected_order_seed = (
         run.manifest.execution.seed
         if protocol.case_order == "seeded_random"
@@ -281,6 +293,9 @@ class FakeBenchmarkLoader:
                     output_filename=str(raw["output"]),
                 )
             )
+        task_ids = [task.task_id for task in tasks]
+        if len(set(task_ids)) != len(task_ids):
+            raise AdapterRegistryError("fake task manifest contains duplicate case ids")
         return tuple(tasks)
 
     @staticmethod
@@ -300,6 +315,27 @@ class FakeBenchmarkLoader:
                     "seeded case-set resolution requires an execution seed"
                 )
             random.Random(seed).shuffle(tasks)
+        elif protocol.case_order == "random":
+            # Unseeded order is intentionally non-replayable; the activated
+            # case-set artifact records the observed permutation so every
+            # downstream verifier can still bind the run to what was used.
+            random.SystemRandom().shuffle(tasks)
+        elif protocol.case_order in {"custom", "explicit"}:
+            requested = tuple(protocol.explicit_case_ids)
+            if not requested:
+                raise AdapterRegistryError(
+                    "explicit case-set resolution requires explicit_case_ids"
+                )
+            if len(set(requested)) != len(requested):
+                raise AdapterRegistryError("explicit case ids must be unique")
+            by_id = {task.task_id: task for task in tasks}
+            missing = [case_id for case_id in requested if case_id not in by_id]
+            if missing:
+                raise AdapterRegistryError(
+                    "explicit case ids are missing from task manifest: "
+                    + ", ".join(missing)
+                )
+            tasks = [by_id[case_id] for case_id in requested]
         elif protocol.case_order != "fixed":
             raise AdapterRegistryError(
                 "case-set identity requires fixed or seeded_random case order"
@@ -360,6 +396,11 @@ class FakeBenchmarkLoader:
             benchmark_digest=run.manifest.benchmark.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
+            selection_method=(
+                "explicit_case_ids"
+                if run.manifest.execution.protocol.case_order in {"custom", "explicit"}
+                else "all_cases"
+            ),
             case_order=run.manifest.execution.protocol.case_order,
             order_seed=(
                 run.manifest.execution.seed

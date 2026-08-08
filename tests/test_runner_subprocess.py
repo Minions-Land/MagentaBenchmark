@@ -4,6 +4,7 @@ import json
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,7 +23,6 @@ from MagentaBench.schemas import (
     EnvironmentSpec,
     ProvenanceRecord,
     RunStatus,
-    canonical_digest,
 )
 
 
@@ -75,6 +75,21 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
     assert not list(workspaces.rglob("case-001"))
 
 
+def test_subprocess_command_preserves_subject_launch_argv(tmp_path: Path) -> None:
+    run = SimpleNamespace(
+        manifest=SimpleNamespace(
+            subject=SimpleNamespace(
+                id="cli-subject",
+                kind="opaque_agent",
+                entrypoint="/usr/bin/echo",
+                launch_argv=("/usr/bin/echo", "BMP_OK"),
+            ),
+            execution=SimpleNamespace(backend=SimpleNamespace()),
+        )
+    )
+    assert SubprocessBackend._command(run) == ("/usr/bin/echo", "BMP_OK")
+
+
 def test_subprocess_timeout_is_classified_and_keeps_failure_workspace(
     tmp_path: Path,
 ) -> None:
@@ -113,7 +128,7 @@ def test_environment_receipt_is_carried_into_evidence_provenance(
     spec = EnvironmentSpec(id="echo-env", python_version="3.11")
     receipt = EnvironmentReceipt(
         spec_id=spec.id,
-        spec_digest=canonical_digest(spec),
+        spec_digest=spec.canonical_digest(),
         python_executable="/usr/bin/python3.11",
         python_version="3.11.13",
         installed_packages=(),

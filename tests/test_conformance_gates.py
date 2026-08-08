@@ -25,14 +25,8 @@ EXPECTED_RUN_IDS = tuple(
 
 def _evaluate(completed, *, expected_run_ids=EXPECTED_RUN_IDS):
     return evaluate_run_report(
-        experiment_id="fake-conformance-sweep",
-        experiment_digest="0" * 64,
         completed=completed,
         expected_run_ids=expected_run_ids,
-        control_id="fake.control",
-        treatment_id="fake.treatment",
-        deterministic_conformance=True,
-        counterbalanced=True,
     )
 
 
@@ -169,18 +163,14 @@ def _rewrite_persisted_bundle_only(item, **provenance_updates):
 def test_exploratory_conformance_is_structurally_not_a_claim(tmp_path: Path) -> None:
     completed = Pipeline(ROOT, tmp_path).run(EXPERIMENT).runs
     report = evaluate_run_report(
-        experiment_id="fake-conformance-sweep",
-        experiment_digest="0" * 64,
         completed=completed,
         expected_run_ids=EXPECTED_RUN_IDS,
-        control_id="fake.control",
-        treatment_id="fake.treatment",
-        deterministic_conformance=True,
-        counterbalanced=True,
     )
     assert isinstance(report, ObservationReport)
     assert report.purpose == RunPurpose.exploratory
     assert report.observations
+    assert report.isolation_valid is False
+    assert any("NetworkObservation missing" in item for item in report.isolation_reasons)
     serialized = report.model_dump(mode="json")
     assert "gates" not in serialized
     assert "claim_eligible" not in serialized
@@ -323,6 +313,47 @@ def test_exploratory_report_rejects_metric_score_disagreement(
         _evaluate(completed)
 
 
+def test_claim_report_identity_and_contrast_accept_no_caller_overrides(
+    tmp_path: Path,
+) -> None:
+    pipeline_result = Pipeline(ROOT, tmp_path).run(EXPERIMENT)
+    completed = tuple(
+        replace(
+            item,
+            plan=replace(
+                item.plan,
+                manifest=item.plan.manifest.model_copy(
+                    update={
+                        "claim_design": item.plan.manifest.claim_design.model_copy(
+                            update={"purpose": RunPurpose.claim}
+                        )
+                    }
+                ),
+            ),
+        )
+        for item in pipeline_result.runs
+    )
+
+    with pytest.raises(TypeError, match="unexpected keyword argument"):
+        evaluate_run_report(
+            completed=completed,
+            expected_run_ids=EXPECTED_RUN_IDS,
+            experiment_id="forged-experiment",  # type: ignore[call-arg]
+        )
+
+    index_ref = artifact_ref(pipeline_result.report_path.parent / "record_index.json")
+    report = evaluate_run_report(
+        completed=completed,
+        expected_run_ids=EXPECTED_RUN_IDS,
+        record_index_ref=index_ref,
+    )
+
+    assert report.experiment_id == "fake-conformance-sweep"
+    assert report.record_index_ref == index_ref
+    assert report.effect is not None
+    assert report.effect.point_estimate == 1.0
+
+
 def test_exploratory_report_rejects_execution_valid_without_score(
     tmp_path: Path,
 ) -> None:
@@ -363,12 +394,6 @@ def test_report_evaluator_rejects_test_override_lineage(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="test override evidence"):
         evaluate_run_report(
-            experiment_id="fake-conformance-sweep",
-            experiment_digest="0" * 64,
             completed=completed,
             expected_run_ids=EXPECTED_RUN_IDS,
-            control_id="fake.control",
-            treatment_id="fake.treatment",
-            deterministic_conformance=True,
-            counterbalanced=True,
         )

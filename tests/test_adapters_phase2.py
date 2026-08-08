@@ -14,8 +14,11 @@ from MagentaBench.adapters.benchmarks.aosebench import (
     load_task,
 )
 from MagentaBench.adapters.subjects.cli_agent import (
+    CliInvocationResult,
+    MagentaJsonlError,
     build_cli_command,
     extract_answer,
+    parse_magenta_jsonl,
     run_cli_agent,
     scrubbed_environment,
     write_cli_outputs,
@@ -24,6 +27,98 @@ from MagentaBench.schemas import RunStatus
 
 
 AOSE = Path("/mnt/aliyunsb/BioAgent/AOSEBench")
+
+
+def _magenta_manifest(sequence: int) -> dict[str, object]:
+    return {
+        "type": "runtime_manifest",
+        "protocolVersion": 1,
+        "runId": "run-1",
+        "sequence": sequence,
+        "mode": "json",
+        "product": {
+            "name": "Magenta",
+            "version": "0.1.21",
+            "infrastructureVersion": "0.80.2",
+        },
+        "execution": {
+            "anthropicCacheAffinity": "auto",
+            "capabilityPolicy": {
+                "capabilities": {"workflows": False, "teammates": False},
+                "capabilityDecisions": {
+                    "workflows": {
+                        "enabled": False,
+                        "source": "profile",
+                        "locked": False,
+                    },
+                    "teammates": {
+                        "enabled": False,
+                        "source": "profile",
+                        "locked": False,
+                    },
+                },
+                "tools": {
+                    "allow": ["read"],
+                    "deny": ["bash"],
+                    "builtinTools": True,
+                    "runtimeMutable": False,
+                },
+            },
+        },
+        "tools": {"active": ["read"], "available": [{"name": "read"}]},
+        "resources": {
+            "extensions": [],
+            "skills": [],
+            "prompts": [],
+            "contextFiles": [],
+            "harnessPackages": [],
+            "packageTools": [],
+            "userMcpTools": [],
+        },
+    }
+
+
+def _magenta_run_end(
+    *, status: str = "success", exit_code: int = 0
+) -> dict[str, object]:
+    return {
+        "type": "run_end",
+        "protocolVersion": 1,
+        "runId": "run-1",
+        "status": status,
+        "exitCode": exit_code,
+        "startedAt": "2026-08-08T00:00:00.000Z",
+        "endedAt": "2026-08-08T00:00:01.000Z",
+        "durationMs": 1000,
+        "stats": {},
+        "background": {"policy": "cancel", "settled": True, "events": []},
+        "nonInteractiveUi": {"policy": "deny", "requestCount": 0},
+    }
+
+
+def _magenta_stream(*, terminal: dict[str, object] | None = None) -> str:
+    return "\n".join(
+        json.dumps(item)
+        for item in (
+            _magenta_manifest(1),
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "draft"}],
+                },
+            },
+            _magenta_manifest(2),
+            {
+                "type": "message_end",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "magenta answer"}],
+                },
+            },
+            terminal or _magenta_run_end(),
+        )
+    )
 
 
 def test_aosebench_task_contract_and_output_check(tmp_path: Path) -> None:
@@ -89,7 +184,12 @@ def test_cli_command_variants_and_provider_extraction() -> None:
         "stream-json",
     )
     assert build_cli_command("codex", prompt="p")[:2] == ("codex", "exec")
-    assert "--mode" in build_cli_command("magenta", prompt="p", model="m")
+    magenta_command = build_cli_command("magenta", prompt="p", model="m")
+    assert "--mode" in magenta_command
+    assert "--anthropic-cache-affinity" in magenta_command
+    assert "--no-harness-workflows" in magenta_command
+    assert "--no-harness-teammates" in magenta_command
+    assert "--lock-tools" in magenta_command
     claude = "\n".join(
         [
             json.dumps({"type": "assistant", "message": {"content": [{"text": "draft"}]}}),
@@ -97,8 +197,91 @@ def test_cli_command_variants_and_provider_extraction() -> None:
         ]
     )
     assert extract_answer(claude, agent="claude") == "final answer"
-    assert extract_answer(json.dumps({"result": "magenta answer"}), agent="magenta") == "magenta answer"
+    stream = _magenta_stream()
+    parsed = parse_magenta_jsonl(stream)
+    assert len(parsed.runtime_manifests) == 2
+    assert parsed.answer == "magenta answer"
+    assert extract_answer(stream, agent="magenta") == "magenta answer"
+    with pytest.raises(MagentaJsonlError, match="exactly one run_end"):
+        parse_magenta_jsonl(stream + "\n" + json.dumps({"type": "run_end"}))
+    gap_stream = stream.replace(
+        json.dumps(_magenta_manifest(2)), json.dumps(_magenta_manifest(3))
+    )
+    with pytest.raises(MagentaJsonlError, match="contiguous"):
+        parse_magenta_jsonl(gap_stream)
     assert extract_answer("codex answer", agent="codex") == "codex answer"
+
+
+def test_magenta_jsonl_never_falls_back_to_event_stream_as_answer() -> None:
+    assert extract_answer(json.dumps({"result": "legacy"}), agent="magenta") == ""
+    assert extract_answer("not json", agent="magenta") == ""
+
+
+def test_magenta_invocation_status_uses_terminal_contract(tmp_path: Path) -> None:
+    valid = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=0,
+        stdout=_magenta_stream(),
+        stderr="",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    assert valid.status == RunStatus.pass_
+    assert valid.answer_text() == "magenta answer"
+
+    malformed = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=0,
+        stdout=json.dumps({"result": "legacy"}),
+        stderr="",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    assert malformed.status == RunStatus.invalid_output
+
+    contradictory = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=1,
+        stdout=_magenta_stream(),
+        stderr="",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    assert contradictory.status == RunStatus.invalid_output
+
+    failed = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=1,
+        stdout=_magenta_stream(
+            terminal=_magenta_run_end(status="error", exit_code=1)
+        ),
+        stderr="agent failed",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    assert failed.status == RunStatus.agent_error
+
+    unsettled_end = _magenta_run_end()
+    unsettled_end["background"] = {
+        "policy": "cancel",
+        "settled": False,
+        "events": [],
+    }
+    unsettled = CliInvocationResult(
+        command=("/opt/bin/magenta",),
+        returncode=0,
+        stdout=_magenta_stream(terminal=unsettled_end),
+        stderr="",
+        duration_seconds=1.0,
+        agent="magenta",
+    )
+    assert unsettled.status == RunStatus.invalid_output
+
+    _, empty_answer, status_path = write_cli_outputs(malformed, tmp_path)
+    assert empty_answer.read_bytes() == b""
+    status_payload = json.loads(status_path.read_text())
+    assert status_payload["status"] == "invalid_output"
+    assert status_payload["headless_protocol_valid"] is False
 
 
 def test_cli_echo_smoke_allowlists_environment_and_writes_outputs(tmp_path: Path, monkeypatch) -> None:
@@ -118,3 +301,30 @@ def test_cli_echo_smoke_allowlists_environment_and_writes_outputs(tmp_path: Path
     assert answer.read_text() == "BMP_OK\n"
     assert json.loads(status.read_text())["answer_exists"] is True
     assert scrubbed_environment(("CLI_SECRET_TOKEN",)).get("CLI_SECRET_TOKEN") == "do-not-leak"
+
+
+def test_aose_data_mount_identity_is_content_addressed(tmp_path: Path) -> None:
+    from MagentaBench.adapters.benchmarks.aosebench import AoseTask
+
+    roots = []
+    for name in ("checkout-a", "checkout-b"):
+        root = tmp_path / name / "data"
+        root.mkdir(parents=True)
+        (root / "payload.bin").write_bytes(b"same data")
+        roots.append(root)
+
+    def task(root: Path) -> AoseTask:
+        return AoseTask(
+            task_id="da-1-3",
+            task_dir=root,
+            instruction_path=root / "instruction.md",
+            rubric_path=root / "rubric.txt",
+            task_config={},
+            instruction_digest="0" * 64,
+            data_path=root,
+        )
+
+    first, second = (task(root) for root in roots)
+    assert first.data_content_digest == second.data_content_digest
+    (roots[1] / "payload.bin").write_bytes(b"changed")
+    assert first.data_content_digest != second.data_content_digest

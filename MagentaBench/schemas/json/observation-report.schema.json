@@ -6,6 +6,7 @@
       "properties": {
         "path": {
           "minLength": 1,
+          "pattern": "^/",
           "title": "Path",
           "type": "string"
         },
@@ -30,18 +31,17 @@
     },
     "LineageRef": {
       "additionalProperties": false,
+      "description": "Bindings from one parent plan run to its selected child attempt.",
       "properties": {
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
         "case_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Case Id"
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
         },
         "case_set_receipt_ref": {
           "$ref": "#/$defs/ArtifactRef"
@@ -60,6 +60,8 @@
       },
       "required": [
         "run_id",
+        "attempt_id",
+        "case_id",
         "evidence_bundle_ref",
         "schedule_receipt_ref",
         "case_set_receipt_ref"
@@ -109,9 +111,49 @@
       ],
       "title": "RunStatus",
       "type": "string"
+    },
+    "SubjectKind": {
+      "description": "Resolved kind of the subject that actually entered an execution path.",
+      "enum": [
+        "hcp_harness",
+        "opaque_agent",
+        "evolver",
+        "meta_evolver",
+        "fake"
+      ],
+      "title": "SubjectKind",
+      "type": "string"
     }
   },
   "additionalProperties": false,
+  "allOf": [
+    {
+      "else": {
+        "properties": {
+          "isolation_reasons": {
+            "minItems": 1
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "isolation_valid": {
+            "const": true
+          }
+        },
+        "required": [
+          "isolation_valid"
+        ]
+      },
+      "then": {
+        "properties": {
+          "isolation_reasons": {
+            "maxItems": 0
+          }
+        }
+      }
+    }
+  ],
   "description": "Exploratory observations with no claim eligibility or causal fields.",
   "properties": {
     "experiment_id": {
@@ -128,6 +170,17 @@
       },
       "title": "Failure Breakdown",
       "type": "object"
+    },
+    "isolation_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Isolation Reasons",
+      "type": "array"
+    },
+    "isolation_valid": {
+      "title": "Isolation Valid",
+      "type": "boolean"
     },
     "lineage": {
       "default": [],
@@ -165,12 +218,18 @@
         }
       ],
       "default": null
+    },
+    "subject_kind": {
+      "$ref": "#/$defs/SubjectKind"
     }
   },
   "required": [
     "purpose",
+    "subject_kind",
     "experiment_id",
-    "manifest_digest"
+    "manifest_digest",
+    "isolation_valid",
+    "isolation_reasons"
   ],
   "title": "ObservationReport",
   "type": "object"

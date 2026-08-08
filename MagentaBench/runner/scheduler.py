@@ -139,12 +139,48 @@ class Scheduler:
         self.pipeline_digest = pipeline_digest.hexdigest()
 
     @staticmethod
-    def _ordered_cases(cases: Sequence[Any], order: str, seed: int) -> list[Any]:
+    def _ordered_cases(
+        cases: Sequence[Any], order: str, seed: int | None,
+        explicit_case_ids: Sequence[str] = (),
+    ) -> list[Any]:
         ordered = list(cases)
         if order == "fixed":
             return ordered
         if order == "seeded_random":
+            if seed is None:
+                raise SchedulerError("seeded_random scheduling requires an execution seed")
             random.Random(seed).shuffle(ordered)
+            return ordered
+        if order in {"custom", "explicit"}:
+            requested = tuple(explicit_case_ids)
+            if not requested:
+                raise SchedulerError(
+                    "explicit scheduling requires non-empty explicit_case_ids"
+                )
+            if len(set(requested)) != len(requested):
+                raise SchedulerError("explicit_case_ids must be unique")
+            by_id: dict[str, Any] = {}
+            for case in ordered:
+                case_id = Scheduler._case_id(case)
+                if case_id in by_id:
+                    raise SchedulerError("scheduled case ids must be unique")
+                by_id[case_id] = case
+            missing = [case_id for case_id in requested if case_id not in by_id]
+            unknown = [case_id for case_id in by_id if case_id not in requested]
+            if missing:
+                raise SchedulerError(
+                    "explicit case ids are missing from scheduled cases: "
+                    + ", ".join(missing)
+                )
+            if unknown:
+                raise SchedulerError(
+                    "scheduled cases contain ids outside explicit_case_ids: "
+                    + ", ".join(unknown)
+                )
+            return [by_id[case_id] for case_id in requested]
+        if order == "random":
+            # The benchmark loader already committed the unseeded permutation
+            # in the activated case-set artifact.  Do not reshuffle it here.
             return ordered
         random.SystemRandom().shuffle(ordered)
         return ordered
@@ -175,7 +211,10 @@ class Scheduler:
         if protocol is None:
             raise SchedulerError("resolved protocol is required for scheduling")
         ordered_cases = self._ordered_cases(
-            list(cases), protocol.case_order, run.manifest.execution.seed
+            list(cases),
+            protocol.case_order,
+            run.manifest.execution.seed,
+            protocol.explicit_case_ids,
         )
         if not ordered_cases:
             raise SchedulerError("scheduler requires at least one case")

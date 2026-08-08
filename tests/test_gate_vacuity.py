@@ -123,14 +123,13 @@ def _with_policy(item, policy: ResolvedNetworkPolicy):
 
 def _claim(items, *, expected_run_count: int = EXPECTED_RUNS):
     return _evaluate_claim(
-        experiment_id="fake-conformance-sweep",
-        experiment_digest="0" * 64,
         completed=items,
         expected_run_count=expected_run_count,
         control_id="fake.control",
         treatment_id="fake.treatment",
         deterministic_conformance=True,
         counterbalanced=True,
+        record_index_ref=None,
     )
 
 

@@ -244,6 +244,17 @@ def _compile_subject_artifact(
     """Normalize and digest a hand-written subject declaration."""
 
     payload = spec.model_dump(mode="json")
+    sidecar = payload.get("sidecar_ref")
+    if sidecar is not None:
+        # BMP treats the HCP assembly sidecar as opaque evidence.  Admission
+        # still binds the declared path to its bytes so a later report cannot
+        # silently substitute a different assembly projection.
+        sidecar_path = Path(str(sidecar["path"])).expanduser()
+        if not sidecar_path.is_absolute() or not sidecar_path.is_file():
+            raise ValueError("assembly sidecar path must identify an existing absolute file")
+        observed_sidecar_digest = hashlib.sha256(sidecar_path.read_bytes()).hexdigest()
+        if observed_sidecar_digest != sidecar.get("sha256"):
+            raise ValueError("assembly sidecar digest does not match its bytes")
     if spec.kind != "fake":
         source = Path(_resolve_existing_source(spec.source, base_dir=base_dir))
         commit, content_digest = _source_content_digest(

@@ -1,10 +1,12 @@
 [claim]
 purpose = "claim"
+subject_kind = "fake"
 experiment_id = "terminal-module-evolution-sweep"
 manifest_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
 [[claim.lineage]]
 run_id = "terminal-module-evolution-sweep__run0000"
+attempt_id = "terminal-module-evolution-sweep__run0000__case-001__attempt-0000"
 case_id = "case-001"
 
 [claim.lineage.evidence_bundle_ref]
@@ -35,15 +37,20 @@ verified_fail = 2
 
 [claim.gates.execution_valid]
 valid = true
+evidence_refs = ["/records/run0000/evidence_bundle.json"]
 
 [claim.gates.protocol_valid]
 valid = true
+evidence_refs = ["/records/run0000/schedule_activation_receipt.json"]
 
 [claim.gates.isolation_valid]
 valid = true
+evidence_refs = ["/records/run0000/evidence_bundle.json"]
 
 [claim.gates.scoring_valid]
 valid = true
+evidence_refs = ["/records/run0000/evidence_bundle.json"]
 
 [claim.gates.statistics_valid]
 valid = true
+evidence_refs = ["/records/run0000/schedule_activation_receipt.json"]

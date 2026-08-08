@@ -11,6 +11,7 @@ from statistics import mean
 from typing import Iterable, Mapping
 
 from MagentaBench.schemas import (
+    ArtifactRef,
     CaseSetActivationReceipt,
     CaseSetArtifact,
     ClaimReport,
@@ -29,6 +30,7 @@ from MagentaBench.schemas import (
     ScheduleActivationReceipt,
     canonical_digest,
 )
+from MagentaBench.schemas.models import SubjectKind
 
 from .backend.fake import CaseExecution
 from .compiler import CompiledRun, canonical_json_bytes, sha256_bytes
@@ -54,8 +56,15 @@ class CompletedRun:
 _EXECUTION_VALID = frozenset({RunStatus.pass_, RunStatus.verified_fail})
 
 
-def _valid(reason: str | None = None) -> GateResult:
-    return GateResult(valid=True, reason=reason)
+def _valid(
+    reason: str | None = None,
+    evidence_refs: tuple[str, ...] = (),
+) -> GateResult:
+    return GateResult(
+        valid=True,
+        reason=reason,
+        evidence_refs=tuple(dict.fromkeys(evidence_refs)),
+    )
 
 
 def _invalid(reason: str) -> GateResult:
@@ -74,6 +83,10 @@ def _subject_pairs(
             for key, value in item.plan.factor_values.items()
             if key not in {"subject", "experiment.subject", "order_position"}
         }
+        # A parent run can contain several selected benchmark cases.  Include
+        # the case identity in pairing so control/treatment scores never cross
+        # case boundaries.
+        factors["__case_id"] = item.case.case_id
         grouped[canonical_json_bytes(factors)][item.plan.manifest.subject.id] = item
     pairs: list[tuple[CompletedRun, CompletedRun]] = []
     for pair in grouped.values():
@@ -91,7 +104,8 @@ def _counterbalance_is_valid(
     from .compiler import canonical_json_bytes
 
     positions = {
-        item.plan.manifest.metadata.run_id: index for index, item in enumerate(completed)
+        (item.plan.manifest.metadata.run_id, item.case.case_id): index
+        for index, item in enumerate(completed)
     }
     pair_groups: dict[bytes, dict[str, CompletedRun]] = defaultdict(dict)
     outer_keys: dict[bytes, bytes] = {}
@@ -103,8 +117,11 @@ def _counterbalance_is_valid(
             if key not in {"subject", "experiment.subject", "order_position"}
         }
         outer_factors = {
-            key: value for key, value in pair_factors.items() if key != "repetition"
+            key: value
+            for key, value in pair_factors.items()
+            if key not in {"repetition", "__case_id"}
         }
+        pair_factors["__case_id"] = item.case.case_id
         pair_key = canonical_json_bytes(pair_factors)
         pair_groups[pair_key][item.plan.manifest.subject.id] = item
         outer_keys[pair_key] = canonical_json_bytes(outer_factors)
@@ -115,8 +132,14 @@ def _counterbalance_is_valid(
         if set(pair) != {control_id, treatment_id}:
             return False
         control_first = (
-            positions[pair[control_id].plan.manifest.metadata.run_id]
-            < positions[pair[treatment_id].plan.manifest.metadata.run_id]
+            positions[(
+                pair[control_id].plan.manifest.metadata.run_id,
+                pair[control_id].case.case_id,
+            )]
+            < positions[(
+                pair[treatment_id].plan.manifest.metadata.run_id,
+                pair[treatment_id].case.case_id,
+            )]
         )
         outer = outer_keys[pair_key]
         directions[outer].add(control_first)
@@ -130,6 +153,109 @@ def _counterbalance_is_valid(
 def _score(item: CompletedRun) -> float | None:
     evidence = item.case.bundle.verifier_evidence
     return None if evidence is None else evidence.score
+
+
+def _report_subject_kind(items: Iterable[CompletedRun]) -> SubjectKind:
+    """Derive the report subject kind from the resolved manifests.
+
+    A report must describe the subject that actually entered the execution
+    path. Keeping this derived from the compiled manifests prevents a caller
+    from relabeling an opaque/fake run as a harness claim at report time.
+    """
+
+    runs = tuple(items)
+    kinds = {item.plan.manifest.subject.kind for item in runs}
+    if len(kinds) != 1:
+        raise ValueError(
+            "subject kind must be invariant across an experiment: "
+            + ", ".join(sorted(kinds))
+        )
+    raw_kind = next(iter(kinds))
+    try:
+        return SubjectKind(raw_kind)
+    except ValueError as exc:
+        raise ValueError(f"unsupported resolved subject kind: {raw_kind!r}") from exc
+
+
+def _report_identity(items: Iterable[CompletedRun]) -> tuple[str, str, SubjectKind]:
+    """Derive experiment identity fields from the completed run manifests."""
+
+    runs = tuple(items)
+    if not runs:
+        raise ValueError("cannot derive report identity from no completed runs")
+    experiment_ids = {item.plan.manifest.metadata.experiment_id for item in runs}
+    if len(experiment_ids) != 1:
+        raise ValueError(
+            "experiment id must be invariant across runs: "
+            + ", ".join(sorted(experiment_ids))
+        )
+    # RecordIndex stores one immutable manifest per parent run.  Deduplicate
+    # here so multi-case reports remain byte-bound to that index.
+    manifest_digests = list(dict.fromkeys(item.plan.manifest_digest for item in runs))
+    experiment_digest = sha256_bytes(canonical_json_bytes(manifest_digests))
+    return next(iter(experiment_ids)), experiment_digest, _report_subject_kind(runs)
+
+
+def _report_contrast(
+    items: Iterable[CompletedRun],
+) -> tuple[str, str, bool, bool]:
+    """Derive arm and protocol flags from the resolved manifests."""
+
+    runs = tuple(items)
+    contrasts = {canonical_json_bytes(item.plan.manifest.contrast) for item in runs}
+    if len(contrasts) != 1:
+        raise ValueError("experiment contrast must be invariant across runs")
+    contrast = runs[0].plan.manifest.contrast
+    control_id = contrast.control_id or runs[0].plan.manifest.subject.id
+    treatment_id = contrast.treatment_id or runs[-1].plan.manifest.subject.id
+    protocols = [item.plan.manifest.execution.protocol for item in runs]
+    protocol_digests = {
+        None if protocol is None else canonical_digest(protocol)
+        for protocol in protocols
+    }
+    if len(protocol_digests) != 1:
+        raise ValueError("resolved protocol must be invariant across runs")
+    protocol = protocols[0]
+    deterministic = bool(
+        protocol is not None and getattr(protocol, "deterministic_conformance", False)
+    )
+    return control_id, treatment_id, deterministic, contrast.counterbalanced
+
+
+def _lineage_ref(item: CompletedRun) -> LineageRef:
+    """Build a parent-run/selected-attempt lineage binding from verified state."""
+
+    receipt = item.schedule_receipt
+    if receipt is None:
+        raise ValueError(f"{item.case.case_id}: schedule receipt is required for lineage")
+    if item.schedule_receipt_path is None:
+        raise ValueError(f"{item.case.case_id}: schedule receipt path is required for lineage")
+    if item.case_set_receipt_path is None:
+        raise ValueError(f"{item.case.case_id}: case-set receipt path is required for lineage")
+    parent_run_id = receipt.run_id
+    attempt_id = item.case.bundle.run_id
+    matching = [
+        attempt
+        for attempt in receipt.attempts
+        if attempt.attempt_id == attempt_id and attempt.case_id == item.case.case_id
+    ]
+    if len(matching) != 1:
+        raise ValueError(
+            f"{item.case.case_id}: selected attempt {attempt_id!r} is not uniquely "
+            "bound by the schedule receipt"
+        )
+    if not matching[0].selected:
+        raise ValueError(
+            f"{item.case.case_id}: report lineage attempt {attempt_id!r} is not selected"
+        )
+    return LineageRef(
+        run_id=parent_run_id,
+        attempt_id=attempt_id,
+        case_id=item.case.case_id,
+        evidence_bundle_ref=artifact_ref(item.case.bundle_path),
+        schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
+        case_set_receipt_ref=artifact_ref(item.case_set_receipt_path),
+    )
 
 
 def _exploratory_metric_scores(
@@ -206,13 +332,22 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("declared parallelism does not match resolved protocol")
     if receipt.declared_case_order != protocol.case_order:
         errors.append("declared case_order does not match resolved protocol")
+    if protocol.case_order in {"custom", "explicit"}:
+        expected_case_ids = tuple(protocol.explicit_case_ids)
+        if not expected_case_ids:
+            errors.append("explicit case_order is missing explicit_case_ids")
+        elif receipt.observed_case_order != expected_case_ids:
+            errors.append("observed_case_order does not match explicit_case_ids")
     if receipt.declared_state_reset != protocol.state_reset:
         errors.append("declared state_reset does not match resolved protocol")
     if receipt.declared_candidate_selection != effective_selection:
         errors.append("declared candidate_selection does not match resolved protocol")
     if receipt.declared_checkpoint_policy != protocol.checkpoint_policy:
         errors.append("declared checkpoint_policy does not match resolved protocol")
-    if receipt.order_seed != manifest.execution.seed:
+    expected_order_seed = (
+        manifest.execution.seed if protocol.case_order == "seeded_random" else None
+    )
+    if receipt.order_seed != expected_order_seed:
         errors.append("schedule order_seed does not match execution seed")
     if receipt.scheduler_digest != item.scheduler_digest:
         errors.append("schedule scheduler_digest does not match active scheduler")
@@ -236,6 +371,60 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("observed candidate selection does not match resolved protocol")
     if receipt.observed_case_order != allocated_case_ids:
         errors.append("observed_case_order does not match case allocations")
+
+    save = receipt.checkpoint_save_ref
+    if save is not None:
+        save_path = Path(save.path)
+        if (
+            not save_path.is_file()
+            or save_path.stat().st_size != save.size_bytes
+            or sha256_file(save_path) != save.written_digest
+        ):
+            errors.append("checkpoint save artifact byte drift")
+    load = receipt.checkpoint_load_ref
+    ancestor_ref = receipt.ancestor_schedule_receipt_ref
+    if load is not None and ancestor_ref is not None:
+        ancestor_path = Path(ancestor_ref.path)
+        if (
+            not ancestor_path.is_file()
+            or ancestor_path.stat().st_size != ancestor_ref.size_bytes
+            or sha256_file(ancestor_path) != ancestor_ref.sha256
+        ):
+            errors.append("ancestor schedule receipt byte drift")
+        else:
+            try:
+                ancestor = ScheduleActivationReceipt.model_validate_json(
+                    ancestor_path.read_bytes()
+                )
+            except ValueError:
+                errors.append("ancestor schedule receipt is malformed")
+            else:
+                ancestor_save = ancestor.checkpoint_save_ref
+                if ancestor_save is None:
+                    errors.append("ancestor checkpoint save receipt is missing")
+                else:
+                    ancestor_save_path = Path(ancestor_save.path)
+                    if (
+                        not ancestor_save_path.is_file()
+                        or ancestor_save_path.stat().st_size
+                        != ancestor_save.size_bytes
+                        or sha256_file(ancestor_save_path)
+                        != ancestor_save.written_digest
+                    ):
+                        errors.append("ancestor checkpoint save artifact byte drift")
+                    if load.loaded_checkpoint_digest != ancestor_save.written_digest:
+                        errors.append(
+                            "loaded checkpoint digest does not match ancestor save artifact"
+                        )
+                ancestor_selected = {
+                    attempt.evidence_bundle_ref.sha256
+                    for attempt in ancestor.attempts
+                    if attempt.selected and attempt.evidence_bundle_ref is not None
+                }
+                if not ancestor_selected.issubset(load.selected_bundle_digests):
+                    errors.append(
+                        "checkpoint load selected bundles omit ancestor selection"
+                    )
 
     budget = manifest.execution.budget
     for field in ("max_tokens", "max_cost"):
@@ -411,6 +600,29 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("case-set loader digest drift")
     if artifact.ordered_case_ids != receipt.ordered_case_ids:
         errors.append("case-set activated order drift")
+    protocol = item.plan.manifest.execution.protocol
+    if protocol is None:
+        errors.append("resolved protocol missing")
+    else:
+        if artifact.case_order != protocol.case_order:
+            errors.append("case-set order policy drift")
+        expected_case_set_seed = (
+            item.plan.manifest.execution.seed
+            if protocol.case_order == "seeded_random"
+            else None
+        )
+        if artifact.order_seed != expected_case_set_seed:
+            errors.append("case-set order seed drift")
+    expected_selection_method = (
+        "explicit_case_ids"
+        if protocol is not None and protocol.case_order in {"custom", "explicit"}
+        else "all_cases"
+    )
+    if artifact.selection_method != expected_selection_method:
+        errors.append("case-set selection method drift")
+    if protocol is not None and protocol.case_order in {"custom", "explicit"}:
+        if artifact.ordered_case_ids != tuple(protocol.explicit_case_ids):
+            errors.append("case-set explicit case order drift")
     source = getattr(benchmark, "source", None)
     compiled_source_digest = getattr(
         benchmark, "source_content_digest", None
@@ -489,7 +701,7 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     if environment_spec is not None:
         if environment_receipt is None:
             errors.append("EnvironmentReceipt missing")
-        elif environment_receipt.spec_digest != canonical_digest(environment_spec):
+        elif environment_receipt.spec_digest != environment_spec.canonical_digest():
             errors.append("environment spec_digest drift")
     elif environment_receipt is not None:
         errors.append("undeclared EnvironmentReceipt")
@@ -650,22 +862,31 @@ def _network_policy_errors(item: CompletedRun) -> list[str]:
 
 def _evaluate_claim(
     *,
-    experiment_id: str,
-    experiment_digest: str,
     completed: Iterable[CompletedRun],
     expected_run_count: int,
     control_id: str,
     treatment_id: str,
     deterministic_conformance: bool,
     counterbalanced: bool,
+    record_index_ref: ArtifactRef | None,
 ) -> ClaimReport:
     """Evaluate independent gates and derive claim eligibility."""
 
     items = list(completed)
+    report_experiment_id, report_manifest_digest, subject_kind = _report_identity(items)
+    authoritative_metrics = {
+        item.plan.manifest.benchmark.authoritative_reward_metric for item in items
+    }
+    authoritative_metric = (
+        next(iter(authoritative_metrics)) if len(authoritative_metrics) == 1 else None
+    )
     statuses = [item.case.bundle.status for item in items]
     execution_errors = [status.value for status in statuses if status not in _EXECUTION_VALID]
     execution_gate = (
-        _valid("all cases produced contractual, verifiable outputs")
+        _valid(
+            "all cases produced contractual, verifiable outputs",
+            tuple(str(item.case.bundle_path.resolve()) for item in items),
+        )
         if not execution_errors and len(items) == expected_run_count
         else _invalid(
             "execution-invalid statuses or missing cases: "
@@ -689,7 +910,14 @@ def _evaluate_claim(
     protocol_gate = (
         _invalid("; ".join(sorted(set(protocol_reasons))))
         if protocol_reasons
-        else _valid("resolved schedule and reset policy match the plan")
+        else _valid(
+            "resolved schedule and reset policy match the plan",
+            tuple(
+                str(item.schedule_receipt_path.resolve())
+                for item in items
+                if item.schedule_receipt_path is not None
+            ),
+        )
     )
 
     # Compiler enforcement is a precondition for reaching execution. Recheck
@@ -720,7 +948,18 @@ def _evaluate_claim(
     else:
         isolation_gate = _valid(
             "positive isolation observations and evidence provenance agree "
-            f"({positive_isolation_observations}/{expected_run_count} verified)"
+            f"({positive_isolation_observations}/{expected_run_count} verified)",
+            tuple(
+                dict.fromkeys(
+                    str(ref.path)
+                    for item in items
+                    for ref in (
+                        item.case.bundle.network_observation.evidence_refs
+                        if item.case.bundle.network_observation is not None
+                        else ()
+                    )
+                )
+            ),
         )
 
     scoring_errors: list[str] = []
@@ -733,18 +972,37 @@ def _evaluate_claim(
             scoring_errors.append(f"{bundle.run_id}: unsupported scoring semantics")
         elif bundle.status in _EXECUTION_VALID:
             scored_bundles += 1
-            if bundle.verifier_evidence is None or bundle.verifier_evidence.score is None:
+            evidence = bundle.verifier_evidence
+            if evidence is None or evidence.score is None:
                 scoring_errors.append(f"{bundle.run_id}: verifier evidence missing")
-            elif bundle.status == RunStatus.pass_ and not bundle.verifier_evidence.passed:
+            elif authoritative_metric is None:
+                scoring_errors.append(
+                    f"{bundle.run_id}: authoritative reward metric differs across runs"
+                )
+            elif not evidence.metrics:
+                scoring_errors.append(
+                    f"{bundle.run_id}: verifier metrics are empty for scored evidence"
+                )
+            elif authoritative_metric not in evidence.metrics:
+                scoring_errors.append(
+                    f"{bundle.run_id}: authoritative reward metric "
+                    f"{authoritative_metric!r} is missing from verifier evidence"
+                )
+            elif evidence.metrics[authoritative_metric] != evidence.score:
+                scoring_errors.append(
+                    f"{bundle.run_id}: authoritative reward metric "
+                    f"{authoritative_metric!r} disagrees with verifier score"
+                )
+            elif bundle.status == RunStatus.pass_ and not evidence.passed:
                 scoring_errors.append(f"{bundle.run_id}: pass status contradicts verifier")
             elif (
                 bundle.status == RunStatus.verified_fail
-                and bundle.verifier_evidence.passed
+                and evidence.passed
             ):
                 scoring_errors.append(
                     f"{bundle.run_id}: verified_fail status contradicts verifier"
                 )
-            elif bundle.verifier_evidence.details.get("scoring_semantics_declared") is False:
+            elif evidence.details.get("scoring_semantics_declared") is False:
                 scoring_errors.append(
                     f"{bundle.run_id}: authoritative verifier semantics are undeclared"
                 )
@@ -766,8 +1024,24 @@ def _evaluate_claim(
         )
     else:
         scoring_gate = _valid(
-            f"every verifiable output has exact-verifier evidence "
-            f"({scored_bundles}/{len(items)} scored)"
+            f"every verifiable output has authoritative {authoritative_metric!r} "
+            f"evidence ({scored_bundles}/{len(items)} scored)",
+            tuple(
+                dict.fromkeys(
+                    [
+                        *(str(item.case.bundle_path.resolve()) for item in items),
+                        *(
+                            str(ref.path)
+                            for item in items
+                            for ref in (
+                                item.case.bundle.verifier_evidence.artifact_refs
+                                if item.case.bundle.verifier_evidence is not None
+                                else ()
+                            )
+                        ),
+                    ]
+                )
+            ),
         )
 
     pairs, pair_error = _subject_pairs(items, control_id, treatment_id)
@@ -794,7 +1068,14 @@ def _evaluate_claim(
     statistics_gate = (
         _invalid("; ".join(statistics_reasons))
         if statistics_reasons
-        else _valid("deterministic conformance pairing and counterbalance are complete")
+        else _valid(
+            "deterministic conformance pairing and counterbalance are complete",
+            tuple(
+                str(item.schedule_receipt_path.resolve())
+                for item in items
+                if item.schedule_receipt_path is not None
+            ),
+        )
     )
 
     gates = {
@@ -807,8 +1088,24 @@ def _evaluate_claim(
     effect = None
     differences: list[float] = []
     for control, treatment in pairs:
-        control_score = _score(control)
-        treatment_score = _score(treatment)
+        control_score = (
+            None
+            if authoritative_metric is None
+            else (
+                None
+                if control.case.bundle.verifier_evidence is None
+                else control.case.bundle.verifier_evidence.metrics.get(authoritative_metric)
+            )
+        )
+        treatment_score = (
+            None
+            if authoritative_metric is None
+            else (
+                None
+                if treatment.case.bundle.verifier_evidence is None
+                else treatment.case.bundle.verifier_evidence.metrics.get(authoritative_metric)
+            )
+        )
         if control_score is None or treatment_score is None:
             differences = []
             break
@@ -816,7 +1113,7 @@ def _evaluate_claim(
     if differences:
         point = mean(differences)
         effect = EffectEstimate(
-            metric="exact_match",
+            metric=authoritative_metric,
             point_estimate=point,
             confidence_interval=(min(differences), max(differences)),
             n_runs=len(items),
@@ -824,43 +1121,32 @@ def _evaluate_claim(
         )
 
     counts = Counter(statuses)
-    lineage = tuple(
-        LineageRef(
-            run_id=item.case.bundle.run_id,
-            case_id=item.case.case_id,
-            evidence_bundle_ref=artifact_ref(item.case.bundle_path),
-            schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
-            case_set_receipt_ref=artifact_ref(item.case_set_receipt_path),
-        )
-        for item in items
-    )
+    lineage = tuple(_lineage_ref(item) for item in items)
     return ClaimReport(
         purpose=RunPurpose.claim,
-        experiment_id=experiment_id,
-        manifest_digest=experiment_digest,
+        subject_kind=subject_kind,
+        experiment_id=report_experiment_id,
+        manifest_digest=report_manifest_digest,
         gates=gates,
         effect=effect,
         failure_breakdown=dict(counts),
         lineage=lineage,
+        record_index_ref=record_index_ref,
     )
 
 
 def evaluate_run_report(
     *,
-    experiment_id: str,
-    experiment_digest: str,
     completed: Iterable[CompletedRun],
     expected_run_ids: tuple[str, ...],
-    control_id: str,
-    treatment_id: str,
-    deterministic_conformance: bool,
-    counterbalanced: bool,
+    record_index_ref: ArtifactRef | None = None,
 ) -> RunReport:
     """Build the report type structurally required by the declared purpose."""
 
     items = list(completed)
     if not items:
         raise ValueError("cannot report an experiment with no completed runs")
+    derived_experiment_id, derived_manifest_digest, subject_kind = _report_identity(items)
     expected_duplicates = sorted(
         run_id for run_id, count in Counter(expected_run_ids).items() if count > 1
     )
@@ -868,8 +1154,14 @@ def evaluate_run_report(
         raise ValueError(
             f"expected plan contains duplicate run ids: {expected_duplicates}"
         )
+    parent_counts = Counter(item.plan.manifest.metadata.run_id for item in items)
     observed_run_ids = tuple(
-        item.plan.manifest.metadata.run_id for item in items
+        (
+            f"{item.plan.manifest.metadata.run_id}::{item.case.case_id}"
+            if parent_counts[item.plan.manifest.metadata.run_id] > 1
+            else item.plan.manifest.metadata.run_id
+        )
+        for item in items
     )
     observed_duplicates = sorted(
         run_id for run_id, count in Counter(observed_run_ids).items() if count > 1
@@ -897,15 +1189,17 @@ def evaluate_run_report(
         raise ValueError("run purpose must be invariant across an experiment")
     purpose = next(iter(purposes))
     if purpose == RunPurpose.claim:
+        derived_control_id, derived_treatment_id, derived_deterministic, derived_counterbalanced = (
+            _report_contrast(items)
+        )
         return _evaluate_claim(
-            experiment_id=experiment_id,
-            experiment_digest=experiment_digest,
             completed=items,
             expected_run_count=expected_run_count,
-            control_id=control_id,
-            treatment_id=treatment_id,
-            deterministic_conformance=deterministic_conformance,
-            counterbalanced=counterbalanced,
+            control_id=derived_control_id,
+            treatment_id=derived_treatment_id,
+            deterministic_conformance=derived_deterministic,
+            counterbalanced=derived_counterbalanced,
+            record_index_ref=record_index_ref,
         )
 
     integrity_errors = [
@@ -921,28 +1215,40 @@ def evaluate_run_report(
             "exploratory evidence integrity failed: "
             + "; ".join(integrity_errors)
         )
+    isolation_errors: list[str] = []
+    for item in items:
+        policy_errors = _network_policy_errors(item)
+        isolation_errors.extend(policy_errors)
+        observation = item.case.bundle.network_observation
+        if (
+            not policy_errors
+            and observation is not None
+            and not observation.claim_isolation_valid
+        ):
+            isolation_errors.append(
+                f"{item.case.case_id}: NetworkObservation cannot substantiate isolation"
+            )
+    isolation_reasons = tuple(sorted(set(isolation_errors)))
     statuses = [item.case.bundle.status for item in items]
     metric, scores = _exploratory_metric_scores(items)
     observations = (
         Observation(metric=metric, value=mean(scores), n_runs=len(scores)),
     ) if scores else ()
     lineage = tuple(
-        LineageRef(
-            run_id=item.case.bundle.run_id,
-            case_id=item.case.case_id,
-            evidence_bundle_ref=artifact_ref(item.case.bundle_path),
-            schedule_receipt_ref=artifact_ref(item.schedule_receipt_path),
-            case_set_receipt_ref=artifact_ref(item.case_set_receipt_path),
-        )
+        _lineage_ref(item)
         for item in items
     )
     return ObservationReport(
         purpose=RunPurpose.exploratory,
-        experiment_id=experiment_id,
-        manifest_digest=experiment_digest,
+        subject_kind=subject_kind,
+        experiment_id=derived_experiment_id,
+        manifest_digest=derived_manifest_digest,
+        isolation_valid=not isolation_reasons,
+        isolation_reasons=isolation_reasons,
         observations=observations,
         failure_breakdown=dict(Counter(statuses)),
         lineage=lineage,
+        record_index_ref=record_index_ref,
     )
 
 

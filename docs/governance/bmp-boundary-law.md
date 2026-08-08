@@ -2,8 +2,9 @@
 
 Status: **BINDING FOR MAGENTABENCH.**
 
-This document governs the boundary between the Benchmark Measurement Protocol
-(BMP) and Magenta's Harness Component Protocol (HCP). The HCP documents cited
+This document governs the boundary between the benchmark-side protocol (BMP)
+and Magenta's Harness Component Protocol (HCP). BMP belongs to MagentaBench;
+HCP belongs to the Magenta agent. The HCP documents cited
 below are authoritative for HCP. BMP code, schemas, adapters, tests, and
 configuration MUST comply with this law.
 

@@ -6,6 +6,7 @@ from .manager import (
     EnvironmentBuildError,
     EnvironmentDriftError,
     EnvironmentManager,
+    mount_content_digest,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "EnvironmentBuildError",
     "EnvironmentDriftError",
     "EnvironmentManager",
+    "mount_content_digest",
 ]

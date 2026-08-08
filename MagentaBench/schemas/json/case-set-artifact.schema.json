@@ -6,6 +6,7 @@
       "properties": {
         "path": {
           "minLength": 1,
+          "pattern": "^/",
           "title": "Path",
           "type": "string"
         },
@@ -80,7 +81,10 @@
       "default": "fixed",
       "enum": [
         "fixed",
-        "seeded_random"
+        "seeded_random",
+        "random",
+        "custom",
+        "explicit"
       ],
       "title": "Case Order",
       "type": "string"

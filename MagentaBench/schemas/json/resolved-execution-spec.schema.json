@@ -332,7 +332,9 @@
           "enum": [
             "fixed",
             "seeded_random",
-            "random"
+            "random",
+            "custom",
+            "explicit"
           ],
           "title": "Case Order",
           "type": "string"
@@ -352,6 +354,14 @@
           "default": false,
           "title": "Deterministic Conformance",
           "type": "boolean"
+        },
+        "explicit_case_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Explicit Case Ids",
+          "type": "array"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",

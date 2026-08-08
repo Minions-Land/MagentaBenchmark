@@ -14,7 +14,7 @@ from MagentaBench.runner.adapter_registry import (
 )
 from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.gates import evaluate_run_report
-from MagentaBench.runner.pipeline import Pipeline
+from MagentaBench.runner.pipeline import Pipeline, ResumeDriftError
 from MagentaBench.schemas import ArtifactRef, CaseArtifact, CaseSetArtifact
 
 ROOT = Path(__file__).parents[1]
@@ -163,21 +163,12 @@ def test_report_rehashes_case_set_content_refs(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="case-set content reference drift"):
         evaluate_run_report(
-            experiment_id="fake-conformance-sweep",
-            experiment_digest="0" * 64,
             completed=result.runs,
             expected_run_ids=tuple(
                 item.plan.manifest.metadata.run_id for item in result.runs
             ),
-            control_id="fake.control",
-            treatment_id="fake.treatment",
-            deterministic_conformance=True,
-            counterbalanced=True,
         )
-    with pytest.raises(
-        AdapterRegistryError,
-        match="existing case-set public input byte drift",
-    ):
+    with pytest.raises(ResumeDriftError, match="execution instance"):
         Pipeline(ROOT, tmp_path).run(EXPERIMENT)
 
 
@@ -211,7 +202,7 @@ def test_case_set_identity_excludes_artifact_locations(tmp_path: Path) -> None:
     assert left.canonical_digest() == right.canonical_digest()
 
 
-def test_pipeline_rejects_multi_case_identity_at_activation(
+def test_pipeline_materializes_multi_case_lineage(
     tmp_path: Path,
 ) -> None:
     project, experiment = _project(tmp_path)
@@ -232,16 +223,37 @@ output = "answer.txt"
         encoding="utf-8",
     )
     records = tmp_path / "records"
-    with pytest.raises(
-        RuntimeError,
-        match=(
-            "multi-case execution identity is unimplemented: .* "
-            "resolved 2 selected cases"
+    result = Pipeline(project, records).run(experiment)
+    assert len(result.runs) == 16
+    assert {item.case.case_id for item in result.runs} == {"case-001", "case-002"}
+    assert len(result.report.lineage) == 16
+    assert all(item.run_id for item in result.report.lineage)
+    assert len({item.case_id for item in result.report.lineage}) == 2
+    assert tuple(records.rglob("schedule_activation_receipt.json"))
+    assert tuple(records.rglob("evidence_bundle.json"))
+
+
+def test_pipeline_rejects_multi_case_checkpoint_until_ledger_is_widened(
+    tmp_path: Path,
+) -> None:
+    project, experiment = _project(tmp_path)
+    protocol = project / "registries/protocols/fake-deterministic.toml"
+    protocol.write_text(
+        protocol.read_text(encoding="utf-8").replace(
+            'checkpoint_policy = "disabled"', 'checkpoint_policy = "save"'
         ),
-    ):
-        Pipeline(project, records).run(experiment)
-    assert not tuple(records.rglob("schedule_activation_receipt.json"))
-    assert not tuple(records.rglob("evidence_bundle.json"))
+        encoding="utf-8",
+    )
+    task_manifest = (
+        project / "MagentaBench/conformance/fixtures/fake_benchmark/tasks.toml"
+    )
+    task_manifest.write_text(
+        task_manifest.read_text(encoding="utf-8")
+        + '\n[[tasks]]\nid = "case-002"\ninstruction = "second"\nexpected = "BMP_OK"\noutput = "answer.txt"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeError, match="multi-case checkpoint identity"):
+        Pipeline(project, tmp_path / "records").run(experiment)
 
 
 def test_registry_has_no_loader_or_compatibility_fallback() -> None:

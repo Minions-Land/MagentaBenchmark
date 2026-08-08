@@ -6,6 +6,7 @@
       "properties": {
         "path": {
           "minLength": 1,
+          "pattern": "^/",
           "title": "Path",
           "type": "string"
         },
@@ -385,6 +386,7 @@
       "properties": {
         "path": {
           "minLength": 1,
+          "pattern": "^/",
           "title": "Path",
           "type": "string"
         },
@@ -584,7 +586,9 @@
       "enum": [
         "fixed",
         "seeded_random",
-        "random"
+        "random",
+        "custom",
+        "explicit"
       ],
       "title": "Declared Case Order",
       "type": "string"

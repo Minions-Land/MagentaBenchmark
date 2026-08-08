@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -19,7 +20,6 @@ from MagentaBench.schemas import (
     EnvironmentReceipt,
     EnvironmentSpec,
     PackageRecord,
-    canonical_digest,
 )
 
 from ..evidence import atomic_write_json
@@ -55,6 +55,69 @@ class EnvironmentDriftError(EnvManagerError):
     """A cached environment no longer matches its content-addressed receipt."""
 
 
+def mount_content_digest(path: str | Path) -> str:
+    """Hash one mounted file or a complete, symlink-free directory tree."""
+
+    declared = Path(path).expanduser()
+    if declared.is_symlink():
+        raise EnvironmentDriftError(
+            f"mount content cannot be a symlink: {declared}"
+        )
+    try:
+        root = declared.resolve(strict=True)
+    except OSError as exc:
+        raise EnvironmentDriftError(
+            f"mount content is missing or unreadable: {declared}: {exc}"
+        ) from exc
+    if root.is_file():
+        digest = hashlib.sha256()
+        with root.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+    if not root.is_dir():
+        raise EnvironmentDriftError(
+            f"mount content must be a regular file or directory: {root}"
+        )
+
+    entries: list[dict[str, object]] = []
+    for candidate in sorted(
+        root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()
+    ):
+        relative = candidate.relative_to(root).as_posix()
+        if candidate.is_symlink():
+            raise EnvironmentDriftError(
+                f"mount directory contains a symlink: {candidate}"
+            )
+        if candidate.is_dir():
+            entries.append({"path": relative, "type": "directory"})
+            continue
+        if not candidate.is_file():
+            raise EnvironmentDriftError(
+                f"mount directory contains a non-regular entry: {candidate}"
+            )
+        file_digest = hashlib.sha256()
+        with candidate.open("rb") as handle:
+            for block in iter(lambda: handle.read(1024 * 1024), b""):
+                file_digest.update(block)
+        entries.append(
+            {
+                "path": relative,
+                "type": "file",
+                "size_bytes": candidate.stat().st_size,
+                "sha256": file_digest.hexdigest(),
+            }
+        )
+    payload = json.dumps(
+        entries,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 class EnvManager:
     """Build and cache uv virtual environments by canonical spec digest."""
 
@@ -83,7 +146,21 @@ class EnvManager:
 
     @staticmethod
     def spec_digest(spec: EnvironmentSpec) -> str:
-        return canonical_digest(spec)
+        return spec.canonical_digest()
+
+    @staticmethod
+    def _validate_mounts(spec: EnvironmentSpec) -> None:
+        for mount in spec.mounts:
+            if mount.content_sha256 is None:
+                raise EnvironmentDriftError(
+                    f"mount {mount.name!r} lacks required content_sha256"
+                )
+            observed = mount_content_digest(mount.host_path)
+            if observed != mount.content_sha256:
+                raise EnvironmentDriftError(
+                    f"mount {mount.name!r} content digest drift: "
+                    f"expected {mount.content_sha256}, got {observed}"
+                )
 
     def environment_directory(self, spec: EnvironmentSpec) -> Path:
         return self.cache_root / self.spec_digest(spec)
@@ -306,6 +383,7 @@ print(json.dumps(records, sort_keys=True))
         """
 
         requested = self._validate_version_pin(spec.python_version)
+        self._validate_mounts(spec)
         digest = self.spec_digest(spec)
         if expected_digest is not None and digest != expected_digest:
             raise EnvironmentDriftError(
@@ -382,4 +460,5 @@ __all__ = [
     "EnvironmentBuildError",
     "EnvironmentDriftError",
     "EnvironmentManager",
+    "mount_content_digest",
 ]

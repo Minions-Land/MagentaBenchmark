@@ -46,6 +46,7 @@ from MagentaBench.schemas import (
     load_subject_spec,
     schema_documents,
 )
+from MagentaBench.schemas.models import SubjectKind
 from MagentaBench.schemas.compiler import (
     _compile_benchmark_artifact as compile_benchmark_artifact,
     _compile_subject_artifact as compile_subject_artifact,
@@ -135,6 +136,19 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
     assert documents["subject-spec"]["discriminator"]["propertyName"] == "kind"
     assert "claim_eligible" in documents["claim-report"]["properties"]
     assert "effect_is_causal_claim" in documents["claim-report"]["properties"]
+    gate_order = [
+        "execution_valid",
+        "protocol_valid",
+        "isolation_valid",
+        "scoring_valid",
+        "statistics_valid",
+    ]
+    claim_schema = documents["claim-report"]
+    assert claim_schema["properties"]["gates"]["propertyNames"]["enum"] == gate_order
+    assert (
+        claim_schema["allOf"][0]["if"]["properties"]["gates"]["required"]
+        == gate_order
+    )
 
 
 def test_claim_design_is_required_and_closed(tmp_path: Path) -> None:
@@ -218,21 +232,32 @@ def test_claim_scope_and_purpose_are_identity_bearing(tmp_path: Path) -> None:
 def test_observation_report_is_structurally_not_a_claim_report() -> None:
     report = ObservationReport(
         purpose=RunPurpose.exploratory,
+        subject_kind=SubjectKind.fake,
         experiment_id="exploration",
         manifest_digest="a" * 64,
+        isolation_valid=False,
+        isolation_reasons=("network evidence unavailable",),
     )
     serialized = report.model_dump(mode="json")
     assert "claim_eligible" not in serialized
     assert "effect" not in serialized
     assert "gates" not in serialized
+    assert serialized["isolation_valid"] is False
     assert isinstance(RunReportAdapter.validate_python(serialized), ObservationReport)
     with pytest.raises(ValidationError):
         RunReportAdapter.validate_python(serialized | {"claim_eligible": True})
+    with pytest.raises(ValidationError, match="requires failure reasons"):
+        ObservationReport.model_validate(
+            serialized | {"isolation_valid": False, "isolation_reasons": []}
+        )
+    with pytest.raises(ValidationError, match="cannot have failure reasons"):
+        ObservationReport.model_validate(serialized | {"isolation_valid": True})
 
 
 def test_report_lineage_requires_locatable_evidence_refs() -> None:
     payload = {
         "run_id": "run-1",
+        "attempt_id": "run-1__case-1__attempt-0",
         "case_id": "case-1",
         "evidence_bundle_ref": {
             "path": "/records/run-1/evidence_bundle.json",
@@ -261,7 +286,7 @@ def test_report_lineage_requires_locatable_evidence_refs() -> None:
         LineageRef.model_validate(
             {key: value for key, value in payload.items() if key != "case_set_receipt_ref"}
         )
-    with pytest.raises(ValidationError, match="absolute"):
+    with pytest.raises(ValidationError, match="absolute|pattern"):
         LineageRef.model_validate(
             payload
             | {

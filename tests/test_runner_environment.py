@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from MagentaBench.schemas import EnvironmentSpec, ProvenanceRecord
+from MagentaBench.schemas import EnvironmentSpec, MountSpec, ProvenanceRecord
 
 from MagentaBench.runner.env.manager import (
     EnvManager,
     EnvManagerError,
     EnvironmentBuildError,
     EnvironmentDriftError,
+    mount_content_digest,
 )
 
 
@@ -81,6 +82,86 @@ def test_environment_manager_digest_drift_is_strict(tmp_path: Path) -> None:
     manager = EnvManager(tmp_path / "envs", uv_executable="/bin/echo")
     with pytest.raises(EnvironmentDriftError, match="digest drift"):
         manager.ensure(spec, expected_digest="0" * 64)
+
+
+def test_environment_identity_is_independent_of_checkout_path(tmp_path: Path) -> None:
+    first = tmp_path / "checkout-a" / "data"
+    second = tmp_path / "checkout-b" / "data"
+    for root in (first, second):
+        root.mkdir(parents=True)
+        (root / "input.txt").write_text("same bytes\n", encoding="utf-8")
+    digest = mount_content_digest(first)
+    first_spec = EnvironmentSpec(
+        id="portable-mount",
+        python_version="3.11",
+        mounts=(
+            MountSpec(
+                host_path=str(first),
+                name="dataset",
+                content_sha256=digest,
+                container_path="/data",
+            ),
+        ),
+    )
+    second_spec = first_spec.model_copy(
+        update={
+            "mounts": (
+                first_spec.mounts[0].model_copy(
+                    update={"host_path": str(second)}
+                ),
+            )
+        }
+    )
+
+    assert EnvManager.spec_digest(first_spec) == EnvManager.spec_digest(second_spec)
+
+
+def test_environment_manager_rejects_mount_byte_drift_before_build(
+    tmp_path: Path,
+) -> None:
+    mount = tmp_path / "dataset"
+    mount.mkdir()
+    payload = mount / "input.txt"
+    payload.write_text("pinned\n", encoding="utf-8")
+    spec = EnvironmentSpec(
+        id="mount-drift",
+        python_version="3.11",
+        mounts=(
+            MountSpec(
+                host_path=str(mount),
+                name="dataset",
+                content_sha256=mount_content_digest(mount),
+                container_path="/data",
+            ),
+        ),
+    )
+    payload.write_text("changed\n", encoding="utf-8")
+    manager = EnvManager(tmp_path / "envs", uv_executable="/bin/echo")
+
+    with pytest.raises(EnvironmentDriftError, match="content digest drift"):
+        manager.ensure(spec)
+
+    assert not manager.environment_directory(spec).exists()
+
+
+def test_environment_manager_requires_mount_content_digest(tmp_path: Path) -> None:
+    mount = tmp_path / "dataset"
+    mount.mkdir()
+    spec = EnvironmentSpec(
+        id="mount-without-digest",
+        python_version="3.11",
+        mounts=(
+            MountSpec(
+                host_path=str(mount),
+                name="dataset",
+                container_path="/data",
+            ),
+        ),
+    )
+    manager = EnvManager(tmp_path / "envs", uv_executable="/bin/echo")
+
+    with pytest.raises(EnvironmentDriftError, match="lacks required"):
+        manager.ensure(spec)
 
 
 def test_environment_manager_rejects_bad_link_mode(tmp_path: Path) -> None:

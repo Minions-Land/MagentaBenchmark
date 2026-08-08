@@ -52,6 +52,7 @@ from MagentaBench.schemas.compiler import (
     _compile_subject_artifact,
     _resolve_execution_spec,
 )
+from MagentaBench.schemas.models import SubjectKind
 
 
 class CompilationError(ValueError):
@@ -971,6 +972,7 @@ class Compiler:
             )
             report: Any = ClaimReport(
                 purpose=RunPurpose.claim,
+                subject_kind=SubjectKind(runs[0].manifest.subject.kind),
                 experiment_id=experiment_id,
                 manifest_digest=sha256_bytes(digest_basis),
                 gates={
@@ -986,8 +988,11 @@ class Compiler:
         else:
             report = ObservationReport(
                 purpose=RunPurpose.exploratory,
+                subject_kind=SubjectKind(runs[0].manifest.subject.kind),
                 experiment_id=experiment_id,
                 manifest_digest=sha256_bytes(digest_basis),
+                isolation_valid=False,
+                isolation_reasons=(reason,),
                 observations=(),
                 failure_breakdown={},
                 lineage=(),

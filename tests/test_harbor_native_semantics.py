@@ -63,6 +63,92 @@ def test_native_job_trial_uses_child_result_artifact_without_answer(tmp_path: Pa
     assert case.bundle.output_refs
 
 
+def test_harbor_020_disk_job_result_is_not_ingested_as_a_second_trial(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "harbor-020-job"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps(
+            {
+                "id": "job-id",
+                "n_total_trials": 1,
+                "stats": {"n_completed_trials": 1, "n_errored_trials": 0},
+            }
+        ),
+        encoding="utf-8",
+    )
+    child = root / "regex-log__GifA3FE"
+    child.mkdir()
+    (child / "result.json").write_text(
+        json.dumps(
+            {
+                "task_name": "terminal-bench/regex-log",
+                "trial_name": "regex-log__GifA3FE",
+                "agent_result": {
+                    "n_input_tokens": None,
+                    "n_output_tokens": None,
+                    "cost_usd": None,
+                },
+                "verifier_result": {"rewards": {"reward": 1.0}},
+                "started_at": "2026-08-08T06:58:31.216790Z",
+                "finished_at": "2026-08-08T06:58:43.716790Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cases = _parse_test_results(
+        _run(),
+        result_root=root,
+        authoritative_reward_key="reward",
+        reward_pass_value=1.0,
+    )
+    assert len(cases) == 1
+    case = cases[0]
+    assert case.case_id == "case-001__regex-log__GifA3FE"
+    assert case.bundle.status == RunStatus.pass_
+    assert case.bundle.usage is not None
+    assert case.bundle.usage.wall_clock_seconds == 12.5
+    copied_results = {
+        Path(ref.path)
+        for ref in (*case.bundle.log_refs, *case.bundle.output_refs)
+        if Path(ref.path).name == "result.json"
+    }
+    assert len(copied_results) == 2
+    assert all(path.is_relative_to(root / "bmp_cases") for path in copied_results)
+
+
+def test_completed_native_verifier_timeout_is_verifier_error(tmp_path: Path) -> None:
+    root = tmp_path / "completed-verifier-timeout"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps(
+            {
+                "trial_name": "trial-a",
+                "agent_result": {
+                    "n_input_tokens": None,
+                    "n_output_tokens": None,
+                },
+                "verifier_result": None,
+                "exception_info": {
+                    "exception_type": "VerifierTimeoutError",
+                    "exception_message": "Verifier execution timed out",
+                },
+                "verifier": {
+                    "started_at": "2026-08-08T00:00:01Z",
+                    "finished_at": "2026-08-08T00:01:31Z",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    case = _parse_test_result(_run(), result_root=root)
+    assert case.bundle.status == RunStatus.verifier_error
+    assert case.bundle.verifier_evidence is not None
+    assert case.bundle.verifier_evidence.details["incomplete_phase"] is None
+
+
 def test_native_named_rewards_require_adapter_semantics(tmp_path: Path) -> None:
     root = tmp_path / "multi"
     root.mkdir()
