@@ -1694,13 +1694,27 @@ class NetworkObservation(StrictModel):
 
 
 class SubjectKind(str, Enum):
-    """Resolved kind of the subject that actually entered an execution path."""
+    """Execution/artifact shape that actually entered an execution path.
+
+    This is deliberately separate from :class:`ComparisonKind`: two subjects
+    with different runtime packaging (for example ``hcp_harness`` and
+    ``opaque_agent``) can both represent a complete Coding Agent.
+    """
 
     hcp_harness = "hcp_harness"
     opaque_agent = "opaque_agent"
     evolver = "evolver"
     meta_evolver = "meta_evolver"
     fake = "fake"
+
+
+class ComparisonKind(str, Enum):
+    """The four semantic subjects that BMP is allowed to compare."""
+
+    agent = "agent"
+    coding_agent = "coding_agent"
+    evolution_method = "evolution_method"
+    meta_evolution_method = "meta_evolution_method"
 
 
 class JournalRecord(StrictModel):
@@ -1745,110 +1759,315 @@ class ScoringKind(str, Enum):
     continuous = "continuous"
 
 
-def _validate_scoring_semantics(
-    scoring_kind: ScoringKind,
-    authoritative_reward_metric: str | None,
-    reward_pass_value: float | None,
-) -> None:
-    if authoritative_reward_metric is None:
-        raise ValueError("authoritative_reward_metric is required")
-    if scoring_kind == ScoringKind.binary and reward_pass_value is None:
-        raise ValueError("binary scoring requires reward_pass_value")
-    if scoring_kind == ScoringKind.continuous and reward_pass_value is not None:
-        raise ValueError("continuous scoring forbids reward_pass_value")
+class RunStatus(str, Enum):
+    """Closed outcome taxonomy retained for every planned rollout."""
+
+    pass_ = "pass"
+    verified_fail = "verified_fail"
+    scored = "scored"
+    no_output = "no_output"
+    invalid_output = "invalid_output"
+    timeout = "timeout"
+    agent_error = "agent_error"
+    harness_fault = "harness_fault"
+    verifier_error = "verifier_error"
+    infra_error = "infra_error"
+    unsupported = "unsupported"
 
 
-class TaskSuiteBenchmarkSpec(SourceRegistryEntry):
-    kind: Literal["task_suite"]
-    task_manifest: str = Field(min_length=1)
-    verifier: str = Field(min_length=1)
-    # Benchmark-owned scoring semantics; never configure these on a backend.
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
+class MetricValueKind(str, Enum):
+    binary = "binary"
+    count = "count"
+    continuous = "continuous"
+    duration = "duration"
+    tokens = "tokens"
+    currency = "currency"
+    rate = "rate"
+    efficiency = "efficiency"
 
-    @field_validator("task_manifest")
+
+class MetricLevel(str, Enum):
+    event = "event"
+    rollout = "rollout"
+    task = "task"
+    configuration = "configuration"
+    experiment = "experiment"
+
+
+class MetricDirection(str, Enum):
+    maximize = "maximize"
+    minimize = "minimize"
+    neutral = "neutral"
+
+
+class MetricSource(str, Enum):
+    evaluator = "evaluator"
+    usage = "usage"
+    trajectory = "trajectory"
+    schedule = "schedule"
+    derived = "derived"
+
+
+class MetricFormula(str, Enum):
+    direct_v1 = "direct_v1"
+    mean_v1 = "mean_v1"
+    sum_v1 = "sum_v1"
+    pass_at_1_v1 = "pass_at_1_v1"
+    ratio_v1 = "ratio_v1"
+    successes_per_million_tokens_v1 = "successes_per_million_tokens_v1"
+    completed_per_hour_v1 = "completed_per_hour_v1"
+
+
+class MetricPopulation(str, Enum):
+    evaluator_observations = "evaluator_observations"
+    planned_rollouts = "planned_rollouts"
+    launched_rollouts = "launched_rollouts"
+    completed_rollouts = "completed_rollouts"
+    observed_rollouts = "observed_rollouts"
+    experiment_wall_clock = "experiment_wall_clock"
+
+
+class MetricStatusDisposition(str, Enum):
+    observe = "observe"
+    zero = "zero"
+    exclude = "exclude"
+    invalidate = "invalidate"
+
+
+class MetricMissingDisposition(str, Enum):
+    zero = "zero"
+    exclude = "exclude"
+    invalidate = "invalidate"
+
+
+class MetricSpec(RegistryEntry):
+    """Versioned metric semantics selected only through a TOML registry.
+
+    The formula, population, failure handling, unit, and dependency identities
+    are all part of the metric digest. This prevents a familiar display name
+    such as ``pass@1`` from silently changing denominator or exception policy.
+    """
+
+    kind: Literal["metric"]
+    value_kind: MetricValueKind
+    level: MetricLevel
+    direction: MetricDirection
+    unit: str = Field(min_length=1)
+    source: MetricSource
+    source_field: str | None = Field(default=None, min_length=1)
+    formula: MetricFormula
+    population: MetricPopulation
+    inputs: tuple[str, ...] = ()
+    scale: float = Field(default=1.0, gt=0, strict=True)
+    missing_observation: MetricMissingDisposition
+    status_policy: Mapping[str, MetricStatusDisposition] = Field(default_factory=dict)
+
+    @field_validator("inputs")
     @classmethod
-    def task_manifest_is_relative(cls, value: str) -> str:
-        return _validate_logical_relative_path(value, field_name="task_manifest")
-
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "TaskSuiteBenchmarkSpec":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
-
-
-class ToolAgentSuiteBenchmarkSpec(SourceRegistryEntry):
-    kind: Literal["tool_agent_suite"]
-    task_root: str = Field(min_length=1)
-    input_contract: str = Field(min_length=1)
-    output_contract: tuple[str, ...] = Field(min_length=1)
-    evaluator: str = Field(min_length=1)
-    # Benchmark-owned scoring semantics; never configure these on a backend.
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
-
-    @field_validator("task_root")
-    @classmethod
-    def task_root_is_relative(cls, value: str) -> str:
-        return _validate_logical_relative_path(value, field_name="task_root")
-
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "ToolAgentSuiteBenchmarkSpec":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
-
-
-class CustomBenchmarkSpec(SourceRegistryEntry):
-    """Generic benchmark declaration owned by an external BMP adapter."""
-
-    kind: Literal["custom"]
-    content_globs: tuple[str, ...] = Field(min_length=1)
-    verifier: str = Field(min_length=1)
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
-    config: Mapping[str, Any] = Field(default_factory=dict)
-
-    @field_validator("content_globs")
-    @classmethod
-    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def input_metric_ids_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if len(set(values)) != len(values):
-            raise ValueError("custom benchmark content_globs must be unique")
-        for value in values:
-            _validate_logical_relative_path(value, field_name="content_globs")
+            raise ValueError("metric input ids must be unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("metric input ids must be valid BMP ids")
         return values
+
+    @field_validator("status_policy", mode="before")
+    @classmethod
+    def status_policy_is_closed(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            raise ValueError("metric status_policy must be a table")
+        unknown = sorted(set(value) - {status.value for status in RunStatus})
+        if unknown:
+            raise ValueError(f"metric status_policy contains unknown statuses: {unknown}")
+        return dict(value)
+
+    @model_validator(mode="after")
+    def metric_contract_is_coherent(self) -> "MetricSpec":
+        direct_sources = {
+            MetricSource.evaluator,
+            MetricSource.usage,
+            MetricSource.trajectory,
+            MetricSource.schedule,
+        }
+        if self.source in direct_sources and self.source_field is None:
+            raise ValueError("direct metric sources require source_field")
+        if self.source == MetricSource.derived and self.source_field is not None:
+            raise ValueError("derived metrics forbid source_field")
+        if self.source == MetricSource.derived and not self.inputs:
+            raise ValueError("derived metrics require input metric ids")
+        if self.source != MetricSource.derived and self.inputs:
+            raise ValueError("non-derived metrics forbid input metric ids")
+        expected_input_count = {
+            MetricFormula.ratio_v1: 2,
+            MetricFormula.successes_per_million_tokens_v1: 2,
+        }.get(self.formula)
+        if expected_input_count is not None and len(self.inputs) != expected_input_count:
+            raise ValueError(
+                f"metric formula {self.formula.value!r} requires "
+                f"{expected_input_count} inputs"
+            )
+        if self.formula in {
+            MetricFormula.ratio_v1,
+            MetricFormula.successes_per_million_tokens_v1,
+        } and self.source != MetricSource.derived:
+            raise ValueError("ratio formulas require source='derived'")
+        if self.formula == MetricFormula.pass_at_1_v1:
+            if self.source != MetricSource.evaluator:
+                raise ValueError("pass_at_1_v1 requires evaluator reward evidence")
+            if self.population != MetricPopulation.planned_rollouts:
+                raise ValueError("pass_at_1_v1 requires population='planned_rollouts'")
+            expected_statuses = {status.value for status in RunStatus}
+            if set(self.status_policy) != expected_statuses:
+                raise ValueError(
+                    "pass_at_1_v1 requires an explicit policy for every rollout status"
+                )
+        if self.source == MetricSource.derived and self.status_policy:
+            raise ValueError("derived metrics inherit inputs and forbid status_policy")
+        return self
+
+
+class MetricArtifact(StrictModel):
+    metric: MetricSpec
+    declaration_ref: ArtifactRef
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "metric": self.metric.model_dump(mode="json"),
+            "declaration_ref": self.declaration_ref.identity_data(),
+        }
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+class EvaluatorMetricBinding(StrictModel):
+    """Maps one adapter-native output key onto a registered metric identity."""
+
+    metric_id: str = Field(pattern=ID_PATTERN)
+    source_key: str = Field(min_length=1)
+    authoritative: bool = False
+    success_operator: Literal["eq", "gte", "lte", "gt", "lt", "range"] | None = None
+    success_threshold: float | None = None
+    success_upper_bound: float | None = None
+    absolute_tolerance: float = Field(default=0.0, ge=0, strict=True)
+
+
+class EvaluatorSpec(RegistryEntry):
+    """TOML-registered evaluator and its emitted metric bindings."""
+
+    kind: Literal["evaluator"]
+    implementation: str = Field(min_length=1)
+    scoring_kind: ScoringKind
+    metrics: tuple[EvaluatorMetricBinding, ...] = Field(min_length=1)
+    config: Mapping[str, Any] = Field(default_factory=dict)
 
     @field_validator("config", mode="before")
     @classmethod
-    def config_is_json_compatible(cls, value: Any) -> Any:
-        return _validate_json_configuration(
-            value, field_name="CustomBenchmarkSpec.config"
-        )
+    def evaluator_config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value, field_name="EvaluatorSpec.config")
 
     @model_validator(mode="after")
-    def freeze_config_tree(self) -> "CustomBenchmarkSpec":
+    def evaluator_contract_is_closed(self) -> "EvaluatorSpec":
+        metric_ids = [binding.metric_id for binding in self.metrics]
+        source_keys = [binding.source_key for binding in self.metrics]
+        if len(set(metric_ids)) != len(metric_ids):
+            raise ValueError("evaluator metric ids must be unique")
+        if len(set(source_keys)) != len(source_keys):
+            raise ValueError("evaluator source keys must be unique")
+        authoritative = [binding for binding in self.metrics if binding.authoritative]
+        if len(authoritative) != 1:
+            raise ValueError("evaluator requires exactly one authoritative metric")
+        reward = authoritative[0]
+        if self.scoring_kind == ScoringKind.binary and (
+            reward.success_operator is None or reward.success_threshold is None
+        ):
+            raise ValueError(
+                "binary evaluator authoritative metric requires success operator and threshold"
+            )
+        if self.scoring_kind == ScoringKind.binary:
+            if (
+                reward.success_operator == "range"
+                and (
+                    reward.success_upper_bound is None
+                    or reward.success_upper_bound < reward.success_threshold
+                )
+            ):
+                raise ValueError("range success requires an ordered upper bound")
+            if (
+                reward.success_operator != "range"
+                and reward.success_upper_bound is not None
+            ):
+                raise ValueError("success_upper_bound is allowed only for range")
+        if self.scoring_kind == ScoringKind.continuous and (
+            reward.success_operator is not None
+            or reward.success_threshold is not None
+            or reward.success_upper_bound is not None
+            or reward.absolute_tolerance != 0
+        ):
+            raise ValueError("continuous evaluator authoritative metric forbids success rules")
+        if any(
+            (
+                binding.success_operator is not None
+                or binding.success_threshold is not None
+                or binding.success_upper_bound is not None
+                or binding.absolute_tolerance != 0
+            )
+            and not binding.authoritative
+            for binding in self.metrics
+        ):
+            raise ValueError("only the authoritative evaluator metric may set success rules")
         object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
         return self
 
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "CustomBenchmarkSpec":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
+    @property
+    def authoritative_metric(self) -> EvaluatorMetricBinding:
+        return next(binding for binding in self.metrics if binding.authoritative)
 
+
+class EvaluatorArtifact(StrictModel):
+    evaluator: EvaluatorSpec
+    declaration_ref: ArtifactRef
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "evaluator": self.evaluator.model_dump(mode="json"),
+            "declaration_ref": self.declaration_ref.identity_data(),
+        }
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+class TaskSuiteBenchmarkSpec(RegistryEntry):
+    kind: Literal["task_suite"]
+
+
+class ToolAgentSuiteBenchmarkSpec(RegistryEntry):
+    kind: Literal["tool_agent_suite"]
+    input_contract: str = Field(min_length=1)
+    output_contract: tuple[str, ...] = Field(min_length=1)
+
+
+class CustomBenchmarkSpec(RegistryEntry):
+    """Generic benchmark declaration owned by an external BMP adapter."""
+
+    kind: Literal["custom"]
 
 BenchmarkSpec = Annotated[
     Union[TaskSuiteBenchmarkSpec, ToolAgentSuiteBenchmarkSpec, CustomBenchmarkSpec],
@@ -1875,113 +2094,358 @@ class AbsoluteSourceArtifact(ArtifactIdentity):
         return value
 
 
-class TaskSuiteBenchmarkArtifact(AbsoluteSourceArtifact):
+class DeclaredRegistryArtifact(ArtifactIdentity):
+    declaration_ref: ArtifactRef
+
+    def identity_data(self) -> dict[str, Any]:
+        data = self.model_dump(mode="json", exclude={"artifact_digest", "declaration_ref"})
+        data["declaration_ref"] = self.declaration_ref.identity_data()
+        return data
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+
+class TaskSuiteBenchmarkArtifact(DeclaredRegistryArtifact):
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["task_suite"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str | None = Field(default=None, min_length=1)
-    task_manifest: str = Field(min_length=1)
-    verifier: str = Field(min_length=1)
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
-
-    @field_validator("task_manifest")
-    @classmethod
-    def task_manifest_is_relative(cls, value: str) -> str:
-        return _validate_logical_relative_path(value, field_name="task_manifest")
-
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "TaskSuiteBenchmarkArtifact":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
 
 
-class ToolAgentSuiteBenchmarkArtifact(AbsoluteSourceArtifact):
+class ToolAgentSuiteBenchmarkArtifact(DeclaredRegistryArtifact):
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["tool_agent_suite"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str | None = Field(default=None, min_length=1)
-    task_root: str = Field(min_length=1)
     input_contract: str = Field(min_length=1)
     output_contract: tuple[str, ...] = Field(min_length=1)
-    evaluator: str = Field(min_length=1)
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
-
-    @field_validator("task_root")
-    @classmethod
-    def task_root_is_relative(cls, value: str) -> str:
-        return _validate_logical_relative_path(value, field_name="task_root")
-
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "ToolAgentSuiteBenchmarkArtifact":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
 
 
-class CustomBenchmarkArtifact(AbsoluteSourceArtifact):
+class CustomBenchmarkArtifact(DeclaredRegistryArtifact):
     """Resolved form of a benchmark implemented by an external adapter."""
 
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["custom"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
-    commit: str | None = Field(default=None, min_length=1)
-    content_globs: tuple[str, ...] = Field(min_length=1)
-    verifier: str = Field(min_length=1)
-    scoring_kind: ScoringKind
-    authoritative_reward_metric: str = Field(min_length=1)
-    reward_pass_value: float | None = None
-    config: Mapping[str, Any] = Field(default_factory=dict)
-
-    @field_validator("content_globs")
-    @classmethod
-    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(values)) != len(values):
-            raise ValueError("custom benchmark content_globs must be unique")
-        for value in values:
-            _validate_logical_relative_path(value, field_name="content_globs")
-        return values
-
-    @field_validator("config", mode="before")
-    @classmethod
-    def config_is_json_compatible(cls, value: Any) -> Any:
-        return _validate_json_configuration(
-            value, field_name="CustomBenchmarkArtifact.config"
-        )
-
-    @model_validator(mode="after")
-    def freeze_config_tree(self) -> "CustomBenchmarkArtifact":
-        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
-        return self
-
-    @model_validator(mode="after")
-    def scoring_semantics_are_complete(self) -> "CustomBenchmarkArtifact":
-        _validate_scoring_semantics(
-            self.scoring_kind,
-            self.authoritative_reward_metric,
-            self.reward_pass_value,
-        )
-        return self
-
 
 BenchmarkArtifact = Annotated[
     Union[TaskSuiteBenchmarkArtifact, ToolAgentSuiteBenchmarkArtifact, CustomBenchmarkArtifact],
     Field(discriminator="kind"),
 ]
 BenchmarkArtifactAdapter = TypeAdapter(BenchmarkArtifact)
+
+
+class DatasetSpec(SourceRegistryEntry):
+    """TOML-registered dataset content and adapter configuration."""
+
+    kind: Literal["dataset"]
+    content_globs: tuple[str, ...] = Field(min_length=1)
+    format: str = Field(default="opaque", min_length=1, pattern=ID_PATTERN)
+    split: str | None = Field(default=None, min_length=1)
+    config: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("dataset content_globs must be unique")
+        return tuple(
+            _validate_logical_relative_path(value, field_name="dataset content_globs")
+            for value in values
+        )
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value, field_name="DatasetSpec.config")
+
+    @model_validator(mode="after")
+    def freeze_config_tree(self) -> "DatasetSpec":
+        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
+        return self
+
+
+class DatasetArtifact(AbsoluteSourceArtifact):
+    """Digest-bound dataset declaration carried by a resolved manifest."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    kind: Literal["dataset"]
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    bmp_version: Literal["0.1"] = BMP_VERSION
+    declaration_ref: ArtifactRef
+    commit: str | None = Field(default=None, min_length=1)
+    content_globs: tuple[str, ...] = Field(min_length=1)
+    format: str = Field(default="opaque", min_length=1, pattern=ID_PATTERN)
+    split: str | None = Field(default=None, min_length=1)
+    config: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("dataset content_globs must be unique")
+        return tuple(
+            _validate_logical_relative_path(value, field_name="dataset content_globs")
+            for value in values
+        )
+
+    @field_validator("config", mode="before")
+    @classmethod
+    def config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value, field_name="DatasetArtifact.config")
+
+    @model_validator(mode="after")
+    def freeze_config_tree(self) -> "DatasetArtifact":
+        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        data = self.model_dump(
+            mode="json",
+            exclude={"artifact_digest", "source", "declaration_ref"},
+        )
+        data["source_content_digest"] = self.source_content_digest
+        data["declaration_ref"] = self.declaration_ref.identity_data()
+        return data
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
+
+
+class EvolutionSelectionSpec(StrictModel):
+    """Registered parent-selection semantics for an evolution method.
+
+    The registry owns the selector and every parameter that can change its
+    realized choice. Runtime receipts add the concrete candidate population
+    and RNG state; they must not invent a selector that is absent here.
+    """
+
+    policy_id: str = Field(pattern=ID_PATTERN)
+    selector: Literal["extreme", "weighted"]
+    metric_id: str = Field(pattern=ID_PATTERN)
+    direction: Literal["maximize", "minimize"]
+    tie_break_rule: str = Field(pattern=ID_PATTERN)
+    child_count_penalty: float = Field(default=0.0, ge=0.0, strict=True)
+    rng_algorithm: str = Field(default="none", pattern=ID_PATTERN)
+    rng_seed: int | None = None
+
+    @model_validator(mode="after")
+    def randomness_matches_selector(self) -> "EvolutionSelectionSpec":
+        if self.selector == "extreme":
+            if self.rng_algorithm != "none" or self.rng_seed is not None:
+                raise ValueError(
+                    "extreme evolution selection forbids RNG algorithm and seed"
+                )
+        elif self.rng_algorithm == "none" or self.rng_seed is None:
+            raise ValueError(
+                "weighted evolution selection requires an RNG algorithm and seed"
+            )
+        return self
+
+    def configuration_data(self) -> dict[str, Any]:
+        """Return the exact adapter configuration projection this spec binds."""
+
+        return self.model_dump(mode="json", exclude_none=True)
+
+
+_REQUIRED_PROTECTED_EVOLUTION_SURFACES = frozenset(
+    {"dataset", "evaluator", "metrics", "sealed_holdout"}
+)
+
+
+def _surface_contains(root: str, path: str) -> bool:
+    return path == root or path.startswith(root + ".")
+
+
+class EvolutionSurfacePolicy(StrictModel):
+    """Explicit mutation boundary for evolution and meta-evolution.
+
+    Paths use a semantic namespace rather than host filesystem paths. A change
+    is authorized only when it is under an editable root and under no protected
+    root. Evaluation authority is always protected so a method cannot improve
+    its own score by rewriting the measurement contract.
+    """
+
+    editable_paths: tuple[str, ...] = Field(min_length=1)
+    protected_paths: tuple[str, ...] = Field(min_length=1)
+
+    @field_validator("editable_paths", "protected_paths")
+    @classmethod
+    def paths_are_canonical(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        path_pattern = re.compile(
+            r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$"
+        )
+        if any(path_pattern.fullmatch(value) is None for value in values):
+            raise ValueError("evolution surfaces must be normalized dotted paths")
+        if len(set(values)) != len(values):
+            raise ValueError("evolution surfaces must be unique")
+        if values != tuple(sorted(values)):
+            raise ValueError("evolution surfaces must be lexicographically sorted")
+        for index, path in enumerate(values):
+            if any(
+                _surface_contains(other, path) or _surface_contains(path, other)
+                for other in values[index + 1 :]
+            ):
+                raise ValueError("evolution surfaces must not contain redundant roots")
+        return values
+
+    @model_validator(mode="after")
+    def surfaces_are_disjoint_and_fail_closed(self) -> "EvolutionSurfacePolicy":
+        overlap = [
+            (editable, protected)
+            for editable in self.editable_paths
+            for protected in self.protected_paths
+            if _surface_contains(editable, protected)
+            or _surface_contains(protected, editable)
+        ]
+        if overlap:
+            raise ValueError(
+                "editable and protected evolution surfaces overlap: "
+                f"{overlap}"
+            )
+        missing = sorted(
+            required
+            for required in _REQUIRED_PROTECTED_EVOLUTION_SURFACES
+            if not any(
+                _surface_contains(protected, required)
+                for protected in self.protected_paths
+            )
+        )
+        if missing:
+            raise ValueError(
+                "evolution surfaces must protect measurement authority: "
+                f"{missing}"
+            )
+        return self
+
+    def assert_changes_allowed(self, changed_paths: tuple[str, ...]) -> None:
+        """Reject a realized mutation outside the registered editable surface."""
+
+        if len(set(changed_paths)) != len(changed_paths):
+            raise ValueError("realized evolution change paths must be unique")
+        forbidden = sorted(
+            path
+            for path in changed_paths
+            if any(
+                _surface_contains(protected, path)
+                for protected in self.protected_paths
+            )
+            or not any(
+                _surface_contains(editable, path)
+                for editable in self.editable_paths
+            )
+        )
+        if forbidden:
+            raise ValueError(
+                "realized evolution changes exceed the registered editable surface: "
+                f"{forbidden}"
+            )
+
+
+class EvolutionMethodSpec(RegistryEntry):
+    """TOML-registered method for evolving a harness candidate."""
+
+    kind: Literal["evolver"]
+    comparison_kind: Literal["evolution_method"]
+    subject_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    target: Literal["harness"]
+    configuration_profile_id: str = Field(pattern=ID_PATTERN)
+    selection_configuration_path: str = Field(
+        default="evolution.selection",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+    )
+    selection: EvolutionSelectionSpec
+    surface: EvolutionSurfacePolicy
+
+
+class MetaEvolutionMethodSpec(RegistryEntry):
+    """TOML-registered method that changes a registered evolver."""
+
+    kind: Literal["meta_evolver"]
+    comparison_kind: Literal["meta_evolution_method"]
+    subject_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    target: Literal["evolver"]
+    parent_evolver_id: str = Field(pattern=ID_PATTERN)
+    configuration_profile_id: str = Field(pattern=ID_PATTERN)
+    selection_configuration_path: str = Field(
+        default="evolution.selection",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+    )
+    selection: EvolutionSelectionSpec
+    surface: EvolutionSurfacePolicy
+
+
+class EvolutionMethodArtifact(DeclaredRegistryArtifact):
+    """Resolved evolver declaration bound to the full configuration identity."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    kind: Literal["evolver"]
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    bmp_version: Literal["0.1"] = BMP_VERSION
+    comparison_kind: Literal["evolution_method"]
+    subject_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    target: Literal["harness"]
+    configuration_profile_id: str = Field(pattern=ID_PATTERN)
+    configuration_digest: str = Field(pattern=SHA256_PATTERN)
+    selection_configuration_path: str = Field(
+        pattern=r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$"
+    )
+    selection: EvolutionSelectionSpec
+    surface: EvolutionSurfacePolicy
+
+    def spec_data(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode="json",
+            exclude={"artifact_digest", "declaration_ref", "configuration_digest"},
+        )
+
+
+class MetaEvolutionMethodArtifact(DeclaredRegistryArtifact):
+    """Resolved meta-evolver bound to its parent method and configuration."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    kind: Literal["meta_evolver"]
+    adapter: str = Field(pattern=ADAPTER_PATTERN)
+    bmp_version: Literal["0.1"] = BMP_VERSION
+    comparison_kind: Literal["meta_evolution_method"]
+    subject_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    target: Literal["evolver"]
+    parent_evolver_id: str = Field(pattern=ID_PATTERN)
+    parent_evolver_digest: str = Field(pattern=SHA256_PATTERN)
+    configuration_profile_id: str = Field(pattern=ID_PATTERN)
+    configuration_digest: str = Field(pattern=SHA256_PATTERN)
+    selection_configuration_path: str = Field(
+        pattern=r"^[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*$"
+    )
+    selection: EvolutionSelectionSpec
+    surface: EvolutionSurfacePolicy
+
+    def spec_data(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode="json",
+            exclude={
+                "artifact_digest",
+                "declaration_ref",
+                "configuration_digest",
+                "parent_evolver_digest",
+            },
+        )
 
 
 class AssemblySidecarRef(StrictModel):
@@ -2221,12 +2685,14 @@ class ConfigurationActivationReceipt(StrictModel):
 
 class AssemblySubjectSpec(SourceRegistryEntry):
     kind: Literal["hcp_harness"]
+    comparison_kind: Literal["agent", "coding_agent"]
     assembly_profile: str = Field(default="default", min_length=1)
     emits_trace: bool = False
 
 
 class OpaqueAgentSubjectSpec(SourceRegistryEntry):
     kind: Literal["opaque_agent"]
+    comparison_kind: Literal["agent", "coding_agent"]
     entrypoint: str = Field(min_length=1)
     launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
@@ -2244,12 +2710,14 @@ class OpaqueAgentSubjectSpec(SourceRegistryEntry):
 
 class EvolverSubjectSpec(SourceRegistryEntry):
     kind: Literal["evolver"]
+    comparison_kind: Literal["evolution_method"]
     target: Literal["harness"]
     emits_trace: bool = False
 
 
 class MetaEvolverSubjectSpec(SourceRegistryEntry):
     kind: Literal["meta_evolver"]
+    comparison_kind: Literal["meta_evolution_method"]
     target: Literal["evolver"]
     emits_trace: bool = False
 
@@ -2293,6 +2761,7 @@ class AssemblySubjectArtifact(AbsoluteSourceArtifact):
 
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["hcp_harness"]
+    comparison_kind: Literal["agent", "coding_agent"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
     commit: str | None = Field(default=None, min_length=1)
@@ -2304,6 +2773,7 @@ class AssemblySubjectArtifact(AbsoluteSourceArtifact):
 class OpaqueAgentSubjectArtifact(AbsoluteSourceArtifact):
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["opaque_agent"]
+    comparison_kind: Literal["agent", "coding_agent"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
     commit: str | None = Field(default=None, min_length=1)
@@ -2325,6 +2795,7 @@ class OpaqueAgentSubjectArtifact(AbsoluteSourceArtifact):
 class EvolverSubjectArtifact(AbsoluteSourceArtifact):
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["evolver"]
+    comparison_kind: Literal["evolution_method"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
     commit: str | None = Field(default=None, min_length=1)
@@ -2335,6 +2806,7 @@ class EvolverSubjectArtifact(AbsoluteSourceArtifact):
 class MetaEvolverSubjectArtifact(AbsoluteSourceArtifact):
     id: str = Field(pattern=ID_PATTERN)
     kind: Literal["meta_evolver"]
+    comparison_kind: Literal["meta_evolution_method"]
     adapter: str = Field(pattern=ADAPTER_PATTERN)
     bmp_version: Literal["0.1"] = BMP_VERSION
     commit: str | None = Field(default=None, min_length=1)
@@ -2799,6 +3271,8 @@ class CaseArtifact(StrictModel):
 class CaseSetArtifact(StrictModel):
     benchmark_id: str = Field(pattern=ID_PATTERN)
     benchmark_digest: str = Field(pattern=SHA256_PATTERN)
+    dataset_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    dataset_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
     loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
     loader_digest: str = Field(pattern=SHA256_PATTERN)
     selection_method: Literal[
@@ -2820,6 +3294,8 @@ class CaseSetArtifact(StrictModel):
 
     @model_validator(mode="after")
     def order_exactly_matches_cases(self) -> "CaseSetArtifact":
+        if (self.dataset_id is None) != (self.dataset_digest is None):
+            raise ValueError("case set dataset id and digest must be present together")
         case_ids = tuple(case.case_id for case in self.cases)
         if not case_ids:
             raise ValueError("case set must contain at least one case")
@@ -2875,6 +3351,8 @@ class CaseSetArtifact(StrictModel):
         return {
             "benchmark_id": self.benchmark_id,
             "benchmark_digest": self.benchmark_digest,
+            "dataset_id": self.dataset_id,
+            "dataset_digest": self.dataset_digest,
             "loader_adapter": self.loader_adapter,
             "loader_digest": self.loader_digest,
             "selection_method": self.selection_method,
@@ -2910,6 +3388,8 @@ class CaseSetActivationReceipt(StrictModel):
     case_set_digest: str = Field(pattern=SHA256_PATTERN)
     loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
     loader_digest: str = Field(pattern=SHA256_PATTERN)
+    dataset_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    dataset_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
     ordered_case_ids: tuple[str, ...]
 
     @field_validator("ordered_case_ids")
@@ -2919,18 +3399,13 @@ class CaseSetActivationReceipt(StrictModel):
             raise ValueError("activated case ids must be non-empty and unique")
         return value
 
-
-class ClaimScope(str, Enum):
-    component = "component"
-    whole_harness = "whole_harness"
-    model = "model"
-    checkpoint = "checkpoint"
-    evolver = "evolver"
-    meta_evolver = "meta_evolver"
-    schedule = "schedule"
-    ablation = "ablation"
-    hyperparameter = "hyperparameter"
-    conformance = "conformance"
+    @model_validator(mode="after")
+    def dataset_binding_is_complete(self) -> "CaseSetActivationReceipt":
+        if (self.dataset_id is None) != (self.dataset_digest is None):
+            raise ValueError(
+                "case-set activation dataset id and digest must be present together"
+            )
+        return self
 
 
 class RunPurpose(str, Enum):
@@ -2938,131 +3413,82 @@ class RunPurpose(str, Enum):
     claim = "claim"
 
 
-SUBJECT_KIND_SCOPE_MATRIX: Mapping[str, frozenset[ClaimScope]] = MappingProxyType({
-    "hcp_harness": frozenset(
-        {
-            ClaimScope.component,
-            ClaimScope.whole_harness,
-            ClaimScope.model,
-            ClaimScope.checkpoint,
-            ClaimScope.schedule,
-            ClaimScope.ablation,
-            ClaimScope.hyperparameter,
-        }
-    ),
-    "opaque_agent": frozenset(
-        {
-            ClaimScope.whole_harness,
-            ClaimScope.model,
-            ClaimScope.checkpoint,
-            ClaimScope.schedule,
-            ClaimScope.hyperparameter,
-        }
-    ),
-    "evolver": frozenset(
-        {
-            ClaimScope.model,
-            ClaimScope.checkpoint,
-            ClaimScope.evolver,
-            ClaimScope.schedule,
-            ClaimScope.hyperparameter,
-        }
-    ),
-    "meta_evolver": frozenset(
-        {
-            ClaimScope.model,
-            ClaimScope.checkpoint,
-            ClaimScope.meta_evolver,
-            ClaimScope.schedule,
-            ClaimScope.hyperparameter,
-        }
-    ),
-    "fake": frozenset({ClaimScope.conformance}),
-})
+SUBJECT_KIND_COMPARISON_MATRIX: Mapping[
+    str, frozenset[ComparisonKind]
+] = MappingProxyType(
+    {
+        "hcp_harness": frozenset(
+            {ComparisonKind.agent, ComparisonKind.coding_agent}
+        ),
+        "opaque_agent": frozenset(
+            {ComparisonKind.agent, ComparisonKind.coding_agent}
+        ),
+        "evolver": frozenset({ComparisonKind.evolution_method}),
+        "meta_evolver": frozenset({ComparisonKind.meta_evolution_method}),
+        # Fake is an execution conformance fixture, not a fifth research subject.
+        "fake": frozenset(),
+    }
+)
 
 
-class ExperimentContrast(StrictModel):
-    # Publish the same coarse shape closure enforced by the Pydantic
-    # validator. JSON Schema cannot portably express equality between the two
-    # arm values, so distinctness remains a typed-model check; field presence,
-    # nullability and the three mutually exclusive forms are portable.
-    model_config = ConfigDict(
-        json_schema_extra={
-            "oneOf": [
-                {
-                    "properties": {
-                        "mode": {"const": "all_arms"},
-                        "counterbalanced": {"const": False},
-                        "control_id": {"type": "null"},
-                        "treatment_id": {"type": "null"},
-                        "factor_path": {"type": "null"},
-                        "control_value": {"type": "null"},
-                        "treatment_value": {"type": "null"},
-                    },
-                    "required": ["mode", "counterbalanced"],
-                },
-                {
-                    "properties": {
-                        "mode": {"const": "one_factor"},
-                        "factor_path": {"type": "null"},
-                        "control_id": {"type": "string"},
-                        "treatment_id": {"type": "string"},
-                        "control_value": {"type": "null"},
-                        "treatment_value": {"type": "null"},
-                    },
-                    "required": [
-                        "mode",
-                        "counterbalanced",
-                        "control_id",
-                        "treatment_id",
-                    ],
-                },
-                {
-                    "properties": {
-                        "mode": {"const": "one_factor"},
-                        "factor_path": {"type": "string"},
-                        "control_id": {"type": "null"},
-                        "treatment_id": {"type": "null"},
-                    },
-                    "required": [
-                        "mode",
-                        "counterbalanced",
-                        "factor_path",
-                        "control_value",
-                        "treatment_value",
-                    ],
-                },
-            ]
-        }
-    )
+class FactorCategory(str, Enum):
+    """Closed semantic classes for registered intervention/nuisance factors."""
 
-    mode: Literal["one_factor", "all_arms"]
-    control_id: str | None = Field(default=None, pattern=ID_PATTERN)
-    treatment_id: str | None = Field(default=None, pattern=ID_PATTERN)
-    # The legacy subject-id form remains valid.  ``factor_path`` makes the
-    # arm axis explicit for model, backend, configuration, schedule, or
-    # adapter-owned factors without teaching BMP a list of special cases.
-    factor_path: str | None = None
-    control_value: Any | None = None
-    treatment_value: Any | None = None
-    counterbalanced: bool
+    subject_identity = "subject_identity"
+    agent_component = "agent_component"
+    model = "model"
+    model_checkpoint = "model_checkpoint"
+    configuration = "configuration"
+    hyperparameter = "hyperparameter"
+    dataset = "dataset"
+    protocol = "protocol"
+    schedule = "schedule"
+    backend = "backend"
+    repetition = "repetition"
+    conformance_fixture = "conformance_fixture"
 
-    @field_validator("factor_path")
+
+class FactorActivationEvidence(str, Enum):
+    subject_activation = "subject_activation"
+    component_activation = "component_activation"
+    model_activation = "model_activation"
+    configuration_activation = "configuration_activation"
+    dataset_activation = "dataset_activation"
+    schedule_activation = "schedule_activation"
+    backend_activation = "backend_activation"
+    none = "none"
+
+
+_FACTOR_EVIDENCE_BY_CATEGORY: Mapping[
+    FactorCategory, FactorActivationEvidence
+] = MappingProxyType(
+    {
+        FactorCategory.subject_identity: FactorActivationEvidence.subject_activation,
+        FactorCategory.agent_component: FactorActivationEvidence.component_activation,
+        FactorCategory.model: FactorActivationEvidence.model_activation,
+        FactorCategory.model_checkpoint: FactorActivationEvidence.model_activation,
+        FactorCategory.configuration: FactorActivationEvidence.configuration_activation,
+        FactorCategory.hyperparameter: FactorActivationEvidence.configuration_activation,
+        FactorCategory.dataset: FactorActivationEvidence.dataset_activation,
+        FactorCategory.protocol: FactorActivationEvidence.schedule_activation,
+        FactorCategory.schedule: FactorActivationEvidence.schedule_activation,
+        FactorCategory.backend: FactorActivationEvidence.backend_activation,
+        FactorCategory.repetition: FactorActivationEvidence.none,
+        FactorCategory.conformance_fixture: FactorActivationEvidence.none,
+    }
+)
+
+
+class FactorLevel(StrictModel):
+    """One named, TOML-registered value in a factor domain."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    value: Any
+
+    @field_validator("value", mode="before")
     @classmethod
-    def contrast_factor_path_is_normalized(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
-        if pattern.fullmatch(value) is None:
-            raise ValueError("contrast factor_path must be a normalized factor name")
-        return value
-
-    @field_validator("control_value", "treatment_value", mode="before")
-    @classmethod
-    def contrast_values_are_json_safe(cls, value: Any) -> Any:
-        if value is None:
-            return None
-        _reject_secret_like_keys(value, field_name="ExperimentContrast arm value")
+    def value_is_secret_free_json(cls, value: Any) -> Any:
+        _reject_secret_like_keys(value, field_name="FactorLevel.value")
         try:
             json.dumps(
                 value,
@@ -3072,73 +3498,174 @@ class ExperimentContrast(StrictModel):
                 separators=(",", ":"),
             )
         except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "ExperimentContrast arm value must be JSON-compatible"
-            ) from exc
+            raise ValueError("factor level value must be JSON-compatible") from exc
+        return _freeze_configuration_tree(value)
+
+
+class FactorSpec(RegistryEntry):
+    """Single source of truth for a sweep axis and its isolation contract.
+
+    A factor declaration replaces the former four-way repetition across
+    ``ClaimScope``, ``factor_path``, ``allowed_diff`` and ``vary``.  The
+    compiler derives every arm and allowed resolved diff from this object.
+    """
+
+    kind: Literal["factor"]
+    category: FactorCategory
+    selector_path: str
+    applies_to: tuple[ComparisonKind, ...]
+    levels: tuple[FactorLevel, ...]
+    resolved_diff_paths: tuple[str, ...] = ()
+    activation_evidence: FactorActivationEvidence
+    value_registry: Literal[
+        "subject",
+        "dataset",
+        "protocol",
+        "backend",
+        "configuration",
+        "evolver",
+        "meta_evolver",
+    ] | None = None
+    metadata_only: bool = False
+
+    @field_validator("selector_path")
+    @classmethod
+    def selector_path_is_normalized(cls, value: str) -> str:
+        if re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_.-]*$", value) is None:
+            raise ValueError("factor selector_path must be a normalized dotted path")
         return value
+
+    @field_validator("resolved_diff_paths")
+    @classmethod
+    def diff_paths_are_normalized_and_unique(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("factor resolved_diff_paths must be unique")
+        if any(
+            re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_.-]*$", value) is None
+            for value in values
+        ):
+            raise ValueError(
+                "factor resolved_diff_paths must be normalized dotted paths"
+            )
+        return values
+
+    @model_validator(mode="after")
+    def factor_contract_is_closed(self) -> "FactorSpec":
+        if not self.levels:
+            raise ValueError("factor levels must be non-empty")
+        level_ids = [level.id for level in self.levels]
+        if len(set(level_ids)) != len(level_ids):
+            raise ValueError("factor level ids must be unique")
+        encoded_values = [
+            json.dumps(
+                level.value,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            for level in self.levels
+        ]
+        if len(set(encoded_values)) != len(encoded_values):
+            raise ValueError("factor level values must be unique")
+        if len(set(self.applies_to)) != len(self.applies_to):
+            raise ValueError("factor applies_to values must be unique")
+        expected_evidence = _FACTOR_EVIDENCE_BY_CATEGORY[self.category]
+        if self.activation_evidence != expected_evidence:
+            raise ValueError(
+                f"factor category {self.category.value!r} requires "
+                f"activation_evidence={expected_evidence.value!r}"
+            )
+        if self.category == FactorCategory.repetition:
+            if not self.metadata_only or self.resolved_diff_paths or self.applies_to:
+                raise ValueError(
+                    "repetition factors must be metadata-only with no diffs or subject"
+                )
+        elif self.category == FactorCategory.conformance_fixture:
+            if self.metadata_only or self.applies_to or not self.resolved_diff_paths:
+                raise ValueError(
+                    "conformance_fixture factors require diffs and no research subject"
+                )
+        else:
+            if self.metadata_only:
+                raise ValueError("research factors cannot be metadata-only")
+            if not self.applies_to:
+                raise ValueError("research factors require applies_to")
+            if not self.resolved_diff_paths:
+                raise ValueError("research factors require resolved_diff_paths")
+        if self.value_registry is not None and any(
+            not isinstance(level.value, str) for level in self.levels
+        ):
+            raise ValueError("registry-backed factor levels must contain string ids")
+        return self
+
+    def level(self, level_id: str) -> FactorLevel:
+        try:
+            return next(level for level in self.levels if level.id == level_id)
+        except StopIteration as exc:
+            raise ValueError(
+                f"factor {self.id!r} has no level {level_id!r}"
+            ) from exc
+
+
+class FactorArtifact(StrictModel):
+    factor: FactorSpec
+    declaration_ref: ArtifactRef
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "factor": self.factor.model_dump(mode="json"),
+            "declaration_ref": self.declaration_ref.identity_data(),
+        }
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+class ExperimentContrast(StrictModel):
+    mode: Literal["one_factor", "all_arms"]
+    design: Literal["direct", "ablation"] = "direct"
+    factor_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    control_level: str | None = Field(default=None, pattern=ID_PATTERN)
+    treatment_level: str | None = Field(default=None, pattern=ID_PATTERN)
+    counterbalanced: bool
 
     @model_validator(mode="after")
     def contrast_shape_matches_mode(self) -> "ExperimentContrast":
-        # ``Any | None`` intentionally permits JSON ``null`` as a meaningful
-        # arm value.  Presence, rather than ``value is not None``, therefore
-        # distinguishes an explicitly declared null arm from an omitted arm.
-        supplied = self.model_fields_set
-        supplied_values = supplied.intersection(
-            {"control_value", "treatment_value"}
-        )
         if self.mode == "one_factor":
-            legacy = self.factor_path is None
-            if legacy:
-                if self.control_id is None or self.treatment_id is None:
-                    raise ValueError(
-                        "one_factor contrast requires control_id and treatment_id"
-                    )
-                if self.control_id == self.treatment_id:
-                    raise ValueError("control_id and treatment_id must be distinct")
-                # Pydantic's canonical JSON representation includes optional
-                # arm fields as ``null`` even when they were omitted.  Treat
-                # null as absent for the legacy subject-id form so manifests
-                # can be independently reloaded from their serialized bytes.
-                if (self.control_value is not None
-                        or self.treatment_value is not None):
-                    raise ValueError(
-                        "subject-id contrast cannot provide control/treatment values"
-                    )
-            else:
-                if self.control_id is not None or self.treatment_id is not None:
-                    raise ValueError(
-                        "factor contrast cannot provide control_id or treatment_id"
-                    )
-                if supplied_values != {
-                    "control_value",
-                    "treatment_value",
-                }:
-                    raise ValueError(
-                        "factor contrast requires control_value and treatment_value"
-                    )
-                if json.dumps(
-                    self.control_value,
-                    sort_keys=True,
-                    ensure_ascii=False,
-                    allow_nan=False,
-                    separators=(",", ":"),
-                ) == json.dumps(
-                    self.treatment_value,
-                    sort_keys=True,
-                    ensure_ascii=False,
-                    allow_nan=False,
-                    separators=(",", ":"),
-                ):
-                    raise ValueError("control_value and treatment_value must be distinct")
-        elif (
-            self.control_id is not None
-            or self.treatment_id is not None
-            or self.factor_path is not None
-            or self.control_value is not None
-            or self.treatment_value is not None
-            or self.counterbalanced
-        ):
-            raise ValueError("all_arms contrast forbids arm filtering and counterbalancing")
+            if (
+                self.factor_id is None
+                or self.control_level is None
+                or self.treatment_level is None
+            ):
+                raise ValueError(
+                    "one_factor contrast requires factor_id and two registered levels"
+                )
+            if self.control_level == self.treatment_level:
+                raise ValueError("control_level and treatment_level must be distinct")
+        else:
+            if (
+                self.factor_id is not None
+                or self.control_level is not None
+                or self.treatment_level is not None
+            ):
+                raise ValueError(
+                    "all_arms contrast forbids control/treatment filtering and factor_id"
+                )
+            if self.counterbalanced:
+                raise ValueError("all_arms contrast cannot be counterbalanced")
+        if self.design == "ablation" and self.mode != "one_factor":
+            raise ValueError("ablation requires a one_factor contrast")
         return self
 
 
@@ -3215,25 +3742,27 @@ class StatisticalAnalysisPlan(StrictModel):
 
 
 class ClaimDesign(StrictModel):
-    """Identity-bearing declaration of a run's attribution and purpose."""
+    """Orthogonal research subject, registered intervention, and purpose."""
 
-    scope: ClaimScope
+    comparison_kind: ComparisonKind | None = None
     purpose: RunPurpose
-    vary: tuple[str, ...]
+    intervention_factor_id: str | None = Field(default=None, pattern=ID_PATTERN)
     statistical_analysis: StatisticalAnalysisPlan | None = None
 
-    @field_validator("vary")
-    @classmethod
-    def vary_paths_are_unique(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(set(value)) != len(value):
-            raise ValueError("vary paths must be unique")
-        return value
+    @model_validator(mode="after")
+    def comparison_and_purpose_are_coherent(self) -> "ClaimDesign":
+        if self.comparison_kind is None:
+            if self.purpose != RunPurpose.exploratory:
+                raise ValueError("claim purpose requires one of the four comparison kinds")
+        elif self.purpose == RunPurpose.claim and self.intervention_factor_id is None:
+            raise ValueError("claim purpose requires a registered intervention factor")
+        return self
 
 
 class TestOverrideReceipt(StrictModel):
     reason: str = Field(min_length=1)
     forced_purpose: Literal["exploratory"] = "exploratory"
-    forced_scope: Literal["conformance"] = "conformance"
+    forced_comparison_kind: None = None
 
 
 class ResolvedManifestMetadata(StrictModel):
@@ -3241,9 +3770,35 @@ class ResolvedManifestMetadata(StrictModel):
     run_id: str = Field(pattern=ID_PATTERN)
     allowed_diff: tuple[str, ...] = ()
     factors: Mapping[str, Any] = Field(default_factory=dict)
+    factor_artifacts: tuple[FactorArtifact, ...] = ()
     configuration: ConfigurationArtifact | None = None
+    evolver: EvolutionMethodArtifact | None = None
+    meta_evolver: MetaEvolutionMethodArtifact | None = None
     adapter_capabilities: tuple[AdapterCapabilityArtifact, ...] = ()
     test_override: TestOverrideReceipt | None = None
+
+    @model_validator(mode="after")
+    def factor_artifacts_are_unique(self) -> "ResolvedManifestMetadata":
+        ids = [artifact.factor.id for artifact in self.factor_artifacts]
+        if len(set(ids)) != len(ids):
+            raise ValueError("resolved factor artifacts must have unique ids")
+        digests = [artifact.artifact_digest for artifact in self.factor_artifacts]
+        if len(set(digests)) != len(digests):
+            raise ValueError("resolved factor artifacts must be content-unique")
+        if self.meta_evolver is not None:
+            if self.evolver is None:
+                raise ValueError("a resolved meta-evolver requires its parent evolver")
+            if self.meta_evolver.parent_evolver_id != self.evolver.id:
+                raise ValueError("meta-evolver parent id differs from resolved evolver")
+            if self.meta_evolver.parent_evolver_digest != self.evolver.artifact_digest:
+                raise ValueError("meta-evolver parent digest differs from resolved evolver")
+        for label, artifact in (
+            ("evolver", self.evolver),
+            ("meta-evolver", self.meta_evolver),
+        ):
+            if artifact is not None and artifact.canonical_digest() != artifact.artifact_digest:
+                raise ValueError(f"resolved {label} artifact digest drift")
+        return self
 
     @field_validator("allowed_diff")
     @classmethod
@@ -3262,6 +3817,9 @@ class ResolvedBmpManifest(StrictModel):
 
     bmp_version: Literal["0.1"] = BMP_VERSION
     benchmark: BenchmarkArtifact
+    dataset: DatasetArtifact
+    evaluator: EvaluatorArtifact
+    metrics: tuple[MetricArtifact, ...]
     subject: SubjectArtifact
     execution: ResolvedExecutionSpec
     claim_design: ClaimDesign
@@ -3273,6 +3831,131 @@ class ResolvedBmpManifest(StrictModel):
     record_root: str | None = None
     resume_count: int = Field(default=0, ge=0)
     runner_invocation_id: str | None = None
+
+    @model_validator(mode="after")
+    def measurement_registry_is_closed(self) -> "ResolvedBmpManifest":
+        metric_ids = [artifact.metric.id for artifact in self.metrics]
+        if not metric_ids or len(set(metric_ids)) != len(metric_ids):
+            raise ValueError("manifest metrics must be non-empty with unique ids")
+        digests = [artifact.artifact_digest for artifact in self.metrics]
+        if len(set(digests)) != len(digests):
+            raise ValueError("manifest metric artifacts must be content-unique")
+        selected = set(metric_ids)
+        emitted = {
+            binding.metric_id for binding in self.evaluator.evaluator.metrics
+        }
+        missing_emitted = sorted(emitted - selected)
+        if missing_emitted:
+            raise ValueError(
+                f"manifest omits evaluator metric artifacts: {missing_emitted}"
+            )
+        missing_inputs = sorted(
+            {
+                input_id
+                for artifact in self.metrics
+                for input_id in artifact.metric.inputs
+                if input_id not in selected
+            }
+        )
+        if missing_inputs:
+            raise ValueError(f"manifest omits metric dependencies: {missing_inputs}")
+        return self
+
+    @model_validator(mode="after")
+    def evolution_method_registry_is_closed(self) -> "ResolvedBmpManifest":
+        """Bind method selection to subject, comparison, metrics, and config."""
+
+        evolver = self.metadata.evolver
+        meta_evolver = self.metadata.meta_evolver
+        subject_kind = self.subject.kind
+        comparison_kind = self.claim_design.comparison_kind
+        if subject_kind == "evolver":
+            if evolver is None or meta_evolver is not None:
+                raise ValueError(
+                    "an evolver subject requires exactly one registered evolver method"
+                )
+            if comparison_kind != ComparisonKind.evolution_method:
+                raise ValueError(
+                    "registered evolver requires comparison_kind='evolution_method'"
+                )
+            active_method: EvolutionMethodArtifact | MetaEvolutionMethodArtifact = evolver
+        elif subject_kind == "meta_evolver":
+            if evolver is None or meta_evolver is None:
+                raise ValueError(
+                    "a meta-evolver subject requires registered parent and meta methods"
+                )
+            if comparison_kind != ComparisonKind.meta_evolution_method:
+                raise ValueError(
+                    "registered meta-evolver requires "
+                    "comparison_kind='meta_evolution_method'"
+                )
+            active_method = meta_evolver
+        else:
+            if evolver is not None or meta_evolver is not None:
+                raise ValueError(
+                    "non-evolution subjects cannot carry evolution method artifacts"
+                )
+            return self
+
+        if active_method.subject_adapter != self.subject.adapter:
+            raise ValueError(
+                "evolution method subject_adapter differs from the resolved subject"
+            )
+        configuration = self.metadata.configuration
+        if configuration is None:
+            raise ValueError("registered evolution methods require configuration")
+        method_artifacts = (
+            (evolver,) if meta_evolver is None else (evolver, meta_evolver)
+        )
+        metric_by_id = {artifact.metric.id: artifact.metric for artifact in self.metrics}
+        for method in method_artifacts:
+            assert method is not None
+            if method.configuration_profile_id not in configuration.profiles:
+                raise ValueError(
+                    f"evolution method {method.id!r} configuration profile is not active"
+                )
+            if method.configuration_digest != configuration.artifact_digest:
+                raise ValueError(
+                    f"evolution method {method.id!r} configuration digest drift"
+                )
+            metric = metric_by_id.get(method.selection.metric_id)
+            if metric is None:
+                raise ValueError(
+                    f"evolution method {method.id!r} selection metric is not registered"
+                )
+            if metric.direction.value != method.selection.direction:
+                raise ValueError(
+                    f"evolution method {method.id!r} selection metric direction drift"
+                )
+            observed: Any = configuration.values
+            try:
+                for part in method.selection_configuration_path.split("."):
+                    if not isinstance(observed, Mapping):
+                        raise KeyError(part)
+                    observed = observed[part]
+            except KeyError as exc:
+                raise ValueError(
+                    f"evolution method {method.id!r} selection configuration is absent"
+                ) from exc
+            if observed != method.selection.configuration_data():
+                raise ValueError(
+                    f"evolution method {method.id!r} selection configuration drift"
+                )
+            selection_leaf_paths = (
+                f"{method.selection_configuration_path}.{key}"
+                for key in method.selection.configuration_data()
+            )
+            wrong_owners = sorted(
+                path
+                for path in selection_leaf_paths
+                if configuration.ownership.get(path) != method.adapter
+            )
+            if wrong_owners:
+                raise ValueError(
+                    f"evolution method {method.id!r} selection configuration "
+                    f"has wrong ownership: {wrong_owners}"
+                )
+        return self
 
     def identity_data(self) -> dict[str, Any]:
         data = self.model_dump(mode="json", exclude=self.IDENTITY_EXCLUDE)
@@ -3308,6 +3991,7 @@ class ResolvedBmpManifest(StrictModel):
 
         data = project_artifact_refs(self, data)
         data["benchmark"].pop("source", None)
+        data["dataset"].pop("source", None)
         data["subject"].pop("source", None)
         environment = data["execution"]["backend"].get("environment")
         source_environment = self.execution.backend.environment
@@ -3334,19 +4018,34 @@ class ResolvedBmpManifest(StrictModel):
         )
         return hashlib.sha256(canonical.encode()).hexdigest()
 
+    @property
+    def authoritative_metric_binding(self) -> EvaluatorMetricBinding:
+        return self.evaluator.evaluator.authoritative_metric
 
-class RunStatus(str, Enum):
-    pass_ = "pass"
-    verified_fail = "verified_fail"
-    scored = "scored"
-    no_output = "no_output"
-    invalid_output = "invalid_output"
-    timeout = "timeout"
-    agent_error = "agent_error"
-    harness_fault = "harness_fault"
-    verifier_error = "verifier_error"
-    infra_error = "infra_error"
-    unsupported = "unsupported"
+    @property
+    def authoritative_reward_metric(self) -> str:
+        """Adapter-native key bound to the registered authoritative metric."""
+
+        return self.authoritative_metric_binding.source_key
+
+    @property
+    def authoritative_metric_artifact(self) -> MetricArtifact:
+        metric_id = self.authoritative_metric_binding.metric_id
+        return next(
+            artifact for artifact in self.metrics if artifact.metric.id == metric_id
+        )
+
+    @property
+    def reward_pass_value(self) -> float | None:
+        return self.authoritative_metric_binding.success_threshold
+
+    @property
+    def reward_success_operator(self) -> str | None:
+        return self.authoritative_metric_binding.success_operator
+
+    @property
+    def scoring_kind(self) -> ScoringKind:
+        return self.evaluator.evaluator.scoring_kind
 
 
 class VerifierEvidence(StrictModel):
@@ -3367,11 +4066,22 @@ class VerifierEvidence(StrictModel):
 class UsageRecord(StrictModel):
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
+    reasoning_tokens: int | None = Field(default=None, ge=0)
     cache_read_tokens: int | None = Field(default=None, ge=0)
     cache_write_tokens: int | None = Field(default=None, ge=0)
     total_tokens: int | None = Field(default=None, ge=0)
     cost: float | None = Field(default=None, ge=0)
     wall_clock_seconds: float | None = Field(default=None, ge=0)
+    model_calls: int | None = Field(default=None, ge=0)
+    tool_calls: int | None = Field(default=None, ge=0)
+    tool_errors: int | None = Field(default=None, ge=0)
+    retries: int | None = Field(default=None, ge=0)
+    cpu_seconds: float | None = Field(default=None, ge=0)
+    peak_memory_bytes: int | None = Field(default=None, ge=0)
+    io_read_bytes: int | None = Field(default=None, ge=0)
+    io_write_bytes: int | None = Field(default=None, ge=0)
+    network_ingress_bytes: int | None = Field(default=None, ge=0)
+    network_egress_bytes: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def token_total_is_consistent(self) -> "UsageRecord":
@@ -3511,6 +4221,7 @@ class EvidenceBundle(StrictModel):
     status: RunStatus
     output_refs: tuple[ArtifactRef, ...] = ()
     trace_ref: ArtifactRef | None = None
+    trajectory_ref: ArtifactRef | None = None
     checkpoint_ref: ArtifactRef | None = None
     log_refs: tuple[ArtifactRef, ...] = ()
     verifier_evidence: VerifierEvidence | None = None
@@ -3557,6 +4268,185 @@ class EvidenceBundle(StrictModel):
 
         receipt = self.provenance.runtime_manifest_receipt
         return None if receipt is None else receipt.effective_sidecar_artifact_ref()
+
+
+class TrajectoryCaptureState(str, Enum):
+    complete = "complete"
+    partial = "partial"
+    unavailable = "unavailable"
+    not_applicable = "not_applicable"
+
+
+class TrajectoryCapture(StrictModel):
+    """Explicit completeness ledger; missing evidence is never implicit."""
+
+    model_io: TrajectoryCaptureState
+    tool_io: TrajectoryCaptureState
+    process_io: TrajectoryCaptureState
+    evaluator_io: TrajectoryCaptureState
+    environment: TrajectoryCaptureState
+    resource_usage: TrajectoryCaptureState
+    reasons: Mapping[str, str] = Field(default_factory=dict)
+
+    @field_validator("reasons")
+    @classmethod
+    def reasons_are_secret_free(cls, values: Mapping[str, str]) -> Mapping[str, str]:
+        _reject_secret_like_keys(values, field_name="TrajectoryCapture.reasons")
+        if any(not key.strip() or not value.strip() for key, value in values.items()):
+            raise ValueError("trajectory capture reasons must be non-empty")
+        return dict(values)
+
+    @property
+    def claim_complete(self) -> bool:
+        return all(
+            state in {
+                TrajectoryCaptureState.complete,
+                TrajectoryCaptureState.not_applicable,
+            }
+            for state in (
+                self.model_io,
+                self.tool_io,
+                self.process_io,
+                self.evaluator_io,
+                self.environment,
+                self.resource_usage,
+            )
+        )
+
+
+class TrajectoryEventKind(str, Enum):
+    rollout_started = "rollout_started"
+    environment_snapshot = "environment_snapshot"
+    model_request = "model_request"
+    model_response = "model_response"
+    tool_request = "tool_request"
+    tool_response = "tool_response"
+    process_io = "process_io"
+    evaluator_request = "evaluator_request"
+    evaluator_response = "evaluator_response"
+    state_delta = "state_delta"
+    exception = "exception"
+    native_trace_attached = "native_trace_attached"
+    rollout_finished = "rollout_finished"
+
+
+class TrajectoryEvent(StrictModel):
+    event_id: str = Field(pattern=ID_PATTERN)
+    parent_event_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    sequence: int = Field(ge=1, strict=True)
+    kind: TrajectoryEventKind
+    occurred_at: str
+    duration_seconds: float | None = Field(default=None, ge=0, strict=True)
+    input_refs: tuple[ArtifactRef, ...] = ()
+    output_refs: tuple[ArtifactRef, ...] = ()
+    usage: UsageRecord | None = None
+    status: RunStatus | None = None
+    details: Mapping[str, Any] = Field(default_factory=dict)
+
+    @field_validator("occurred_at")
+    @classmethod
+    def occurred_at_is_utc(cls, value: str) -> str:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("trajectory event timestamp must be ISO 8601") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+            raise ValueError("trajectory event timestamp must be UTC")
+        return value
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def details_are_secret_free_json(cls, value: Any) -> Any:
+        _reject_secret_like_keys(value, field_name="TrajectoryEvent.details")
+        return _validate_json_configuration(value, field_name="TrajectoryEvent.details")
+
+
+class RolloutTrajectory(StrictModel):
+    """Content-addressed, adapter-neutral evidence for one launched attempt."""
+
+    format: Literal["bmp-rollout-trajectory-v1"] = "bmp-rollout-trajectory-v1"
+    parent_run_id: str = Field(pattern=ID_PATTERN)
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    attempt_index: int = Field(ge=0, strict=True)
+    manifest_digest: str = Field(pattern=SHA256_PATTERN)
+    evaluator_digest: str = Field(pattern=SHA256_PATTERN)
+    metric_digests: tuple[str, ...]
+    configuration_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    started_at: str
+    finished_at: str
+    elapsed_seconds: float = Field(ge=0, strict=True)
+    terminal_status: RunStatus
+    input_refs: tuple[ArtifactRef, ...]
+    output_refs: tuple[ArtifactRef, ...] = ()
+    log_refs: tuple[ArtifactRef, ...] = ()
+    native_trace_refs: tuple[ArtifactRef, ...] = ()
+    evaluator_refs: tuple[ArtifactRef, ...] = ()
+    provenance: ProvenanceRecord
+    verifier_evidence: VerifierEvidence | None = None
+    usage: UsageRecord
+    capture: TrajectoryCapture
+    events: tuple[TrajectoryEvent, ...]
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def boundary_timestamp_is_utc(cls, value: str) -> str:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("trajectory boundary must be ISO 8601") from exc
+        if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+            raise ValueError("trajectory boundary must be UTC")
+        return value
+
+    @model_validator(mode="after")
+    def trajectory_is_closed(self) -> "RolloutTrajectory":
+        if not self.input_refs:
+            raise ValueError("rollout trajectory requires input refs")
+        if not self.metric_digests or len(set(self.metric_digests)) != len(
+            self.metric_digests
+        ):
+            raise ValueError("rollout trajectory metric digests must be non-empty and unique")
+        if any(re.fullmatch(SHA256_PATTERN, value) is None for value in self.metric_digests):
+            raise ValueError("rollout trajectory metric digests must be SHA-256")
+        if not self.events:
+            raise ValueError("rollout trajectory requires events")
+        if tuple(event.sequence for event in self.events) != tuple(
+            range(1, len(self.events) + 1)
+        ):
+            raise ValueError("trajectory event sequences must be contiguous")
+        event_ids = [event.event_id for event in self.events]
+        if len(set(event_ids)) != len(event_ids):
+            raise ValueError("trajectory event ids must be unique")
+        seen: set[str] = set()
+        for event in self.events:
+            if event.parent_event_id is not None and event.parent_event_id not in seen:
+                raise ValueError("trajectory event parent must precede its child")
+            seen.add(event.event_id)
+        if self.events[0].kind != TrajectoryEventKind.rollout_started:
+            raise ValueError("trajectory must begin with rollout_started")
+        final = self.events[-1]
+        if final.kind != TrajectoryEventKind.rollout_finished:
+            raise ValueError("trajectory must end with rollout_finished")
+        if final.status != self.terminal_status:
+            raise ValueError("terminal trajectory event status drift")
+        started = datetime.fromisoformat(self.started_at.replace("Z", "+00:00"))
+        finished = datetime.fromisoformat(self.finished_at.replace("Z", "+00:00"))
+        if finished < started:
+            raise ValueError("trajectory finished_at precedes started_at")
+        if self.provenance.manifest_digest != self.manifest_digest:
+            raise ValueError("trajectory provenance manifest digest drift")
+        return self
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.model_dump(mode="json"),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
 
 class BudgetAllocation(StrictModel):
@@ -4200,6 +5090,108 @@ class Observation(StrictModel):
     n_runs: int = Field(ge=1)
 
 
+class MetricSampleDisposition(str, Enum):
+    observed = "observed"
+    zero_filled = "zero_filled"
+    excluded = "excluded"
+    missing = "missing"
+    invalid = "invalid"
+
+
+class MetricSample(StrictModel):
+    attempt_id: str = Field(pattern=ID_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    attempt_index: int = Field(ge=0, strict=True)
+    status: RunStatus
+    disposition: MetricSampleDisposition
+    value: float | None = None
+    evidence_bundle_ref: ArtifactRef | None = None
+    trajectory_ref: ArtifactRef | None = None
+
+    @model_validator(mode="after")
+    def sample_value_matches_disposition(self) -> "MetricSample":
+        if self.disposition in {
+            MetricSampleDisposition.observed,
+            MetricSampleDisposition.zero_filled,
+        } and self.value is None:
+            raise ValueError("observed and zero-filled metric samples require values")
+        if self.disposition == MetricSampleDisposition.zero_filled and self.value != 0:
+            raise ValueError("zero-filled metric samples must equal zero")
+        if self.disposition in {
+            MetricSampleDisposition.excluded,
+            MetricSampleDisposition.missing,
+            MetricSampleDisposition.invalid,
+        } and self.value is not None:
+            raise ValueError("non-observed metric samples forbid values")
+        if (self.evidence_bundle_ref is None) != (self.trajectory_ref is None):
+            raise ValueError(
+                "launched metric samples bind both evidence bundle and trajectory refs"
+            )
+        return self
+
+
+class MetricComputationState(str, Enum):
+    complete = "complete"
+    unavailable = "unavailable"
+    invalid = "invalid"
+
+
+class MetricResult(StrictModel):
+    """Replayable metric output over one resolved configuration/run arm."""
+
+    metric_id: str = Field(pattern=ID_PATTERN)
+    metric_digest: str = Field(pattern=SHA256_PATTERN)
+    manifest_digest: str = Field(pattern=SHA256_PATTERN)
+    parent_run_id: str = Field(pattern=ID_PATTERN)
+    schedule_receipt_ref: ArtifactRef
+    state: MetricComputationState
+    value: float | None = None
+    reason: str | None = Field(default=None, min_length=1)
+    planned_rollout_count: int = Field(ge=1, strict=True)
+    task_count: int = Field(ge=1, strict=True)
+    rollouts_per_task: int = Field(ge=1, strict=True)
+    observed_count: int = Field(ge=0, strict=True)
+    zero_filled_count: int = Field(ge=0, strict=True)
+    excluded_count: int = Field(ge=0, strict=True)
+    missing_count: int = Field(ge=0, strict=True)
+    invalid_count: int = Field(ge=0, strict=True)
+    numerator: float | None = None
+    denominator: float | None = None
+    input_metric_ids: tuple[str, ...] = ()
+    status_counts: Mapping[RunStatus, int]
+    samples: tuple[MetricSample, ...]
+
+    @model_validator(mode="after")
+    def metric_result_reconciles(self) -> "MetricResult":
+        if self.state == MetricComputationState.complete:
+            if self.reason is not None:
+                raise ValueError("complete metric result forbids a failure reason")
+        elif self.reason is None or self.value is not None:
+            raise ValueError("unavailable/invalid metric result requires reason and no value")
+        if len(self.samples) != self.planned_rollout_count:
+            raise ValueError("metric samples must cover every planned rollout")
+        attempt_ids = [sample.attempt_id for sample in self.samples]
+        if len(set(attempt_ids)) != len(attempt_ids):
+            raise ValueError("metric result attempt ids must be unique")
+        counts = {
+            MetricSampleDisposition.observed: self.observed_count,
+            MetricSampleDisposition.zero_filled: self.zero_filled_count,
+            MetricSampleDisposition.excluded: self.excluded_count,
+            MetricSampleDisposition.missing: self.missing_count,
+            MetricSampleDisposition.invalid: self.invalid_count,
+        }
+        for disposition, expected in counts.items():
+            if sum(sample.disposition == disposition for sample in self.samples) != expected:
+                raise ValueError("metric sample disposition counts do not reconcile")
+        if sum(self.status_counts.values()) != self.planned_rollout_count:
+            raise ValueError("metric status counts must cover planned rollouts")
+        if self.task_count * self.rollouts_per_task != self.planned_rollout_count:
+            raise ValueError("metric task and rollout counts do not match population")
+        if len(set(self.input_metric_ids)) != len(self.input_metric_ids):
+            raise ValueError("metric input ids must be unique")
+        return self
+
+
 class AuthorityDocumentRef(StrictModel):
     """One stable, tracked authority document from an external protocol."""
 
@@ -4467,7 +5459,8 @@ class ObservationReport(StrictModel):
     )
 
     purpose: Literal[RunPurpose.exploratory]
-    subject_kind: SubjectKind
+    comparison_kind: ComparisonKind | None = None
+    subject_kinds: tuple[SubjectKind, ...]
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
     protocol_valid: bool = True
@@ -4475,12 +5468,21 @@ class ObservationReport(StrictModel):
     isolation_valid: bool
     isolation_reasons: tuple[str, ...]
     observations: tuple[Observation, ...] = ()
+    metric_results: tuple[MetricResult, ...] = ()
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
     record_index_ref: ArtifactRef | None = None
 
     @model_validator(mode="after")
     def validity_results_are_explicit(self) -> "ObservationReport":
+        if not self.subject_kinds or len(set(self.subject_kinds)) != len(
+            self.subject_kinds
+        ):
+            raise ValueError("exploratory subject_kinds must be non-empty and unique")
+        if self.comparison_kind is None and self.subject_kinds != (SubjectKind.fake,):
+            raise ValueError(
+                "only fake conformance reports may omit comparison_kind"
+            )
         protocol_reasons = self.protocol_reasons
         if self.protocol_valid and protocol_reasons:
             raise ValueError("valid exploratory protocol cannot have failure reasons")
@@ -4564,7 +5566,8 @@ class ClaimReport(StrictModel):
     )
 
     purpose: Literal[RunPurpose.claim]
-    subject_kind: SubjectKind
+    comparison_kind: ComparisonKind
+    subject_kinds: tuple[SubjectKind, ...]
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
     gates: Mapping[GateName, GateResult] = Field(
@@ -4578,6 +5581,7 @@ class ClaimReport(StrictModel):
     )
     effect: EffectEstimate | None = None
     statistics_receipt: StatisticalAnalysisReceipt | None = None
+    metric_results: tuple[MetricResult, ...] = ()
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
     record_index_ref: ArtifactRef | None = None
@@ -4607,6 +5611,17 @@ class ClaimReport(StrictModel):
             ):
                 raise ValueError(f"serialized {name} contradicts derived value")
         return result
+
+    @field_validator("subject_kinds")
+    @classmethod
+    def claim_subject_kinds_are_unique(
+        cls, values: tuple[SubjectKind, ...]
+    ) -> tuple[SubjectKind, ...]:
+        if not values or len(set(values)) != len(values):
+            raise ValueError("claim subject_kinds must be non-empty and unique")
+        if SubjectKind.fake in values:
+            raise ValueError("fake subjects cannot produce claims")
+        return values
 
     @field_validator("gates")
     @classmethod
@@ -4688,23 +5703,37 @@ __all__ = [
     "CheckpointSaveReceipt",
     "ClaimDesign",
     "ClaimReport",
-    "ClaimScope",
+    "ComparisonKind",
     "CustomBenchmarkArtifact",
     "CustomBenchmarkSpec",
+    "DatasetArtifact",
+    "DatasetSpec",
     "CustomCaseOrderSpec",
     "CredentialRef",
     "EffectEstimate",
     "EvolutionCandidateRecord",
     "EvolutionCandidateStatus",
+    "EvolutionMethodArtifact",
+    "EvolutionMethodSpec",
     "EvolutionRunEvidence",
+    "EvolutionSelectionSpec",
+    "EvolutionSurfacePolicy",
     "EvolutionTransitionPhase",
     "EvolutionTransitionRecord",
+    "EvaluatorArtifact",
+    "EvaluatorMetricBinding",
+    "EvaluatorSpec",
     "EnvironmentBindingRef",
     "EnvironmentReceipt",
     "EnvironmentSpec",
     "EvidenceBundle",
     "ExecutionSpec",
     "ExperimentContrast",
+    "FactorActivationEvidence",
+    "FactorArtifact",
+    "FactorCategory",
+    "FactorLevel",
+    "FactorSpec",
     "FakeSubjectArtifact",
     "FakeSubjectSpec",
     "GateName",
@@ -4718,6 +5747,22 @@ __all__ = [
     "ModelActivationEvidence",
     "ModelActivationReceipt",
     "ModelActivationUsage",
+    "MetricArtifact",
+    "MetricComputationState",
+    "MetricDirection",
+    "MetricFormula",
+    "MetricLevel",
+    "MetricMissingDisposition",
+    "MetricPopulation",
+    "MetricResult",
+    "MetricSample",
+    "MetricSampleDisposition",
+    "MetricSource",
+    "MetricSpec",
+    "MetricStatusDisposition",
+    "MetricValueKind",
+    "MetaEvolutionMethodArtifact",
+    "MetaEvolutionMethodSpec",
     "NetworkBoundary",
     "NetworkEndpointRecord",
     "NetworkObservation",
@@ -4745,13 +5790,18 @@ __all__ = [
     "StatisticalAnalysisPlan",
     "StatisticalAnalysisReceipt",
     "SubjectKind",
-    "SUBJECT_KIND_SCOPE_MATRIX",
+    "SUBJECT_KIND_COMPARISON_MATRIX",
     "SubjectArtifact",
     "SubjectArtifactAdapter",
     "SubjectSpec",
     "SubjectSpecAdapter",
     "SystemPromptRecord",
     "TestOverrideReceipt",
+    "TrajectoryCapture",
+    "TrajectoryCaptureState",
+    "TrajectoryEvent",
+    "TrajectoryEventKind",
+    "RolloutTrajectory",
     "UsageRecord",
     "VerifierEvidence",
     "WorkspaceRecord",

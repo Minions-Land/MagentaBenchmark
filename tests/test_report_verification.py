@@ -18,15 +18,19 @@ from MagentaBench.schemas import (
     ReportVerificationError,
     ResolvedNetworkPolicy,
     RunPurpose,
+    RolloutTrajectory,
     ScheduleActivationReceipt,
     StatisticalAnalysisPlan,
+    TrajectoryCapture,
+    TrajectoryCaptureState,
     VerifiedObservationReport,
     canonical_digest,
     verify_claim_report,
     verify_observation_report,
+    write_registry_lock,
 )
 from MagentaBench.runner.evidence import atomic_write_json
-from MagentaBench.runner.gates import _evaluate_claim
+from MagentaBench.runner.gates import evaluate_run_report
 from MagentaBench.schemas.models import SubjectKind
 from MagentaBench.runner.pipeline import InjectedInterruption, Pipeline
 
@@ -99,31 +103,206 @@ def rewrite_schedule_lineage(result: object, index: int, schedule_path: Path) ->
     rewrite_report_and_aggregate(result.report_path, payload)
 
 
+def registered_claim_project(
+    root: Path,
+    statistical_analysis: StatisticalAnalysisPlan,
+) -> Path:
+    """Create a self-contained, TOML-registered coding-agent claim fixture."""
+
+    project = root / "project"
+    shutil.copytree(ROOT / "registries", project / "registries")
+    shutil.copytree(
+        ROOT / "MagentaBench/conformance/fixtures",
+        project / "MagentaBench/conformance/fixtures",
+    )
+
+    adapter_path = project / "report_claim_adapter.py"
+    adapter_path.write_text(
+        '''"""Content-addressed fake execution adapter for report verification."""
+
+import hashlib
+from pathlib import Path
+
+
+_MODULE_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+class RegisteredFakeOpaqueExecution:
+    benchmark_adapter = "fake"
+    backend_adapter = "fake"
+    subject_interface = "task_to_output"
+    digest = _MODULE_DIGEST
+
+    def execute(self, backend, run, case, attempt):
+        return backend.execute(
+            run,
+            case.task,
+            activated_case_set_digest=case.case_set_digest,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+            attempt_budget=attempt.allocation,
+            remaining_wall_seconds=attempt.remaining_wall_seconds,
+        )
+
+    def reset_state(self, backend, case_id, policy):
+        return backend.reset_state(case_id, policy)
+''',
+        encoding="utf-8",
+    )
+    adapter_digest = hashlib.sha256(adapter_path.read_bytes()).hexdigest()
+    (project / "registries/adapters/report-claim-execution.toml").write_text(
+        f'''[adapter]
+id = "report.claim-execution"
+kind = "adapter"
+adapter = "fake"
+bmp_version = "0.1"
+adapter_kind = "execution"
+source = "."
+entrypoint = "report_claim_adapter.py:RegisteredFakeOpaqueExecution"
+digest = "{adapter_digest}"
+supported_benchmark_kinds = ["task_suite"]
+supported_subject_kinds = ["opaque_agent"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["fake"]
+supported_subject_adapters = ["fake"]
+supported_subject_interfaces = ["task_to_output"]
+none_model_sentinels = ["none/deterministic"]
+supported_state_reset_policies = ["never"]
+''',
+        encoding="utf-8",
+    )
+
+    subject_template = '''[subject]
+id = "{subject_id}"
+kind = "opaque_agent"
+comparison_kind = "coding_agent"
+adapter = "fake"
+bmp_version = "0.1"
+source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
+commit = "report-claim-subject-v1"
+entrypoint = "fixed:{answer}"
+interface = "task_to_output"
+emits_trace = false
+'''
+    subjects = project / "registries/subjects"
+    (subjects / "report-claim-control.toml").write_text(
+        subject_template.format(
+            subject_id="report.claim-control",
+            answer="BMP_BAD",
+        ),
+        encoding="utf-8",
+    )
+    (subjects / "report-claim-treatment.toml").write_text(
+        subject_template.format(
+            subject_id="report.claim-treatment",
+            answer="BMP_OK",
+        ),
+        encoding="utf-8",
+    )
+    (project / "registries/factors/report-claim-subject.toml").write_text(
+        '''[factor]
+id = "report.claim-subject"
+kind = "factor"
+adapter = "magentabench.factor"
+bmp_version = "0.1"
+category = "subject_identity"
+selector_path = "subject"
+applies_to = ["coding_agent"]
+resolved_diff_paths = [
+  "subject.artifact_digest",
+  "subject.entrypoint",
+  "subject.id",
+]
+activation_evidence = "subject_activation"
+value_registry = "subject"
+metadata_only = false
+
+[[factor.levels]]
+id = "control"
+value = "report.claim-control"
+
+[[factor.levels]]
+id = "treatment"
+value = "report.claim-treatment"
+''',
+        encoding="utf-8",
+    )
+
+    plan_lines = "\n".join(
+        f"{key} = {json.dumps(value, ensure_ascii=True, separators=(',', ':'))}"
+        for key, value in statistical_analysis.model_dump(
+            mode="json", exclude_none=True
+        ).items()
+    )
+    experiment = (
+        ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
+    ).read_text(encoding="utf-8")
+    replacements = (
+        ('id = "fake-conformance-sweep"', 'id = "report-verification-claim"'),
+        ('subject = "fake.control"', 'subject = "report.claim-control"'),
+        (
+            'protocol = "fake.deterministic.v1"',
+            'protocol = "deterministic-evolution.v1"',
+        ),
+        (
+            'factors = ["conformance.fake-subject", "repetition.four"]',
+            'factors = ["report.claim-subject", "repetition.four"]',
+        ),
+        (
+            'factor_id = "conformance.fake-subject"',
+            'factor_id = "report.claim-subject"',
+        ),
+        (
+            '[experiment.design]\npurpose = "exploratory"',
+            '[experiment.design]\n'
+            'comparison_kind = "coding_agent"\n'
+            'purpose = "claim"\n\n'
+            '[experiment.design.statistical_analysis]\n'
+            + plan_lines,
+        ),
+    )
+    for old, new in replacements:
+        experiment = replace_required(experiment, old, new)
+    experiment_path = project / "report-claim.toml"
+    experiment_path.write_text(experiment, encoding="utf-8")
+    write_registry_lock(project / "registries")
+    return experiment_path
+
+
 def write_verified_claim(
     root: Path,
     *,
     statistical_analysis: StatisticalAnalysisPlan | None = None,
 ) -> tuple[Path, tuple[object, ...]]:
-    experiment = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
-    result = Pipeline(ROOT, root).run(experiment)
+    analysis_plan = statistical_analysis or StatisticalAnalysisPlan(
+        holdout_required=True,
+        holdout_split="test",
+    )
+    experiment = registered_claim_project(root.parent, analysis_plan)
+    result = Pipeline(experiment.parent, root).run(experiment)
     completed = []
-    manifest_refs = []
-    manifest_dir = result.report_path.parent / "manifests"
     for item in result.runs:
-        claim_design = item.plan.manifest.claim_design.model_copy(
-            update={
-                "purpose": RunPurpose.claim,
-                "statistical_analysis": statistical_analysis,
-            }
-        )
-        manifest = item.plan.manifest.model_copy(
-            update={"claim_design": claim_design}
-        )
-        plan = replace(item.plan, manifest=manifest)
-        provenance = item.case.bundle.provenance.model_copy(
-            update={"manifest_digest": plan.manifest_digest}
-        )
-        bundle = item.case.bundle.model_copy(update={"provenance": provenance})
+        bundle = item.case.bundle
+        if bundle.trajectory_ref is not None:
+            trajectory_path = Path(bundle.trajectory_ref.path)
+            trajectory = RolloutTrajectory.model_validate_json(
+                trajectory_path.read_bytes()
+            ).model_copy(
+                update={
+                    "capture": TrajectoryCapture(
+                        model_io=TrajectoryCaptureState.not_applicable,
+                        tool_io=TrajectoryCaptureState.not_applicable,
+                        process_io=TrajectoryCaptureState.complete,
+                        evaluator_io=TrajectoryCaptureState.complete,
+                        environment=TrajectoryCaptureState.complete,
+                        resource_usage=TrajectoryCaptureState.complete,
+                    ),
+                }
+            )
+            atomic_write_json(trajectory_path, trajectory)
+            bundle = bundle.model_copy(
+                update={"trajectory_ref": ref(trajectory_path)}
+            )
         atomic_write_json(item.case.bundle_path, bundle)
         bundle_ref = ref(item.case.bundle_path)
         case = replace(
@@ -145,34 +324,20 @@ def write_verified_claim(
         completed.append(
             replace(
                 item,
-                plan=plan,
                 case=case,
                 schedule_receipt=schedule,
                 schedule_receipt_sha256=schedule_ref.sha256,
             )
         )
-        manifest_path = manifest_dir / f"{plan.manifest_digest}.json"
-        atomic_write_json(manifest_path, manifest)
-        manifest_refs.append(ref(manifest_path))
 
-    index_path = result.report_path.parent / "record_index.json"
-    record_index = RecordIndex(
-        format="bmp-record-index-v1",
-        experiment_id="fake-conformance-sweep",
-        manifest_refs=tuple(manifest_refs),
-        aggregate_path=str(result.aggregate_path.resolve()),
-    )
-    atomic_write_json(index_path, record_index)
-    report = _evaluate_claim(
+    report = evaluate_run_report(
         completed=completed,
-        expected_run_count=len(completed),
-        control_id="fake.control",
-        treatment_id="fake.treatment",
-        deterministic_conformance=True,
-        counterbalanced=True,
-        record_index_ref=ref(index_path),
+        expected_run_ids=tuple(
+            item.plan.manifest.metadata.run_id for item in completed
+        ),
+        record_index_ref=result.report.record_index_ref,
     )
-    report_path = result.report_path.with_name("claim_report.json")
+    report_path = result.report_path
     atomic_write_json(report_path, report)
     aggregate = {
         "experiment_id": report.experiment_id,
@@ -209,7 +374,7 @@ def write_verified_observation(root: Path) -> Path:
     empty_experiment_digest = hashlib.sha256(compact_bytes([])).hexdigest()
     report = ObservationReport(
         purpose=RunPurpose.exploratory,
-        subject_kind=SubjectKind.fake,
+        subject_kinds=(SubjectKind.fake,),
         experiment_id="verified-observation",
         manifest_digest=empty_experiment_digest,
         isolation_valid=False,
@@ -259,7 +424,7 @@ def test_report_verifier_aggregates_integrity_mismatches(tmp_path: Path) -> None
 def test_report_verifier_rejects_missing_record_index(tmp_path: Path) -> None:
     report = ObservationReport(
         purpose=RunPurpose.exploratory,
-        subject_kind=SubjectKind.fake,
+        subject_kinds=(SubjectKind.fake,),
         experiment_id="unindexed",
         manifest_digest="a" * 64,
         isolation_valid=False,
@@ -628,24 +793,14 @@ def test_claim_protocol_gate_is_recomputed_from_schedule_validity(
 
 
 def test_claim_report_rejects_exploratory_indexed_manifests(tmp_path: Path) -> None:
-    experiment = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
-    result = Pipeline(ROOT, tmp_path / "records").run(experiment)
-    report = _evaluate_claim(
-        completed=result.runs,
-        expected_run_count=len(result.runs),
-        control_id="fake.control",
-        treatment_id="fake.treatment",
-        deterministic_conformance=True,
-        counterbalanced=True,
-        record_index_ref=result.report.record_index_ref,
+    report_path, _ = write_verified_claim(tmp_path / "records")
+    index = json.loads(
+        (report_path.parent / "record_index.json").read_text(encoding="utf-8")
     )
-    report_path = result.report_path.with_name("claim_report.json")
-    atomic_write_json(report_path, report)
-    aggregate = json.loads(result.aggregate_path.read_text(encoding="utf-8"))
-    aggregate["run_report_sha256"] = hashlib.sha256(
-        report_path.read_bytes()
-    ).hexdigest()
-    result.aggregate_path.write_bytes(compact_bytes(aggregate))
+    manifest_path = Path(index["manifest_refs"][0]["path"])
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["claim_design"]["purpose"] = RunPurpose.exploratory.value
+    manifest_path.write_bytes(compact_bytes(manifest))
 
     with pytest.raises(ReportVerificationError, match="purpose does not match"):
         verify_claim_report(report_path)
@@ -660,12 +815,12 @@ def test_claim_statistics_gate_is_recomputed_from_observed_order(
     controls = [
         index
         for index, item in enumerate(completed)
-        if item.plan.manifest.subject.id == "fake.control"
+        if item.plan.manifest.subject.id == "report.claim-control"
     ]
     treatments = [
         index
         for index, item in enumerate(completed)
-        if item.plan.manifest.subject.id == "fake.treatment"
+        if item.plan.manifest.subject.id == "report.claim-treatment"
     ]
     order = controls + treatments
     payload["lineage"] = [original_lineage[index] for index in order]
@@ -712,8 +867,8 @@ def test_statistical_analysis_receipt_is_replayed_by_standalone_verifier(
     tmp_path: Path,
 ) -> None:
     plan = StatisticalAnalysisPlan(
-        holdout_required=False,
-        holdout_split=None,
+        holdout_required=True,
+        holdout_split="test",
     )
     report_path, _ = write_verified_claim(
         tmp_path / "records",
@@ -734,8 +889,8 @@ def test_statistical_analysis_receipt_tampering_is_rejected(
     report_path, _ = write_verified_claim(
         tmp_path / "records",
         statistical_analysis=StatisticalAnalysisPlan(
-            holdout_required=False,
-            holdout_split=None,
+            holdout_required=True,
+            holdout_split="test",
         ),
     )
     payload = json.loads(report_path.read_text(encoding="utf-8"))
@@ -772,7 +927,6 @@ def test_indexed_test_override_lineage_fails_closed(tmp_path: Path) -> None:
     manifest["metadata"]["test_override"] = {
         "reason": "adversarial override",
         "forced_purpose": "exploratory",
-        "forced_scope": "conformance",
     }
     manifest_path.write_bytes(compact_bytes(manifest))
 

@@ -12,19 +12,25 @@ import dataclasses
 from pathlib import Path
 
 from MagentaBench.runner.evidence import artifact_ref, atomic_write_json, sha256_file
+from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.gates import _evaluate_claim, _evidence_integrity_errors
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
     GateName,
+    ComparisonKind,
     NetworkBoundary,
     NetworkObservation,
     NetworkObservationMode,
     NetworkPolicySource,
     ResolvedNetworkPolicy,
     RunStatus,
+    RunPurpose,
     ScheduleActivationReceipt,
     RuntimeAssemblySidecarRef,
     RuntimeManifestReceipt,
+    RolloutTrajectory,
+    TrajectoryCapture,
+    TrajectoryCaptureState,
     canonical_digest,
 )
 
@@ -41,7 +47,7 @@ def _with_bundle(item, bundle):
         bundle=bundle,
         bundle_digest=sha256_file(item.case.bundle_path),
     )
-    metric = item.plan.manifest.benchmark.authoritative_reward_metric
+    metric = item.plan.manifest.authoritative_reward_metric
     reward_value = (
         None
         if bundle.verifier_evidence is None
@@ -124,8 +130,65 @@ def _with_policy(item, policy: ResolvedNetworkPolicy):
 
 
 def _claim(items, *, expected_run_count: int = EXPECTED_RUNS):
+    registered_subject = Compiler(ROOT)._subject_artifact("fake.nonfake")
+    normalized = []
+    for item in items:
+        manifest = item.plan.manifest.model_copy(
+            update={
+                "subject": registered_subject,
+                "claim_design": item.plan.manifest.claim_design.model_copy(
+                    update={
+                        "comparison_kind": ComparisonKind.coding_agent,
+                        "purpose": RunPurpose.claim,
+                        "intervention_factor_id": "conformance.fake-subject",
+                    }
+                ),
+            }
+        )
+        rebound = dataclasses.replace(
+            item,
+            plan=dataclasses.replace(item.plan, manifest=manifest),
+        )
+        provenance = rebound.case.bundle.provenance.model_copy(
+            update={
+                "manifest_digest": rebound.plan.manifest_digest,
+                "subject_digest": registered_subject.artifact_digest,
+            }
+        )
+        trajectory_ref = rebound.case.bundle.trajectory_ref
+        if trajectory_ref is not None:
+            trajectory_path = Path(trajectory_ref.path)
+            trajectory = RolloutTrajectory.model_validate_json(
+                trajectory_path.read_bytes()
+            ).model_copy(
+                update={
+                    "manifest_digest": rebound.plan.manifest_digest,
+                    "provenance": provenance,
+                    "capture": TrajectoryCapture(
+                        model_io=TrajectoryCaptureState.not_applicable,
+                        tool_io=TrajectoryCaptureState.not_applicable,
+                        process_io=TrajectoryCaptureState.complete,
+                        evaluator_io=TrajectoryCaptureState.complete,
+                        environment=TrajectoryCaptureState.complete,
+                        resource_usage=TrajectoryCaptureState.complete,
+                    ),
+                }
+            )
+            atomic_write_json(trajectory_path, trajectory)
+            trajectory_ref = artifact_ref(trajectory_path)
+        normalized.append(
+            _with_bundle(
+                rebound,
+                rebound.case.bundle.model_copy(
+                    update={
+                        "provenance": provenance,
+                        "trajectory_ref": trajectory_ref,
+                    }
+                ),
+            )
+        )
     return _evaluate_claim(
-        completed=items,
+        completed=normalized,
         expected_run_count=expected_run_count,
         control_id="fake.control",
         treatment_id="fake.treatment",

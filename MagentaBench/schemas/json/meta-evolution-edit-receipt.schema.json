@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "MetaEvolutionEditPolicy": {
+      "additionalProperties": false,
+      "description": "Closed edit/visibility boundary for a meta-evolution method.",
+      "properties": {
+        "editable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Editable Paths",
+          "type": "array"
+        },
+        "feedback_visibility": {
+          "default": [],
+          "items": {
+            "enum": [
+              "search_scores",
+              "search_feedback",
+              "failure_diagnostics",
+              "candidate_history",
+              "resource_usage"
+            ],
+            "type": "string"
+          },
+          "title": "Feedback Visibility",
+          "type": "array"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "protected_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Protected Paths",
+          "type": "array"
+        },
+        "sealed_holdout_visible": {
+          "const": false,
+          "default": false,
+          "title": "Sealed Holdout Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "policy_id",
+        "editable_paths",
+        "protected_paths"
+      ],
+      "title": "MetaEvolutionEditPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Replayable prompt/patch application under a meta-evolution policy.",
+  "properties": {
+    "budget_event_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Budget Event Id",
+      "type": "string"
+    },
+    "changed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Changed Paths",
+      "type": "array"
+    },
+    "edit_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Edit Id",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-meta-evolution-edit-v1",
+      "default": "bmp-meta-evolution-edit-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "patch_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "policy": {
+      "$ref": "#/$defs/MetaEvolutionEditPolicy"
+    },
+    "policy_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Digest",
+      "type": "string"
+    },
+    "prompt_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "result_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "sealed_holdout_access_count": {
+      "const": 0,
+      "default": 0,
+      "title": "Sealed Holdout Access Count",
+      "type": "integer"
+    },
+    "target_after_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Target After Digest",
+      "type": "string"
+    },
+    "target_before_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Target Before Digest",
+      "type": "string"
+    },
+    "visible_feedback_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Visible Feedback Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "edit_id",
+    "policy",
+    "policy_digest",
+    "target_before_digest",
+    "target_after_digest",
+    "changed_paths",
+    "prompt_ref",
+    "patch_ref",
+    "result_ref",
+    "budget_event_id"
+  ],
+  "title": "MetaEvolutionEditReceipt",
+  "type": "object"
+}

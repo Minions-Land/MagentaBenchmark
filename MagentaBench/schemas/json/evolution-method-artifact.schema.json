@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionSelectionSpec": {
+      "additionalProperties": false,
+      "description": "Registered parent-selection semantics for an evolution method.\n\nThe registry owns the selector and every parameter that can change its\nrealized choice. Runtime receipts add the concrete candidate population\nand RNG state; they must not invent a selector that is absent here.",
+      "properties": {
+        "child_count_penalty": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Child Count Penalty",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "maximize",
+            "minimize"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "default": "none",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Rng Algorithm",
+          "type": "string"
+        },
+        "rng_seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Seed"
+        },
+        "selector": {
+          "enum": [
+            "extreme",
+            "weighted"
+          ],
+          "title": "Selector",
+          "type": "string"
+        },
+        "tie_break_rule": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Tie Break Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "selector",
+        "metric_id",
+        "direction",
+        "tie_break_rule"
+      ],
+      "title": "EvolutionSelectionSpec",
+      "type": "object"
+    },
+    "EvolutionSurfacePolicy": {
+      "additionalProperties": false,
+      "description": "Explicit mutation boundary for evolution and meta-evolution.\n\nPaths use a semantic namespace rather than host filesystem paths. A change\nis authorized only when it is under an editable root and under no protected\nroot. Evaluation authority is always protected so a method cannot improve\nits own score by rewriting the measurement contract.",
+      "properties": {
+        "editable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Editable Paths",
+          "type": "array"
+        },
+        "protected_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Protected Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "editable_paths",
+        "protected_paths"
+      ],
+      "title": "EvolutionSurfacePolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Resolved evolver declaration bound to the full configuration identity.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Artifact Digest",
+      "type": "string"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "comparison_kind": {
+      "const": "evolution_method",
+      "title": "Comparison Kind",
+      "type": "string"
+    },
+    "configuration_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Configuration Digest",
+      "type": "string"
+    },
+    "configuration_profile_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Configuration Profile Id",
+      "type": "string"
+    },
+    "declaration_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "const": "evolver",
+      "title": "Kind",
+      "type": "string"
+    },
+    "selection": {
+      "$ref": "#/$defs/EvolutionSelectionSpec"
+    },
+    "selection_configuration_path": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+      "title": "Selection Configuration Path",
+      "type": "string"
+    },
+    "subject_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Subject Adapter",
+      "type": "string"
+    },
+    "surface": {
+      "$ref": "#/$defs/EvolutionSurfacePolicy"
+    },
+    "target": {
+      "const": "harness",
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "artifact_digest",
+    "declaration_ref",
+    "id",
+    "kind",
+    "adapter",
+    "comparison_kind",
+    "subject_adapter",
+    "target",
+    "configuration_profile_id",
+    "configuration_digest",
+    "selection_configuration_path",
+    "selection",
+    "surface"
+  ],
+  "title": "EvolutionMethodArtifact",
+  "type": "object"
+}

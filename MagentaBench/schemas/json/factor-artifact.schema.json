@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ComparisonKind": {
+      "description": "The four semantic subjects that BMP is allowed to compare.",
+      "enum": [
+        "agent",
+        "coding_agent",
+        "evolution_method",
+        "meta_evolution_method"
+      ],
+      "title": "ComparisonKind",
+      "type": "string"
+    },
+    "FactorActivationEvidence": {
+      "enum": [
+        "subject_activation",
+        "component_activation",
+        "model_activation",
+        "configuration_activation",
+        "dataset_activation",
+        "schedule_activation",
+        "backend_activation",
+        "none"
+      ],
+      "title": "FactorActivationEvidence",
+      "type": "string"
+    },
+    "FactorCategory": {
+      "description": "Closed semantic classes for registered intervention/nuisance factors.",
+      "enum": [
+        "subject_identity",
+        "agent_component",
+        "model",
+        "model_checkpoint",
+        "configuration",
+        "hyperparameter",
+        "dataset",
+        "protocol",
+        "schedule",
+        "backend",
+        "repetition",
+        "conformance_fixture"
+      ],
+      "title": "FactorCategory",
+      "type": "string"
+    },
+    "FactorLevel": {
+      "additionalProperties": false,
+      "description": "One named, TOML-registered value in a factor domain.",
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ],
+      "title": "FactorLevel",
+      "type": "object"
+    },
+    "FactorSpec": {
+      "additionalProperties": false,
+      "description": "Single source of truth for a sweep axis and its isolation contract.\n\nA factor declaration replaces the former four-way repetition across\n``ClaimScope``, ``factor_path``, ``allowed_diff`` and ``vary``.  The\ncompiler derives every arm and allowed resolved diff from this object.",
+      "properties": {
+        "activation_evidence": {
+          "$ref": "#/$defs/FactorActivationEvidence"
+        },
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "applies_to": {
+          "items": {
+            "$ref": "#/$defs/ComparisonKind"
+          },
+          "title": "Applies To",
+          "type": "array"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/FactorCategory"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "factor",
+          "title": "Kind",
+          "type": "string"
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/FactorLevel"
+          },
+          "title": "Levels",
+          "type": "array"
+        },
+        "metadata_only": {
+          "default": false,
+          "title": "Metadata Only",
+          "type": "boolean"
+        },
+        "resolved_diff_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Resolved Diff Paths",
+          "type": "array"
+        },
+        "selector_path": {
+          "title": "Selector Path",
+          "type": "string"
+        },
+        "value_registry": {
+          "anyOf": [
+            {
+              "enum": [
+                "subject",
+                "dataset",
+                "protocol",
+                "backend",
+                "configuration",
+                "evolver",
+                "meta_evolver"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Registry"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "category",
+        "selector_path",
+        "applies_to",
+        "levels",
+        "activation_evidence"
+      ],
+      "title": "FactorSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Artifact Digest",
+      "type": "string"
+    },
+    "declaration_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "factor": {
+      "$ref": "#/$defs/FactorSpec"
+    }
+  },
+  "required": [
+    "factor",
+    "declaration_ref",
+    "artifact_digest"
+  ],
+  "title": "FactorArtifact",
+  "type": "object"
+}

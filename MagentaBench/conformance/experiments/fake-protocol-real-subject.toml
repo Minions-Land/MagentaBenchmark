@@ -1,13 +1,29 @@
 [experiment]
 id = "fake-protocol-real-subject"
 benchmark = "fake.exact.v1"
+dataset = "dataset.fake.exact.v1"
+evaluator = "evaluator.fake.exact.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+  "tokens.mean-completed.v1",
+  "input-tokens.mean-completed.v1",
+  "output-tokens.mean-completed.v1",
+  "cache-read-tokens.mean-completed.v1",
+  "cache-write-tokens.mean-completed.v1",
+  "cost.mean-completed.v1",
+  "wall-time.mean-completed.v1",
+  "model-calls.mean-completed.v1",
+  "tool-calls.mean-completed.v1",
+  "throughput.completed-per-hour.v1",
+  "successes-per-million-tokens.v1",
+]
 subject = "fake.nonfake"
 protocol = "fake.deterministic.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "fake.local"

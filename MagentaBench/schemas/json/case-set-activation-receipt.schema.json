@@ -40,6 +40,32 @@
     "case_set_ref": {
       "$ref": "#/$defs/ArtifactRef"
     },
+    "dataset_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dataset Digest"
+    },
+    "dataset_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dataset Id"
+    },
     "loader_adapter": {
       "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
       "title": "Loader Adapter",

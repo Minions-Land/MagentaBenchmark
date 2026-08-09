@@ -22,10 +22,10 @@ def test_compile_cli_emits_resolved_identity(capsys) -> None:
     assert payload[0]["run_id"] == "fake-conformance-sweep__run0000"
     assert len(payload[0]["manifest_digest"]) == 64
     assert payload[0]["manifest"]["claim_design"] == {
+        "comparison_kind": None,
+        "intervention_factor_id": "conformance.fake-subject",
         "purpose": "exploratory",
-        "scope": "conformance",
         "statistical_analysis": None,
-        "vary": [],
     }
 
 

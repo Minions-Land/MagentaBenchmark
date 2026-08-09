@@ -1,6 +1,7 @@
 [subject]
 id = "aose.dryrun.echo"
 kind = "opaque_agent"
+comparison_kind = "coding_agent"
 adapter = "cli-agent"
 bmp_version = "0.1"
 source = "../../../../BioAgent/AOSEBench"

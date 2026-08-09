@@ -1,0 +1,1360 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ConfigurationActivationReceipt": {
+      "additionalProperties": false,
+      "description": "Neutral evidence that a resolved configuration reached the adapter.\n\nBMP owns the configuration artifact and its identity.  An adapter owns\nthe meaning of its settings and reports only a secret-free projection of\nwhat it requested and what the runtime observed.  This keeps activation\nevidence useful for arbitrary adapters without importing their protocols.",
+      "properties": {
+        "activated_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Activated Paths",
+          "type": "array"
+        },
+        "activated_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Activated Sha256",
+          "type": "string"
+        },
+        "activated_values": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated Values"
+        },
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "configuration_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Configuration Digest",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "reason": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason",
+          "type": "array"
+        },
+        "requested_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Requested Paths",
+          "type": "array"
+        },
+        "requested_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Requested Sha256",
+          "type": "string"
+        },
+        "requested_values": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Values"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "unobserved",
+            "mismatch",
+            "missing_activation_receipt",
+            "unrequested",
+            "invalid_activation_receipt",
+            "activation_unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "configuration_digest",
+        "adapter",
+        "requested_sha256",
+        "activated_sha256",
+        "status"
+      ],
+      "title": "ConfigurationActivationReceipt",
+      "type": "object"
+    },
+    "EnvironmentReceipt": {
+      "additionalProperties": false,
+      "description": "Observed environment identity recorded in execution provenance.",
+      "properties": {
+        "build_duration_seconds": {
+          "minimum": 0,
+          "title": "Build Duration Seconds",
+          "type": "number"
+        },
+        "built_at": {
+          "minLength": 1,
+          "title": "Built At",
+          "type": "string"
+        },
+        "installed_packages": {
+          "items": {
+            "$ref": "#/$defs/PackageRecord"
+          },
+          "title": "Installed Packages",
+          "type": "array"
+        },
+        "python_executable": {
+          "minLength": 1,
+          "title": "Python Executable",
+          "type": "string"
+        },
+        "python_version": {
+          "minLength": 1,
+          "title": "Python Version",
+          "type": "string"
+        },
+        "spec_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Spec Digest",
+          "type": "string"
+        },
+        "spec_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "spec_digest",
+        "python_executable",
+        "python_version",
+        "installed_packages",
+        "build_duration_seconds",
+        "built_at"
+      ],
+      "title": "EnvironmentReceipt",
+      "type": "object"
+    },
+    "ModelActivationReceipt": {
+      "additionalProperties": false,
+      "description": "Runtime proof that the requested provider/model reached execution.\n\nA positive receipt binds a resolved :class:`ProviderBinding` without\nserializing a credential value. ``binding_digest`` is computed from the\nbinding's identity projection (which intentionally omits\n``CredentialRef.source_file``), while ``evidence_refs`` retain the\nadapter-native result/trace bytes used to observe activation. An exploratory\nrun without a binding or observation is retained as ``unobserved``. A real\nmodel is never inferred from a command line or manifest declaration alone.",
+      "properties": {
+        "activated_binding_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated Binding Digest"
+        },
+        "activated_model_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated Model Id"
+        },
+        "activated_provider_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Activated Provider Id"
+        },
+        "activation_source": {
+          "enum": [
+            "provider_response",
+            "runtime_manifest",
+            "native_result",
+            "adapter_receipt"
+          ],
+          "title": "Activation Source",
+          "type": "string"
+        },
+        "binding_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Binding Digest"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "reason": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason",
+          "type": "array"
+        },
+        "requested_model": {
+          "minLength": 1,
+          "title": "Requested Model",
+          "type": "string"
+        },
+        "requested_model_id": {
+          "minLength": 1,
+          "title": "Requested Model Id",
+          "type": "string"
+        },
+        "requested_provider_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requested Provider Id"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "mismatch",
+            "unobserved"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requested_model",
+        "requested_model_id",
+        "activation_source",
+        "status"
+      ],
+      "title": "ModelActivationReceipt",
+      "type": "object"
+    },
+    "PackageRecord": {
+      "additionalProperties": false,
+      "description": "Installed package name/version observed by an environment builder.\n\nA package wheel hash is not yet verified by the environment builder; add it\nwhen the builder provides content-addressed install receipts.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PackageRecord",
+      "type": "object"
+    },
+    "ProvenanceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_digest": {
+          "minLength": 1,
+          "title": "Backend Digest",
+          "type": "string"
+        },
+        "backend_kind": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Kind"
+        },
+        "benchmark_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Benchmark Digest",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "configuration_activation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigurationActivationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "container_receipt_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "distribution": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Distribution"
+        },
+        "environment_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnvironmentReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "evolution_evidence_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "executable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable"
+        },
+        "executable_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Executable Digest"
+        },
+        "image_digest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Image Digest"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "model_activation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelActivationReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "network_mode": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Mode"
+        },
+        "runner_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Runner Digest",
+          "type": "string"
+        },
+        "runtime_manifest_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeManifestReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subject_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Subject Digest",
+          "type": "string"
+        },
+        "test_override": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TestOverrideReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trace_emission_claimed": {
+          "default": false,
+          "title": "Trace Emission Claimed",
+          "type": "boolean"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        },
+        "workspace_namespace": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Workspace Namespace"
+        }
+      },
+      "required": [
+        "manifest_digest",
+        "runner_digest",
+        "benchmark_digest",
+        "subject_digest",
+        "backend_digest"
+      ],
+      "title": "ProvenanceRecord",
+      "type": "object"
+    },
+    "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "RuntimeAssemblySidecarRef": {
+      "additionalProperties": false,
+      "description": "One persisted sidecar emitted by a sequenced runtime manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "sidecar_schema_version": {
+          "const": "1",
+          "default": "1",
+          "title": "Sidecar Schema Version",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "RuntimeAssemblySidecarRef",
+      "type": "object"
+    },
+    "RuntimeManifestReceipt": {
+      "additionalProperties": false,
+      "description": "Public Magenta runtime-manifest lineage retained by one attempt.",
+      "properties": {
+        "assembly_sidecar_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RuntimeAssemblySidecarRef"
+          },
+          "title": "Assembly Sidecar Refs",
+          "type": "array"
+        },
+        "effective_assembly_sidecar_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuntimeAssemblySidecarRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "effective_sequence": {
+          "minimum": 1,
+          "title": "Effective Sequence",
+          "type": "integer"
+        },
+        "manifest_sha256": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Manifest Sha256",
+          "type": "array"
+        },
+        "protocol_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "trace_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        }
+      },
+      "required": [
+        "run_id",
+        "manifest_sha256",
+        "trace_ref",
+        "effective_sequence"
+      ],
+      "title": "RuntimeManifestReceipt",
+      "type": "object"
+    },
+    "TestOverrideReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "forced_comparison_kind": {
+          "default": null,
+          "title": "Forced Comparison Kind",
+          "type": "null"
+        },
+        "forced_purpose": {
+          "const": "exploratory",
+          "default": "exploratory",
+          "title": "Forced Purpose",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "TestOverrideReceipt",
+      "type": "object"
+    },
+    "TrajectoryCapture": {
+      "additionalProperties": false,
+      "description": "Explicit completeness ledger; missing evidence is never implicit.",
+      "properties": {
+        "environment": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        },
+        "evaluator_io": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        },
+        "model_io": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        },
+        "process_io": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        },
+        "reasons": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "object"
+        },
+        "resource_usage": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        },
+        "tool_io": {
+          "$ref": "#/$defs/TrajectoryCaptureState"
+        }
+      },
+      "required": [
+        "model_io",
+        "tool_io",
+        "process_io",
+        "evaluator_io",
+        "environment",
+        "resource_usage"
+      ],
+      "title": "TrajectoryCapture",
+      "type": "object"
+    },
+    "TrajectoryCaptureState": {
+      "enum": [
+        "complete",
+        "partial",
+        "unavailable",
+        "not_applicable"
+      ],
+      "title": "TrajectoryCaptureState",
+      "type": "string"
+    },
+    "TrajectoryEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
+        },
+        "event_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "input_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Input Refs",
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/TrajectoryEventKind"
+        },
+        "occurred_at": {
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "output_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Output Refs",
+          "type": "array"
+        },
+        "parent_event_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Event Id"
+        },
+        "sequence": {
+          "minimum": 1,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UsageRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "event_id",
+        "sequence",
+        "kind",
+        "occurred_at"
+      ],
+      "title": "TrajectoryEvent",
+      "type": "object"
+    },
+    "TrajectoryEventKind": {
+      "enum": [
+        "rollout_started",
+        "environment_snapshot",
+        "model_request",
+        "model_response",
+        "tool_request",
+        "tool_response",
+        "process_io",
+        "evaluator_request",
+        "evaluator_response",
+        "state_delta",
+        "exception",
+        "native_trace_attached",
+        "rollout_finished"
+      ],
+      "title": "TrajectoryEventKind",
+      "type": "string"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read Tokens"
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write Tokens"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "cpu_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Seconds"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "io_read_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Io Read Bytes"
+        },
+        "io_write_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Io Write Bytes"
+        },
+        "model_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Calls"
+        },
+        "network_egress_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Egress Bytes"
+        },
+        "network_ingress_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Ingress Bytes"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "peak_memory_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Peak Memory Bytes"
+        },
+        "reasoning_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Tokens"
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retries"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "tool_errors": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Errors"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "wall_clock_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Seconds"
+        }
+      },
+      "title": "UsageRecord",
+      "type": "object"
+    },
+    "VerifierEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "metrics": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Metrics",
+          "type": "object"
+        },
+        "passed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Passed"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "verifier": {
+          "minLength": 1,
+          "title": "Verifier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verifier"
+      ],
+      "title": "VerifierEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Content-addressed, adapter-neutral evidence for one launched attempt.",
+  "properties": {
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "attempt_index": {
+      "minimum": 0,
+      "title": "Attempt Index",
+      "type": "integer"
+    },
+    "capture": {
+      "$ref": "#/$defs/TrajectoryCapture"
+    },
+    "case_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "configuration_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Configuration Digest"
+    },
+    "elapsed_seconds": {
+      "minimum": 0,
+      "title": "Elapsed Seconds",
+      "type": "number"
+    },
+    "evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evaluator Digest",
+      "type": "string"
+    },
+    "evaluator_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Evaluator Refs",
+      "type": "array"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/TrajectoryEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "finished_at": {
+      "title": "Finished At",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-rollout-trajectory-v1",
+      "default": "bmp-rollout-trajectory-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "input_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "log_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Log Refs",
+      "type": "array"
+    },
+    "manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "metric_digests": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Metric Digests",
+      "type": "array"
+    },
+    "native_trace_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Native Trace Refs",
+      "type": "array"
+    },
+    "output_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Output Refs",
+      "type": "array"
+    },
+    "parent_run_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Parent Run Id",
+      "type": "string"
+    },
+    "provenance": {
+      "$ref": "#/$defs/ProvenanceRecord"
+    },
+    "started_at": {
+      "title": "Started At",
+      "type": "string"
+    },
+    "terminal_status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "usage": {
+      "$ref": "#/$defs/UsageRecord"
+    },
+    "verifier_evidence": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerifierEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "parent_run_id",
+    "attempt_id",
+    "case_id",
+    "attempt_index",
+    "manifest_digest",
+    "evaluator_digest",
+    "metric_digests",
+    "started_at",
+    "finished_at",
+    "elapsed_seconds",
+    "terminal_status",
+    "input_refs",
+    "provenance",
+    "usage",
+    "capture",
+    "events"
+  ],
+  "title": "RolloutTrajectory",
+  "type": "object"
+}

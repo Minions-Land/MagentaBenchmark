@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -8,9 +9,10 @@ import pytest
 from pydantic import ValidationError
 
 from MagentaBench.runner.compiler import Compiler
-from MagentaBench.runner.gates import _evaluate_claim
+from MagentaBench.runner.gates import evaluate_run_report
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
+    ComparisonKind,
     ExperimentContrast,
     RunPurpose,
     schema_documents,
@@ -19,30 +21,67 @@ from MagentaBench.schemas import (
 
 
 ROOT = Path(__file__).parents[1]
+FACTOR_ID = "conformance.wall-clock-budget"
 
 
-def _experiment(tmp_path: Path) -> Path:
-    path = tmp_path / "factor-contrast.toml"
+def _factor_project(tmp_path: Path) -> Path:
+    project = tmp_path / "project"
+    shutil.copytree(ROOT / "registries", project / "registries")
+    shutil.copytree(
+        ROOT / "MagentaBench/conformance/fixtures/fake_benchmark",
+        project / "MagentaBench/conformance/fixtures/fake_benchmark",
+    )
+    factor_dir = project / "registries/factors"
+    factor_dir.mkdir(parents=True, exist_ok=True)
+    (factor_dir / "conformance-wall-clock-budget.toml").write_text(
+        f'''[factor]
+id = "{FACTOR_ID}"
+kind = "factor"
+adapter = "magentabench.factor"
+bmp_version = "0.1"
+category = "conformance_fixture"
+selector_path = "execution.budget.max_wall_seconds"
+applies_to = []
+resolved_diff_paths = ["execution.budget.max_wall_seconds"]
+activation_evidence = "none"
+metadata_only = false
+
+[[factor.levels]]
+id = "one-second"
+value = 1.0
+
+[[factor.levels]]
+id = "two-seconds"
+value = 2.0
+''',
+        encoding="utf-8",
+    )
+    return project
+
+
+def _experiment(project: Path) -> Path:
+    path = project / "factor-contrast.toml"
     path.write_text(
-        '''
+        f'''
 [experiment]
 id = "factor-contrast"
 benchmark = "fake.exact.v1"
+dataset = "dataset.fake.exact.v1"
+evaluator = "evaluator.fake.exact.v1"
+metrics = ["reward.authoritative.v1"]
 subject = "fake.treatment"
 protocol = "fake.deterministic.v1"
-allowed_diff = ["execution.budget.max_wall_seconds"]
+factors = ["{FACTOR_ID}"]
 
 [experiment.contrast]
 mode = "one_factor"
-factor_path = "execution.budget.max_wall_seconds"
-control_value = 1.0
-treatment_value = 2.0
+factor_id = "{FACTOR_ID}"
+control_level = "one-second"
+treatment_level = "two-seconds"
 counterbalanced = false
 
 [experiment.design]
-scope = "conformance"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "fake.local"
@@ -59,7 +98,8 @@ max_cost = 0.0
 
 
 def test_factor_contrast_compiles_two_arms_without_subject_axis(tmp_path: Path) -> None:
-    runs = Compiler(ROOT).compile(_experiment(tmp_path))
+    project = _factor_project(tmp_path)
+    runs = Compiler(project).compile(_experiment(project))
 
     assert len(runs) == 2
     assert {
@@ -73,26 +113,29 @@ def test_factor_contrast_compiles_two_arms_without_subject_axis(tmp_path: Path) 
 
 
 def test_factor_contrast_pairs_claim_effect_by_declared_factor(tmp_path: Path) -> None:
-    result = Pipeline(ROOT, tmp_path / "records").run(_experiment(tmp_path))
+    project = _factor_project(tmp_path)
+    result = Pipeline(project, tmp_path / "records").run(_experiment(project))
+    registered_subject = Compiler(project)._subject_artifact("fake.nonfake")
     completed = []
     for item in result.runs:
         design = item.plan.manifest.claim_design.model_copy(
-            update={"purpose": RunPurpose.claim}
+            update={
+                "comparison_kind": ComparisonKind.coding_agent,
+                "purpose": RunPurpose.claim,
+                "intervention_factor_id": FACTOR_ID,
+            }
         )
-        manifest = item.plan.manifest.model_copy(update={"claim_design": design})
+        manifest = item.plan.manifest.model_copy(
+            update={"claim_design": design, "subject": registered_subject}
+        )
         completed.append(replace(item, plan=replace(item.plan, manifest=manifest)))
 
-    report = _evaluate_claim(
+    report = evaluate_run_report(
         completed=completed,
-        expected_run_count=2,
-        control_id="__factor_control__",
-        treatment_id="__factor_treatment__",
-        deterministic_conformance=False,
-        counterbalanced=False,
+        expected_run_ids=tuple(
+            item.plan.manifest.metadata.run_id for item in completed
+        ),
         record_index_ref=None,
-        contrast_factor_path="execution.budget.max_wall_seconds",
-        contrast_control_value=1.0,
-        contrast_treatment_value=2.0,
     )
 
     assert report.effect is not None
@@ -102,7 +145,8 @@ def test_factor_contrast_pairs_claim_effect_by_declared_factor(tmp_path: Path) -
 def test_factor_contrast_round_trips_through_standalone_verifier(
     tmp_path: Path,
 ) -> None:
-    result = Pipeline(ROOT, tmp_path / "records").run(_experiment(tmp_path))
+    project = _factor_project(tmp_path)
+    result = Pipeline(project, tmp_path / "records").run(_experiment(project))
 
     verified = verify_observation_report(result.report_path)
 
@@ -110,46 +154,44 @@ def test_factor_contrast_round_trips_through_standalone_verifier(
 
 
 def test_factor_contrast_shape_is_closed() -> None:
-    with pytest.raises(ValidationError, match="cannot provide control_id"):
+    with pytest.raises(ValidationError, match="requires factor_id"):
         ExperimentContrast(
             mode="one_factor",
-            control_id="legacy-control",
-            factor_path="execution.model",
-            control_value="model-a",
-            treatment_value="model-b",
             counterbalanced=False,
         )
     with pytest.raises(ValidationError, match="must be distinct"):
         ExperimentContrast(
             mode="one_factor",
-            factor_path="execution.model",
-            control_value={"model": "same"},
-            treatment_value={"model": "same"},
+            factor_id="model.primary",
+            control_level="same",
+            treatment_level="same",
+            counterbalanced=False,
+        )
+    with pytest.raises(ValidationError, match="ablation requires"):
+        ExperimentContrast(
+            mode="all_arms",
+            design="ablation",
             counterbalanced=False,
         )
 
 
-def test_factor_contrast_allows_json_null_as_an_arm_value() -> None:
+def test_factor_contrast_references_registered_levels() -> None:
     contrast = ExperimentContrast(
         mode="one_factor",
-        factor_path="execution.backend_overrides.optional_flag",
-        control_value=None,
-        treatment_value=True,
+        factor_id="configuration.optional-flag",
+        control_level="disabled",
+        treatment_level="enabled",
         counterbalanced=False,
     )
 
-    assert contrast.control_value is None
-    assert contrast.treatment_value is True
-    assert "control_value" in contrast.model_fields_set
+    assert contrast.factor_id == "configuration.optional-flag"
+    assert contrast.control_level == "disabled"
+    assert contrast.treatment_level == "enabled"
 
 
-def test_all_arms_ignores_canonical_optional_nulls() -> None:
-    # Optional arm fields serialize as null in canonical manifests.  Reloading
-    # such a manifest must remain valid and equivalent to the omitted form.
+def test_all_arms_round_trips_with_canonical_optional_fields() -> None:
     contrast = ExperimentContrast(
         mode="all_arms",
-        control_value=None,
-        treatment_value=None,
         counterbalanced=False,
     )
     assert (
@@ -171,15 +213,17 @@ def test_factor_contrast_json_schema_closes_arm_forms() -> None:
         ),
         ExperimentContrast(
             mode="one_factor",
-            control_id="control",
-            treatment_id="treatment",
+            factor_id="subject.primary",
+            control_level="control",
+            treatment_level="treatment",
             counterbalanced=False,
         ),
         ExperimentContrast(
             mode="one_factor",
-            factor_path="configuration.values.optional",
-            control_value=None,
-            treatment_value=True,
+            design="ablation",
+            factor_id="agent.component.optional",
+            control_level="disabled",
+            treatment_level="enabled",
             counterbalanced=False,
         ),
     )
@@ -190,7 +234,7 @@ def test_factor_contrast_json_schema_closes_arm_forms() -> None:
         validator.validate(
             {
                 "mode": "all_arms",
-                "factor_path": "execution.model",
+                "unexpected": "field",
                 "counterbalanced": False,
             }
         )
@@ -198,10 +242,9 @@ def test_factor_contrast_json_schema_closes_arm_forms() -> None:
         validator.validate(
             {
                 "mode": "one_factor",
-                "factor_path": "execution.model",
-                "control_id": "legacy-control",
-                "control_value": "model-a",
-                "treatment_value": "model-b",
+                "factor_id": "model.primary",
+                "control_level": 1,
+                "treatment_level": "model-b",
                 "counterbalanced": False,
             }
         )

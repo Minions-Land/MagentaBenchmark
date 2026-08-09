@@ -1,89 +1,7 @@
 {
   "additionalProperties": false,
-  "oneOf": [
-    {
-      "properties": {
-        "control_id": {
-          "type": "null"
-        },
-        "control_value": {
-          "type": "null"
-        },
-        "counterbalanced": {
-          "const": false
-        },
-        "factor_path": {
-          "type": "null"
-        },
-        "mode": {
-          "const": "all_arms"
-        },
-        "treatment_id": {
-          "type": "null"
-        },
-        "treatment_value": {
-          "type": "null"
-        }
-      },
-      "required": [
-        "mode",
-        "counterbalanced"
-      ]
-    },
-    {
-      "properties": {
-        "control_id": {
-          "type": "string"
-        },
-        "control_value": {
-          "type": "null"
-        },
-        "factor_path": {
-          "type": "null"
-        },
-        "mode": {
-          "const": "one_factor"
-        },
-        "treatment_id": {
-          "type": "string"
-        },
-        "treatment_value": {
-          "type": "null"
-        }
-      },
-      "required": [
-        "mode",
-        "counterbalanced",
-        "control_id",
-        "treatment_id"
-      ]
-    },
-    {
-      "properties": {
-        "control_id": {
-          "type": "null"
-        },
-        "factor_path": {
-          "type": "string"
-        },
-        "mode": {
-          "const": "one_factor"
-        },
-        "treatment_id": {
-          "type": "null"
-        }
-      },
-      "required": [
-        "mode",
-        "counterbalanced",
-        "factor_path",
-        "control_value",
-        "treatment_value"
-      ]
-    }
-  ],
   "properties": {
-    "control_id": {
+    "control_level": {
       "anyOf": [
         {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -94,25 +12,25 @@
         }
       ],
       "default": null,
-      "title": "Control Id"
-    },
-    "control_value": {
-      "anyOf": [
-        {},
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Control Value"
+      "title": "Control Level"
     },
     "counterbalanced": {
       "title": "Counterbalanced",
       "type": "boolean"
     },
-    "factor_path": {
+    "design": {
+      "default": "direct",
+      "enum": [
+        "direct",
+        "ablation"
+      ],
+      "title": "Design",
+      "type": "string"
+    },
+    "factor_id": {
       "anyOf": [
         {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "type": "string"
         },
         {
@@ -120,7 +38,7 @@
         }
       ],
       "default": null,
-      "title": "Factor Path"
+      "title": "Factor Id"
     },
     "mode": {
       "enum": [
@@ -130,7 +48,7 @@
       "title": "Mode",
       "type": "string"
     },
-    "treatment_id": {
+    "treatment_level": {
       "anyOf": [
         {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -141,17 +59,7 @@
         }
       ],
       "default": null,
-      "title": "Treatment Id"
-    },
-    "treatment_value": {
-      "anyOf": [
-        {},
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Treatment Value"
+      "title": "Treatment Level"
     }
   },
   "required": [

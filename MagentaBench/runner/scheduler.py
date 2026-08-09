@@ -10,7 +10,7 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, Sequence
 
 from MagentaBench.schemas import (
     AttemptAllocation,
@@ -19,6 +19,7 @@ from MagentaBench.schemas import (
     BudgetAllocation,
     BudgetDebit,
     BudgetLedger,
+    CaseArtifact,
     CaseAllocation,
     EvidenceBundle,
     RunStatus,
@@ -32,7 +33,8 @@ from .case_order import CaseOrderError, selected_case_ids
 
 if TYPE_CHECKING:
     from .backend.fake import CaseExecution
-from .evidence import artifact_ref, atomic_write_json, sha256_file
+from .evidence import artifact_ref, atomic_write_json
+from .trajectory import finalize_rollout_trajectory
 
 
 class SchedulerError(RuntimeError):
@@ -102,17 +104,42 @@ def _usage_total(values: Sequence[UsageRecord]) -> UsageRecord:
 
     input_tokens = total("input_tokens")
     output_tokens = total("output_tokens")
+    reasoning_tokens = total("reasoning_tokens")
     cache_read = total("cache_read_tokens")
     cache_write = total("cache_write_tokens")
     total_tokens = total("total_tokens")
     cost = total("cost")
+    model_calls = total("model_calls")
+    tool_calls = total("tool_calls")
+    tool_errors = total("tool_errors")
+    retries = total("retries")
+    cpu_seconds = total("cpu_seconds")
+    io_read_bytes = total("io_read_bytes")
+    io_write_bytes = total("io_write_bytes")
+    network_ingress_bytes = total("network_ingress_bytes")
+    network_egress_bytes = total("network_egress_bytes")
+    memory_values = [value.peak_memory_bytes for value in values]
+    peak_memory_bytes = (
+        None if any(value is None for value in memory_values) else max(memory_values)
+    )
     return UsageRecord(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        reasoning_tokens=reasoning_tokens,
         cache_read_tokens=cache_read,
         cache_write_tokens=cache_write,
         total_tokens=total_tokens,
         cost=cost,
+        model_calls=model_calls,
+        tool_calls=tool_calls,
+        tool_errors=tool_errors,
+        retries=retries,
+        cpu_seconds=cpu_seconds,
+        peak_memory_bytes=peak_memory_bytes,
+        io_read_bytes=io_read_bytes,
+        io_write_bytes=io_write_bytes,
+        network_ingress_bytes=network_ingress_bytes,
+        network_egress_bytes=network_egress_bytes,
         wall_clock_seconds=None,
     )
 
@@ -205,6 +232,7 @@ class Scheduler:
         cases: Iterable[Any],
         *,
         attempt_runner: AttemptRunner,
+        case_artifacts: Mapping[str, CaseArtifact] | None = None,
         reset_state: StateReset | None = None,
         receipt_path: str | Path | None = None,
     ) -> ScheduleResult:
@@ -294,6 +322,9 @@ class Scheduler:
         case_order_index = {
             case_id: index for index, case_id in enumerate(case_ids)
         }
+        case_artifact_by_id = {} if case_artifacts is None else dict(case_artifacts)
+        if case_artifacts is not None and set(case_artifact_by_id) != set(case_ids):
+            raise SchedulerError("case artifact ids must exactly match scheduled cases")
         planned.sort(
             key=lambda item: (
                 item[1].attempt_index,
@@ -322,7 +353,7 @@ class Scheduler:
         active_cases: set[str] = set()
         lock = threading.Lock()
         future_data: dict[
-            Future[tuple[CaseExecution, float]], ScheduledAttempt
+            Future[tuple[CaseExecution, float, datetime, datetime]], ScheduledAttempt
         ] = {}
         launched_records: dict[str, tuple[CaseExecution, float, AttemptAllocation]] = {}
         completion_by_attempt: dict[str, int] = {}
@@ -373,14 +404,21 @@ class Scheduler:
                 allocation=attempt.allocation,
                 remaining_wall_seconds=remaining_wall,
             )
-            def run_one() -> tuple[CaseExecution, float]:
+            def run_one() -> tuple[CaseExecution, float, datetime, datetime]:
                 nonlocal active, observed_max_concurrency
                 child_started = time.monotonic()
+                child_started_at = datetime.now(timezone.utc)
                 with lock:
                     active += 1
                     observed_max_concurrency = max(observed_max_concurrency, active)
                 try:
-                    return attempt_runner(scheduled), time.monotonic() - child_started
+                    execution = attempt_runner(scheduled)
+                    return (
+                        execution,
+                        time.monotonic() - child_started,
+                        child_started_at,
+                        datetime.now(timezone.utc),
+                    )
                 finally:
                     with lock:
                         active -= 1
@@ -412,15 +450,27 @@ class Scheduler:
                     scheduled = future_data.pop(future)
                     active_cases.discard(scheduled.case_id)
                     completion_sequence += 1
-                    execution, elapsed = future.result()
+                    execution, elapsed, child_started_at, child_finished_at = future.result()
                     usage = _usage(execution.bundle, elapsed)
-                    if execution.bundle.usage != usage:
-                        bundle = execution.bundle.model_copy(update={"usage": usage})
-                        atomic_write_json(execution.bundle_path, bundle)
-                        execution = replace(
+                    if case_artifacts is None:
+                        if execution.bundle.usage != usage:
+                            bundle = execution.bundle.model_copy(update={"usage": usage})
+                            atomic_write_json(execution.bundle_path, bundle)
+                            execution = replace(
+                                execution,
+                                bundle_digest=artifact_ref(execution.bundle_path).sha256,
+                                bundle=bundle,
+                            )
+                    else:
+                        execution = finalize_rollout_trajectory(
+                            run,
+                            case_artifact_by_id[scheduled.case_id],
                             execution,
-                            bundle=bundle,
-                            bundle_digest=sha256_file(execution.bundle_path),
+                            attempt_index=scheduled.attempt_index,
+                            usage=usage,
+                            started_at=child_started_at,
+                            finished_at=child_finished_at,
+                            elapsed_seconds=elapsed,
                         )
                     completion_by_attempt[scheduled.attempt_id] = completion_sequence
                     launched_record = next(a for a in attempt_allocations if a.attempt_id == scheduled.attempt_id)
@@ -495,7 +545,7 @@ class Scheduler:
                 usage_observable=usage_observable,
             )
             reward_metric_name = (
-                run.manifest.benchmark.authoritative_reward_metric
+                run.manifest.authoritative_reward_metric
             )
             verifier = execution.bundle.verifier_evidence
             reward_value = (
@@ -526,15 +576,37 @@ class Scheduler:
             if selection == "best_of_n":
                 scored = [item for item in candidates if item.reward_value is not None]
                 if not scored:
-                    continue
-                winner = max(scored, key=lambda item: (item.reward_value, -item.attempt_index))
+                    # Retain a deterministic lineage representative even when
+                    # every rollout failed before scoring.  The receipt remains
+                    # schedule-invalid below, but reports and registered
+                    # metrics can still count every planned failure as zero.
+                    winner = min(candidates, key=lambda item: item.attempt_index)
+                else:
+                    direction = run.manifest.authoritative_metric_artifact.metric.direction
+                    selector = max if direction.value == "maximize" else min
+                    winner = selector(
+                        scored,
+                        key=lambda item: (
+                            item.reward_value,
+                            -item.attempt_index
+                            if direction.value == "maximize"
+                            else item.attempt_index,
+                        ),
+                    )
             else:
                 winner = min(candidates, key=lambda item: item.attempt_index)
             for item in candidates:
                 updated = item.model_copy(
                     update={
                         "selected": item.attempt_id == winner.attempt_id,
-                        "selection_reason": selection,
+                        "selection_reason": (
+                            "best_of_n_unscored_fallback"
+                            if selection == "best_of_n" and not any(
+                                candidate.reward_value is not None
+                                for candidate in candidates
+                            )
+                            else selection
+                        ),
                     }
                 )
                 attempts[attempts.index(item)] = updated

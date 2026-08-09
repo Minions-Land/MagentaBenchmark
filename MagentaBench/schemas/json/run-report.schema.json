@@ -154,6 +154,9 @@
           "title": "Claim Eligible",
           "type": "boolean"
         },
+        "comparison_kind": {
+          "$ref": "#/$defs/ComparisonKind"
+        },
         "effect": {
           "anyOf": [
             {
@@ -217,6 +220,14 @@
           "title": "Manifest Digest",
           "type": "string"
         },
+        "metric_results": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricResult"
+          },
+          "title": "Metric Results",
+          "type": "array"
+        },
         "purpose": {
           "const": "claim",
           "title": "Purpose",
@@ -244,13 +255,18 @@
           ],
           "default": null
         },
-        "subject_kind": {
-          "$ref": "#/$defs/SubjectKind"
+        "subject_kinds": {
+          "items": {
+            "$ref": "#/$defs/SubjectKind"
+          },
+          "title": "Subject Kinds",
+          "type": "array"
         }
       },
       "required": [
         "purpose",
-        "subject_kind",
+        "comparison_kind",
+        "subject_kinds",
         "experiment_id",
         "manifest_digest",
         "gates",
@@ -259,6 +275,17 @@
       ],
       "title": "ClaimReport",
       "type": "object"
+    },
+    "ComparisonKind": {
+      "description": "The four semantic subjects that BMP is allowed to compare.",
+      "enum": [
+        "agent",
+        "coding_agent",
+        "evolution_method",
+        "meta_evolution_method"
+      ],
+      "title": "ComparisonKind",
+      "type": "string"
     },
     "EffectEstimate": {
       "additionalProperties": false,
@@ -435,6 +462,261 @@
       "title": "LineageRef",
       "type": "object"
     },
+    "MetricComputationState": {
+      "enum": [
+        "complete",
+        "unavailable",
+        "invalid"
+      ],
+      "title": "MetricComputationState",
+      "type": "string"
+    },
+    "MetricResult": {
+      "additionalProperties": false,
+      "description": "Replayable metric output over one resolved configuration/run arm.",
+      "properties": {
+        "denominator": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Denominator"
+        },
+        "excluded_count": {
+          "minimum": 0,
+          "title": "Excluded Count",
+          "type": "integer"
+        },
+        "input_metric_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Metric Ids",
+          "type": "array"
+        },
+        "invalid_count": {
+          "minimum": 0,
+          "title": "Invalid Count",
+          "type": "integer"
+        },
+        "manifest_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Manifest Digest",
+          "type": "string"
+        },
+        "metric_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metric Digest",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "missing_count": {
+          "minimum": 0,
+          "title": "Missing Count",
+          "type": "integer"
+        },
+        "numerator": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numerator"
+        },
+        "observed_count": {
+          "minimum": 0,
+          "title": "Observed Count",
+          "type": "integer"
+        },
+        "parent_run_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Parent Run Id",
+          "type": "string"
+        },
+        "planned_rollout_count": {
+          "minimum": 1,
+          "title": "Planned Rollout Count",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "rollouts_per_task": {
+          "minimum": 1,
+          "title": "Rollouts Per Task",
+          "type": "integer"
+        },
+        "samples": {
+          "items": {
+            "$ref": "#/$defs/MetricSample"
+          },
+          "title": "Samples",
+          "type": "array"
+        },
+        "schedule_receipt_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "state": {
+          "$ref": "#/$defs/MetricComputationState"
+        },
+        "status_counts": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/RunStatus"
+          },
+          "title": "Status Counts",
+          "type": "object"
+        },
+        "task_count": {
+          "minimum": 1,
+          "title": "Task Count",
+          "type": "integer"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "zero_filled_count": {
+          "minimum": 0,
+          "title": "Zero Filled Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "metric_id",
+        "metric_digest",
+        "manifest_digest",
+        "parent_run_id",
+        "schedule_receipt_ref",
+        "state",
+        "planned_rollout_count",
+        "task_count",
+        "rollouts_per_task",
+        "observed_count",
+        "zero_filled_count",
+        "excluded_count",
+        "missing_count",
+        "invalid_count",
+        "status_counts",
+        "samples"
+      ],
+      "title": "MetricResult",
+      "type": "object"
+    },
+    "MetricSample": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "attempt_index": {
+          "minimum": 0,
+          "title": "Attempt Index",
+          "type": "integer"
+        },
+        "case_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/MetricSampleDisposition"
+        },
+        "evidence_bundle_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "trajectory_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "case_id",
+        "attempt_index",
+        "status",
+        "disposition"
+      ],
+      "title": "MetricSample",
+      "type": "object"
+    },
+    "MetricSampleDisposition": {
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid"
+      ],
+      "title": "MetricSampleDisposition",
+      "type": "string"
+    },
     "Observation": {
       "additionalProperties": false,
       "properties": {
@@ -519,6 +801,17 @@
       ],
       "description": "Exploratory observations with no claim eligibility or causal fields.",
       "properties": {
+        "comparison_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComparisonKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "experiment_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Experiment Id",
@@ -558,6 +851,14 @@
           "title": "Manifest Digest",
           "type": "string"
         },
+        "metric_results": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricResult"
+          },
+          "title": "Metric Results",
+          "type": "array"
+        },
         "observations": {
           "default": [],
           "items": {
@@ -595,13 +896,17 @@
           ],
           "default": null
         },
-        "subject_kind": {
-          "$ref": "#/$defs/SubjectKind"
+        "subject_kinds": {
+          "items": {
+            "$ref": "#/$defs/SubjectKind"
+          },
+          "title": "Subject Kinds",
+          "type": "array"
         }
       },
       "required": [
         "purpose",
-        "subject_kind",
+        "subject_kinds",
         "experiment_id",
         "manifest_digest",
         "isolation_valid",
@@ -611,6 +916,7 @@
       "type": "object"
     },
     "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
       "enum": [
         "pass",
         "verified_fail",
@@ -819,7 +1125,7 @@
       "type": "object"
     },
     "SubjectKind": {
-      "description": "Resolved kind of the subject that actually entered an execution path.",
+      "description": "Execution/artifact shape that actually entered an execution path.\n\nThis is deliberately separate from :class:`ComparisonKind`: two subjects\nwith different runtime packaging (for example ``hcp_harness`` and\n``opaque_agent``) can both represent a complete Coding Agent.",
       "enum": [
         "hcp_harness",
         "opaque_agent",

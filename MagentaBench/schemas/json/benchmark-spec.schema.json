@@ -9,42 +9,11 @@
           "title": "Adapter",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
-        },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
-        },
-        "content_globs": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Content Globs",
-          "type": "array"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -55,54 +24,15 @@
           "const": "custom",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "id",
         "kind",
-        "adapter",
-        "source",
-        "content_globs",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "CustomBenchmarkSpec",
       "type": "object"
-    },
-    "ScoringKind": {
-      "description": "Benchmark-owned verdict semantics.\n\nContinuous scoring supports metric/effect claims but not pass-rate claims;\ndownstream compilation must reject pass-rate estimands without a threshold.",
-      "enum": [
-        "binary",
-        "continuous"
-      ],
-      "title": "ScoringKind",
-      "type": "string"
     },
     "TaskSuiteBenchmarkSpec": {
       "additionalProperties": false,
@@ -112,29 +42,11 @@
           "title": "Adapter",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
-        },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -145,47 +57,12 @@
           "const": "task_suite",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "task_manifest": {
-          "minLength": 1,
-          "title": "Task Manifest",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "id",
         "kind",
-        "adapter",
-        "source",
-        "task_manifest",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "TaskSuiteBenchmarkSpec",
       "type": "object"
@@ -198,33 +75,10 @@
           "title": "Adapter",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
-          "type": "string"
-        },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "evaluator": {
-          "minLength": 1,
-          "title": "Evaluator",
           "type": "string"
         },
         "id": {
@@ -249,44 +103,14 @@
           "minItems": 1,
           "title": "Output Contract",
           "type": "array"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "task_root": {
-          "minLength": 1,
-          "title": "Task Root",
-          "type": "string"
         }
       },
       "required": [
         "id",
         "kind",
         "adapter",
-        "source",
-        "task_root",
         "input_contract",
-        "output_contract",
-        "evaluator",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "output_contract"
       ],
       "title": "ToolAgentSuiteBenchmarkSpec",
       "type": "object"

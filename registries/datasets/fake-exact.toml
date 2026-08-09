@@ -1,0 +1,13 @@
+[dataset]
+id = "dataset.fake.exact.v1"
+kind = "dataset"
+adapter = "fake"
+bmp_version = "0.1"
+source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
+commit = "fake-benchmark-v1"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+split = "test"
+
+[dataset.config]
+task_manifest = "tasks.toml"

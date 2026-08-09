@@ -1,0 +1,64 @@
+{
+  "additionalProperties": false,
+  "description": "One member of the complete parent-selection population.",
+  "properties": {
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "child_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Child Count",
+      "type": "integer"
+    },
+    "eligible": {
+      "title": "Eligible",
+      "type": "boolean"
+    },
+    "probability": {
+      "default": 0.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Probability",
+      "type": "number"
+    },
+    "raw_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Score"
+    },
+    "transformed_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Transformed Score"
+    },
+    "weight": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Weight",
+      "type": "number"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "eligible"
+  ],
+  "title": "EvolutionSelectionCandidate",
+  "type": "object"
+}

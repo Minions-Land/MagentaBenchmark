@@ -212,9 +212,13 @@ class AoseDockerBackend:
         task: AoseTask,
     ) -> AoseDockerExecution:
         benchmark = run.manifest.benchmark
+        dataset = run.manifest.dataset
         if re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", task.task_id) is None:
             raise AoseDockerError(f"invalid AOSE task id: {task.task_id!r}")
-        task_root = (Path(benchmark.source) / benchmark.task_root).resolve()
+        dataset_task_root = dataset.config.get("task_root")
+        if not isinstance(dataset_task_root, str) or not dataset_task_root:
+            raise AoseDockerError("AOSE dataset task_root is missing")
+        task_root = (Path(dataset.source) / dataset_task_root).resolve()
         registered_instruction = (
             task_root / task.task_id / "instruction.md"
         ).resolve()

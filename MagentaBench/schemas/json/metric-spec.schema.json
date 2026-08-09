@@ -1,0 +1,193 @@
+{
+  "$defs": {
+    "MetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize",
+        "neutral"
+      ],
+      "title": "MetricDirection",
+      "type": "string"
+    },
+    "MetricFormula": {
+      "enum": [
+        "direct_v1",
+        "mean_v1",
+        "sum_v1",
+        "pass_at_1_v1",
+        "ratio_v1",
+        "successes_per_million_tokens_v1",
+        "completed_per_hour_v1"
+      ],
+      "title": "MetricFormula",
+      "type": "string"
+    },
+    "MetricLevel": {
+      "enum": [
+        "event",
+        "rollout",
+        "task",
+        "configuration",
+        "experiment"
+      ],
+      "title": "MetricLevel",
+      "type": "string"
+    },
+    "MetricMissingDisposition": {
+      "enum": [
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricMissingDisposition",
+      "type": "string"
+    },
+    "MetricPopulation": {
+      "enum": [
+        "evaluator_observations",
+        "planned_rollouts",
+        "launched_rollouts",
+        "completed_rollouts",
+        "observed_rollouts",
+        "experiment_wall_clock"
+      ],
+      "title": "MetricPopulation",
+      "type": "string"
+    },
+    "MetricSource": {
+      "enum": [
+        "evaluator",
+        "usage",
+        "trajectory",
+        "schedule",
+        "derived"
+      ],
+      "title": "MetricSource",
+      "type": "string"
+    },
+    "MetricStatusDisposition": {
+      "enum": [
+        "observe",
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricStatusDisposition",
+      "type": "string"
+    },
+    "MetricValueKind": {
+      "enum": [
+        "binary",
+        "count",
+        "continuous",
+        "duration",
+        "tokens",
+        "currency",
+        "rate",
+        "efficiency"
+      ],
+      "title": "MetricValueKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Versioned metric semantics selected only through a TOML registry.\n\nThe formula, population, failure handling, unit, and dependency identities\nare all part of the metric digest. This prevents a familiar display name\nsuch as ``pass@1`` from silently changing denominator or exception policy.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "direction": {
+      "$ref": "#/$defs/MetricDirection"
+    },
+    "formula": {
+      "$ref": "#/$defs/MetricFormula"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "inputs": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Inputs",
+      "type": "array"
+    },
+    "kind": {
+      "const": "metric",
+      "title": "Kind",
+      "type": "string"
+    },
+    "level": {
+      "$ref": "#/$defs/MetricLevel"
+    },
+    "missing_observation": {
+      "$ref": "#/$defs/MetricMissingDisposition"
+    },
+    "population": {
+      "$ref": "#/$defs/MetricPopulation"
+    },
+    "scale": {
+      "default": 1.0,
+      "exclusiveMinimum": 0,
+      "title": "Scale",
+      "type": "number"
+    },
+    "source": {
+      "$ref": "#/$defs/MetricSource"
+    },
+    "source_field": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Field"
+    },
+    "status_policy": {
+      "additionalProperties": {
+        "$ref": "#/$defs/MetricStatusDisposition"
+      },
+      "title": "Status Policy",
+      "type": "object"
+    },
+    "unit": {
+      "minLength": 1,
+      "title": "Unit",
+      "type": "string"
+    },
+    "value_kind": {
+      "$ref": "#/$defs/MetricValueKind"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "adapter",
+    "value_kind",
+    "level",
+    "direction",
+    "unit",
+    "source",
+    "formula",
+    "population",
+    "missing_observation"
+  ],
+  "title": "MetricSpec",
+  "type": "object"
+}

@@ -1,6 +1,7 @@
 [subject]
 id = "magenta.hcp.default"
 kind = "hcp_harness"
+comparison_kind = "coding_agent"
 adapter = "magenta_hcp"
 bmp_version = "0.1"
 source = "/opt/subjects/Magenta"

@@ -277,30 +277,43 @@ def test_allow_test_override_is_identity_marked() -> None:
     assert overridden.manifest.metadata.test_override is not None
     assert overridden.manifest.metadata.test_override.reason
     assert overridden.manifest.metadata.test_override.forced_purpose == "exploratory"
-    assert overridden.manifest.metadata.test_override.forced_scope == "conformance"
+    assert overridden.manifest.metadata.test_override.forced_comparison_kind is None
+    assert (
+        overridden.manifest.claim_design.intervention_factor_id
+        == "conformance.fake-subject"
+    )
+    assert overridden.manifest.metadata.allowed_diff == (
+        "subject.artifact_digest",
+        "subject.fixed_answer",
+        "subject.id",
+    )
     assert overridden.manifest_digest != normal.manifest_digest
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("purpose", "claim"), ("scope", "whole_harness")],
+    [("purpose", "claim"), ("comparison_kind", "coding_agent")],
 )
 def test_allow_test_override_forces_exploratory_conformance(
     tmp_path: Path, field: str, value: str
 ) -> None:
     source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
-    source = source.replace(
-        f'{field} = "{("exploratory" if field == "purpose" else "conformance")}"',
-        f'{field} = "{value}"',
-    )
+    if field == "purpose":
+        source = source.replace('purpose = "exploratory"', f'{field} = "{value}"')
+    else:
+        source = source.replace(
+            "[experiment.design]\n",
+            f'[experiment.design]\n{field} = "{value}"\n',
+        )
     experiment = tmp_path / f"override-{field}.toml"
     experiment.write_text(source, encoding="utf-8")
     runs = Compiler(ROOT, allow_test_override=True).compile(experiment)
     assert runs
     assert all(
         run.manifest.claim_design.purpose.value == "exploratory"
-        and run.manifest.claim_design.scope.value == "conformance"
-        and run.manifest.claim_design.vary == ()
+        and run.manifest.claim_design.comparison_kind is None
+        and run.manifest.claim_design.intervention_factor_id
+        == "conformance.fake-subject"
         for run in runs
     )
 
@@ -308,7 +321,7 @@ def test_allow_test_override_forces_exploratory_conformance(
 def test_experiment_design_is_required_without_fallback(tmp_path: Path) -> None:
     source = (EXPERIMENTS / "fake-taxonomy.toml").read_text(encoding="utf-8")
     source = source.replace(
-        '\n[experiment.design]\nscope = "conformance"\npurpose = "exploratory"\nvary = []\n',
+        '\n[experiment.design]\npurpose = "exploratory"\n',
         "",
     )
     experiment = tmp_path / "missing-design.toml"
@@ -318,107 +331,88 @@ def test_experiment_design_is_required_without_fallback(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("scope", "proof_type"),
-    [
-        ("component", "AssemblySidecarRef"),
-        ("model", "ModelActivationReceipt"),
-        ("checkpoint", "CheckpointLoadReceipt"),
-        ("evolver", "EvolutionRunEvidence"),
-        ("meta_evolver", "NestedIsolationReceipt"),
-        ("ablation", "AssemblySidecarRef"),
-        ("hyperparameter", "HyperparameterActivationReceipt"),
-    ],
+    "retired_field",
+    (
+        'scope = "whole_harness"',
+        'vary = ["subject.id"]',
+        'intervention_factor_id = "agent.subject"',
+    ),
 )
-def test_inactive_scopes_name_the_missing_evidence_class(
-    tmp_path: Path, scope: str, proof_type: str
+def test_retired_design_fields_are_rejected(
+    tmp_path: Path, retired_field: str
 ) -> None:
-    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
-        encoding="utf-8"
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        "[experiment.design]\n",
+        f"[experiment.design]\n{retired_field}\n",
     )
-    source = source.replace('scope = "whole_harness"', f'scope = "{scope}"')
-    experiment = tmp_path / f"blocked-{scope}.toml"
+    experiment = tmp_path / "retired-design-field.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError, match=proof_type):
+    with pytest.raises(
+        CompilationError,
+        match="scope/vary/intervention_factor_id are derived or retired",
+    ):
         Compiler(ROOT).compile(experiment)
 
 
-def test_schedule_scope_rejects_without_native_case_set_path(tmp_path: Path) -> None:
-    source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
-        encoding="utf-8"
+def test_inline_allowed_diff_is_rejected(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        'protocol = "fake.deterministic.v1"',
+        'protocol = "fake.deterministic.v1"\nallowed_diff = ["subject.id"]',
     )
-    source = source.replace('scope = "whole_harness"', 'scope = "schedule"')
-    experiment = tmp_path / "blocked-schedule.toml"
+    experiment = tmp_path / "inline-allowed-diff.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError, match="CaseSetActivationReceipt"):
+    with pytest.raises(CompilationError, match="unknown .*allowed_diff"):
         Compiler(ROOT).compile(experiment)
 
 
+def test_inline_factor_table_is_rejected(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source += '\n[factors]\nsubject = ["fake.control", "fake.treatment"]\n'
+    experiment = tmp_path / "inline-factors.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="unknown top-level TOML sections"):
+        Compiler(ROOT).compile(experiment)
 
 
-def _whole_harness_experiment(*, vary: str) -> str:
-    return f'''[experiment]
-id = "aose-whole-harness-compile"
-benchmark = "aosebench.biomnibench-da.v1"
-subject = "aose.dryrun.true"
-protocol = "aose.zero-cost-dryrun.v1"
-allowed_diff = [
-  "subject.artifact_digest",
-  "subject.emits_trace",
-  "subject.entrypoint",
-  "subject.id",
-]
-
-[experiment.contrast]
-mode = "one_factor"
-control_id = "aose.dryrun.true"
-treatment_id = "aose.dryrun.echo"
-counterbalanced = false
-
-[experiment.design]
-scope = "whole_harness"
-purpose = "claim"
-vary = [{vary}]
-
-[execution]
-backend = "aose.docker.immutable"
-model = "none"
-
-[execution.budget]
-max_tokens = 0
-max_wall_seconds = 120.0
-max_cost = 0.0
-
-[factors]
-subject = ["aose.dryrun.true", "aose.dryrun.echo"]
-'''
+def test_unregistered_factor_id_is_rejected(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace('"repetition.four"', '"repetition.missing"')
+    experiment = tmp_path / "unregistered-factor.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="factor registry id .* not found"):
+        Compiler(ROOT).compile(experiment)
 
 
-def test_whole_harness_scope_accepts_exact_subject_contrast(tmp_path: Path) -> None:
-    vary = ", ".join(
-        repr(path)
-        for path in (
-            "subject.artifact_digest",
-            "subject.emits_trace",
-            "subject.entrypoint",
-            "subject.id",
-        )
+def test_contrast_factor_must_be_selected(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        'factor_id = "conformance.fake-subject"',
+        'factor_id = "conformance.unselected"',
     )
-    experiment = tmp_path / "whole-harness.toml"
-    experiment.write_text(_whole_harness_experiment(vary=vary), encoding="utf-8")
-    with pytest.raises(CompilationError, match="runtime support is not active"):
+    experiment = tmp_path / "unselected-contrast-factor.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(CompilationError, match="contrast factor .* is not selected"):
         Compiler(ROOT).compile(experiment)
 
 
-def test_whole_harness_scope_rejects_non_subject_vary_path(tmp_path: Path) -> None:
-    experiment = tmp_path / "whole-harness-model-drift.toml"
-    experiment.write_text(
-        _whole_harness_experiment(vary='"execution.model"'), encoding="utf-8"
-    )
-    with pytest.raises(CompilationError, match=r"only subject\.\* vary paths"):
+def test_conformance_factor_cannot_enter_research_comparison(tmp_path: Path) -> None:
+    source = (EXPERIMENTS / "fake-sweep.toml").read_text(encoding="utf-8")
+    source = source.replace(
+        "[experiment.design]\n",
+        '[experiment.design]\ncomparison_kind = "coding_agent"\n',
+    ).replace('purpose = "exploratory"', 'purpose = "claim"')
+    experiment = tmp_path / "conformance-factor-research.toml"
+    experiment.write_text(source, encoding="utf-8")
+    with pytest.raises(
+        CompilationError,
+        match="conformance_fixture factors cannot enter research comparisons",
+    ):
         Compiler(ROOT).compile(experiment)
 
 
-def test_fake_exact_verifier_rejects_misdeclared_authoritative_metric(
+def test_fake_exact_evaluator_rejects_misdeclared_authoritative_source_key(
     tmp_path: Path,
 ) -> None:
     project = tmp_path / "metric-project"
@@ -427,20 +421,20 @@ def test_fake_exact_verifier_rejects_misdeclared_authoritative_metric(
         ROOT / "MagentaBench/conformance",
         project / "MagentaBench/conformance",
     )
-    benchmark_path = project / "registries/benchmarks/fake-exact.toml"
-    benchmark_text = benchmark_path.read_text(encoding="utf-8")
-    assert 'authoritative_reward_metric = "exact_match"' in benchmark_text
-    benchmark_path.write_text(
-        benchmark_text.replace(
-            'authoritative_reward_metric = "exact_match"',
-            'authoritative_reward_metric = "overall"',
+    evaluator_path = project / "registries/evaluators/fake-exact-v1.toml"
+    evaluator_text = evaluator_path.read_text(encoding="utf-8")
+    assert 'source_key = "exact_match"' in evaluator_text
+    evaluator_path.write_text(
+        evaluator_text.replace(
+            'source_key = "exact_match"',
+            'source_key = "overall"',
         ),
         encoding="utf-8",
     )
     experiment = project / "MagentaBench/conformance/experiments/fake-sweep.toml"
     with pytest.raises(
         CompilationError,
-        match="fake.exact.v1 requires authoritative_reward_metric='exact_match'",
+        match="fake.exact.v1 requires authoritative source_key='exact_match'",
     ):
         Compiler(project).compile(experiment)
 
@@ -482,12 +476,12 @@ def test_unknown_candidate_selection_requires_activation_receipt(
         Compiler(project).compile(experiment)
 
 
-def test_claim_design_cannot_vary_across_expanded_runs(tmp_path: Path) -> None:
+def test_claim_requires_registered_intervention_factor(tmp_path: Path) -> None:
     source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
         encoding="utf-8"
     )
-    source += '\n[factors]\n"experiment.design.purpose" = ["claim", "exploratory"]\n'
-    experiment = tmp_path / "mixed-purpose.toml"
+    source = source.replace('purpose = "exploratory"', 'purpose = "claim"')
+    experiment = tmp_path / "claim-without-factor.toml"
     experiment.write_text(source, encoding="utf-8")
-    with pytest.raises(CompilationError, match="claim design must be invariant"):
+    with pytest.raises(CompilationError, match="registered intervention factor"):
         Compiler(ROOT).compile(experiment)

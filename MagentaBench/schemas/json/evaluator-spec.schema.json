@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "EvaluatorMetricBinding": {
+      "additionalProperties": false,
+      "description": "Maps one adapter-native output key onto a registered metric identity.",
+      "properties": {
+        "absolute_tolerance": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Absolute Tolerance",
+          "type": "number"
+        },
+        "authoritative": {
+          "default": false,
+          "title": "Authoritative",
+          "type": "boolean"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "source_key": {
+          "minLength": 1,
+          "title": "Source Key",
+          "type": "string"
+        },
+        "success_operator": {
+          "anyOf": [
+            {
+              "enum": [
+                "eq",
+                "gte",
+                "lte",
+                "gt",
+                "lt",
+                "range"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Operator"
+        },
+        "success_threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Threshold"
+        },
+        "success_upper_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Upper Bound"
+        }
+      },
+      "required": [
+        "metric_id",
+        "source_key"
+      ],
+      "title": "EvaluatorMetricBinding",
+      "type": "object"
+    },
+    "ScoringKind": {
+      "description": "Benchmark-owned verdict semantics.\n\nContinuous scoring supports metric/effect claims but not pass-rate claims;\ndownstream compilation must reject pass-rate estimands without a threshold.",
+      "enum": [
+        "binary",
+        "continuous"
+      ],
+      "title": "ScoringKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "TOML-registered evaluator and its emitted metric bindings.",
+  "properties": {
+    "adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "bmp_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Bmp Version",
+      "type": "string"
+    },
+    "config": {
+      "additionalProperties": true,
+      "title": "Config",
+      "type": "object"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "implementation": {
+      "minLength": 1,
+      "title": "Implementation",
+      "type": "string"
+    },
+    "kind": {
+      "const": "evaluator",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/EvaluatorMetricBinding"
+      },
+      "minItems": 1,
+      "title": "Metrics",
+      "type": "array"
+    },
+    "scoring_kind": {
+      "$ref": "#/$defs/ScoringKind"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "adapter",
+    "implementation",
+    "scoring_kind",
+    "metrics"
+  ],
+  "title": "EvaluatorSpec",
+  "type": "object"
+}

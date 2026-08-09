@@ -1,0 +1,214 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionFailureSample": {
+      "additionalProperties": false,
+      "description": "One member of the complete population considered for diagnosis.\n\nSuccessful and failed members are retained together.  This keeps the\nfailure-sampling denominator auditable and prevents adapters from building\na convenient sample by silently dropping infrastructure failures.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "included": {
+          "title": "Included",
+          "type": "boolean"
+        },
+        "inclusion_probability": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Inclusion Probability",
+          "type": "number"
+        },
+        "item_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "task_failure",
+            "no_output",
+            "invalid_output",
+            "timeout",
+            "agent_error",
+            "harness_fault",
+            "verifier_error",
+            "infra_error",
+            "unsupported"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "candidate_id",
+        "outcome",
+        "eligible",
+        "included",
+        "inclusion_probability",
+        "evidence_refs"
+      ],
+      "title": "EvolutionFailureSample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Replayable selection of failures passed to a diagnosis component.",
+  "properties": {
+    "budget_event_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Budget Event Id"
+    },
+    "complete_population": {
+      "const": true,
+      "default": true,
+      "title": "Complete Population",
+      "type": "boolean"
+    },
+    "format": {
+      "const": "bmp-evolution-failure-sampling-v1",
+      "default": "bmp-evolution-failure-sampling-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "policy_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "population": {
+      "items": {
+        "$ref": "#/$defs/EvolutionFailureSample"
+      },
+      "minItems": 1,
+      "title": "Population",
+      "type": "array"
+    },
+    "population_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Population Digest",
+      "type": "string"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "rng_algorithm": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng Algorithm",
+      "type": "string"
+    },
+    "rng_seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rng Seed"
+    },
+    "rng_state_after": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng State After",
+      "type": "string"
+    },
+    "rng_state_before": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng State Before",
+      "type": "string"
+    },
+    "sample_size": {
+      "minimum": 0,
+      "title": "Sample Size",
+      "type": "integer"
+    },
+    "sampling_algorithm": {
+      "minLength": 1,
+      "title": "Sampling Algorithm",
+      "type": "string"
+    },
+    "sampling_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Sampling Id",
+      "type": "string"
+    },
+    "selected_item_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Selected Item Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "sampling_id",
+    "policy_id",
+    "population",
+    "population_digest",
+    "sample_size",
+    "sampling_algorithm",
+    "reason"
+  ],
+  "title": "EvolutionFailureSamplingReceipt",
+  "type": "object"
+}

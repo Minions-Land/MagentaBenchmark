@@ -1,0 +1,12 @@
+[evaluator]
+id = "evaluator.aosebench.rubric-judge.v1"
+kind = "evaluator"
+adapter = "aosebench"
+bmp_version = "0.1"
+implementation = "aosebench.rubric-judge"
+scoring_kind = "continuous"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "overall"
+authoritative = true

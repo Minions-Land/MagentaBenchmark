@@ -1,0 +1,47 @@
+[factor]
+id = "conformance.fault-mode"
+kind = "factor"
+adapter = "magentabench.factor"
+bmp_version = "0.1"
+category = "conformance_fixture"
+selector_path = "fault_mode"
+applies_to = []
+resolved_diff_paths = ["metadata.factors.fault_mode"]
+activation_evidence = "none"
+metadata_only = false
+
+[[factor.levels]]
+id = "none"
+value = "none"
+
+[[factor.levels]]
+id = "no-output"
+value = "no_output"
+
+[[factor.levels]]
+id = "invalid-output"
+value = "invalid_output"
+
+[[factor.levels]]
+id = "timeout"
+value = "timeout"
+
+[[factor.levels]]
+id = "agent-error"
+value = "agent_error"
+
+[[factor.levels]]
+id = "harness-fault"
+value = "harness_fault"
+
+[[factor.levels]]
+id = "verifier-error"
+value = "verifier_error"
+
+[[factor.levels]]
+id = "infra-error"
+value = "infra_error"
+
+[[factor.levels]]
+id = "unsupported"
+value = "unsupported"

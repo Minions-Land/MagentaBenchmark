@@ -1,5 +1,34 @@
 {
   "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
     "CustomBenchmarkArtifact": {
       "additionalProperties": false,
       "description": "Resolved form of a benchmark implemented by an external adapter.",
@@ -14,42 +43,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
-        },
-        "content_globs": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Content Globs",
-          "type": "array"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -60,61 +61,17 @@
           "const": "custom",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
-        "adapter",
-        "content_globs",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "CustomBenchmarkArtifact",
       "type": "object"
-    },
-    "ScoringKind": {
-      "description": "Benchmark-owned verdict semantics.\n\nContinuous scoring supports metric/effect claims but not pass-rate claims;\ndownstream compilation must reject pass-rate estimands without a threshold.",
-      "enum": [
-        "binary",
-        "continuous"
-      ],
-      "title": "ScoringKind",
-      "type": "string"
     },
     "TaskSuiteBenchmarkArtifact": {
       "additionalProperties": false,
@@ -129,29 +86,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -162,54 +104,14 @@
           "const": "task_suite",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "task_manifest": {
-          "minLength": 1,
-          "title": "Task Manifest",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
-        "adapter",
-        "task_manifest",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "TaskSuiteBenchmarkArtifact",
       "type": "object"
@@ -227,34 +129,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "evaluator": {
-          "minLength": 1,
-          "title": "Evaluator",
-          "type": "string"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -278,51 +160,16 @@
           "minItems": 1,
           "title": "Output Contract",
           "type": "array"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "task_root": {
-          "minLength": 1,
-          "title": "Task Root",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
         "adapter",
-        "task_root",
         "input_contract",
-        "output_contract",
-        "evaluator",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "output_contract"
       ],
       "title": "ToolAgentSuiteBenchmarkArtifact",
       "type": "object"

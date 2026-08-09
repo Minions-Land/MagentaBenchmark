@@ -1,6 +1,7 @@
 [claim]
 purpose = "claim"
-subject_kind = "fake"
+comparison_kind = "coding_agent"
+subject_kinds = ["opaque_agent"]
 experiment_id = "terminal-module-evolution-sweep"
 manifest_digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 

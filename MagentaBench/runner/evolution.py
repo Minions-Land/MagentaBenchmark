@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -28,12 +29,21 @@ from MagentaBench.schemas import (
 )
 from MagentaBench.schemas.compiler import canonical_digest, canonical_json
 from MagentaBench.schemas.evolution import (
+    EvolutionArchiveEntry,
+    EvolutionArchiveLedger,
+    EvolutionArchiveSnapshot,
+    EvolutionArchiveTransition,
+    EvolutionArchiveTransitionPhase,
     EvolutionBudgetEvent,
     EvolutionBudgetLedger,
     EvolutionBudgetOperation,
     EvolutionEvaluationRecord,
     EvolutionEvaluationStage,
+    EvolutionParentSelectionReceipt,
+    EvolutionPromotionGateReceipt,
     EvolutionRuntimeReceipt,
+    EvolutionSelectionCandidate,
+    EvolutionSelectionPolicy,
     EvolutionSealedHoldoutReceipt,
 )
 
@@ -106,6 +116,20 @@ class EvolutionRuntimeResult:
     evidence_path: Path
     runtime_receipt: EvolutionRuntimeReceipt
     runtime_receipt_path: Path
+
+
+_DEFAULT_SELECTION_POLICY = EvolutionSelectionPolicy(
+    policy_id="selection.deterministic-extreme.v1",
+    selector="extreme",
+    metric="search",
+    direction="maximize",
+    tie_break_rule="prefer_revised_then_lexicographic",
+    child_count_penalty=0.0,
+    rng_algorithm="none",
+    rng_seed=None,
+    rng_state_before="none",
+    rng_state_after="none",
+)
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -566,6 +590,7 @@ class EvolutionRuntime:
         budget: Budget,
         public_input: bytes,
         parent_evidence_ref: ArtifactRef | None = None,
+        selection_policy: EvolutionSelectionPolicy | None = None,
     ) -> EvolutionRuntimeResult:
         if re.fullmatch(
             r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$", run_id
@@ -574,6 +599,13 @@ class EvolutionRuntime:
         if kind not in {"evolver", "meta_evolver"}:
             raise EvolutionRuntimeError("unsupported evolution runtime kind")
         self._validate_authorities(adapter, search_evaluator, holdout_evaluator)
+        policy = selection_policy or _DEFAULT_SELECTION_POLICY.model_copy(
+            update={"metric": search_evaluator.metric}
+        )
+        if policy.metric != search_evaluator.metric:
+            raise EvolutionRuntimeError(
+                "selection policy metric must match the search evaluator metric"
+            )
         parent_usage: UsageRecord | None = None
         parent_elapsed = 0.0
         if kind == "meta_evolver":
@@ -773,12 +805,126 @@ class EvolutionRuntime:
             )
         )
 
-        selected_id = max(
-            ("generated", "revised"),
-            key=lambda candidate_id: (
-                search_results[candidate_id].score,
-                candidate_id == "revised",
+        # Materialize the complete selection population, including the seed
+        # candidate that was never eligible for staged scoring.  The receipt
+        # records transformed scores and realized probabilities so a verifier
+        # never has to infer the denominator from the retained archive.
+        selection_candidates = ("seed", "generated", "revised")
+        child_counts = {
+            candidate_id: sum(
+                candidate_id in parents for parents in candidate_parents.values()
+            )
+            for candidate_id in selection_candidates
+        }
+        transformed_scores: dict[str, float] = {}
+        for candidate_id in ("generated", "revised"):
+            raw = search_results[candidate_id].score
+            penalty = policy.child_count_penalty * child_counts[candidate_id]
+            transformed_scores[candidate_id] = (
+                raw - penalty if policy.direction == "maximize" else raw + penalty
+            )
+        eligible_ids = tuple(transformed_scores)
+        if policy.selector not in {"extreme", "weighted"}:
+            raise EvolutionRuntimeError(
+                f"unsupported selection policy selector: {policy.selector!r}"
+            )
+        rng = None
+        if policy.selector == "weighted":
+            if policy.rng_seed is None:
+                raise EvolutionRuntimeError(
+                    "weighted selection requires an explicit rng_seed"
+                )
+            rng = random.Random(policy.rng_seed)
+            policy = policy.model_copy(
+                update={
+                    "rng_state_before": repr(rng.getstate()),
+                }
+            )
+        if policy.direction == "maximize":
+            best_value = max(transformed_scores.values())
+        else:
+            best_value = min(transformed_scores.values())
+        tied = tuple(
+            candidate_id
+            for candidate_id in eligible_ids
+            if abs(transformed_scores[candidate_id] - best_value) <= 1e-15
+        )
+        if policy.selector == "extreme":
+            if policy.tie_break_rule.startswith("prefer_revised"):
+                selected_id = next(
+                    (candidate_id for candidate_id in ("revised", "generated") if candidate_id in tied),
+                    tied[0],
+                )
+            else:
+                selected_id = sorted(tied)[0]
+            probabilities = {
+                candidate_id: (1.0 if candidate_id == selected_id else 0.0)
+                for candidate_id in selection_candidates
+            }
+            weights = {
+                candidate_id: (1.0 if candidate_id in eligible_ids else 0.0)
+                for candidate_id in selection_candidates
+            }
+        else:
+            assert rng is not None
+            oriented = {
+                candidate_id: (
+                    transformed_scores[candidate_id]
+                    if policy.direction == "maximize"
+                    else -transformed_scores[candidate_id]
+                )
+                for candidate_id in eligible_ids
+            }
+            floor = min(oriented.values())
+            weights = {
+                candidate_id: max(0.0, oriented[candidate_id] - floor) + 1e-12
+                for candidate_id in eligible_ids
+            }
+            total_weight = sum(weights.values())
+            threshold = rng.random() * total_weight
+            running = 0.0
+            selected_id = eligible_ids[-1]
+            for candidate_id in eligible_ids:
+                running += weights[candidate_id]
+                if threshold <= running:
+                    selected_id = candidate_id
+                    break
+            weights = {
+                candidate_id: weights.get(candidate_id, 0.0)
+                for candidate_id in selection_candidates
+            }
+            probabilities = {
+                candidate_id: weights[candidate_id] / total_weight
+                for candidate_id in selection_candidates
+            }
+            policy = policy.model_copy(update={"rng_state_after": repr(rng.getstate())})
+
+        selection_population = tuple(
+            EvolutionSelectionCandidate(
+                candidate_id=candidate_id,
+                eligible=candidate_id in eligible_ids,
+                raw_score=(
+                    None
+                    if candidate_id not in search_results
+                    else search_results[candidate_id].score
+                ),
+                transformed_score=transformed_scores.get(candidate_id),
+                child_count=child_counts[candidate_id],
+                weight=weights[candidate_id],
+                probability=probabilities[candidate_id],
+            )
+            for candidate_id in selection_candidates
+        )
+        selection_receipt = EvolutionParentSelectionReceipt(
+            selection_id="selection-0000",
+            transition_id="transition-select",
+            transition_sequence=5,
+            policy=policy,
+            candidate_set=selection_population,
+            candidate_set_digest=canonical_digest(
+                [item.identity_data() for item in selection_population]
             ),
+            selected_candidate_id=selected_id,
         )
         transitions.append(
             EvolutionTransitionRecord(
@@ -855,6 +1001,251 @@ class EvolutionRuntime:
             holdout_evaluation_sequence=holdout_evaluation.sequence,
             access_count=holdout_evaluator.split_access_count,
         )
+
+        # Build a complete archive history from the immutable candidate
+        # artifacts.  Each state is embedded in the receipt and addressed by
+        # its canonical digest; the transition hash chain makes deletion or
+        # reordering of an intermediate state detectable during replay.
+        policy_digest = policy.canonical_digest()
+
+        def archive_snapshot(
+            entries: tuple[EvolutionArchiveEntry, ...], metric: str
+        ) -> EvolutionArchiveSnapshot:
+            return EvolutionArchiveSnapshot(
+                evaluator_digest=holdout_evaluator.digest,
+                metric=metric,
+                policy_digest=policy_digest,
+                entries=entries,
+            )
+
+        def archive_entry(
+            candidate_id: str,
+            *,
+            status: str,
+            score: float | None,
+            score_metric: str | None,
+        ) -> EvolutionArchiveEntry:
+            return EvolutionArchiveEntry(
+                candidate_id=candidate_id,
+                generation=candidate_generations[candidate_id],
+                parent_ids=tuple(candidate_parents[candidate_id]),
+                candidate_ref=candidate_refs[candidate_id],
+                score=score,
+                score_metric=score_metric,
+                status=status,  # type: ignore[arg-type]
+                child_count=child_counts[candidate_id],
+                lineage_depth=candidate_generations[candidate_id],
+            )
+
+        empty = archive_snapshot((), search_evaluator.metric)
+        seed_state = archive_snapshot(
+            (archive_entry("seed", status="ineligible", score=None, score_metric=None),),
+            search_evaluator.metric,
+        )
+        generated_state = archive_snapshot(
+            (
+                archive_entry("seed", status="ineligible", score=None, score_metric=None),
+                archive_entry("generated", status="ineligible", score=None, score_metric=None),
+            ),
+            search_evaluator.metric,
+        )
+        generated_scored_state = archive_snapshot(
+            (
+                archive_entry("seed", status="ineligible", score=None, score_metric=None),
+                archive_entry(
+                    "generated",
+                    status="eligible",
+                    score=search_results["generated"].score,
+                    score_metric=search_results["generated"].score_metric,
+                ),
+            ),
+            search_evaluator.metric,
+        )
+        revised_state = archive_snapshot(
+            (
+                archive_entry("seed", status="ineligible", score=None, score_metric=None),
+                archive_entry(
+                    "generated",
+                    status="eligible",
+                    score=search_results["generated"].score,
+                    score_metric=search_results["generated"].score_metric,
+                ),
+                archive_entry("revised", status="ineligible", score=None, score_metric=None),
+            ),
+            search_evaluator.metric,
+        )
+        revised_scored_state = archive_snapshot(
+            (
+                archive_entry("seed", status="ineligible", score=None, score_metric=None),
+                archive_entry(
+                    "generated",
+                    status="eligible",
+                    score=search_results["generated"].score,
+                    score_metric=search_results["generated"].score_metric,
+                ),
+                archive_entry(
+                    "revised",
+                    status="eligible",
+                    score=search_results["revised"].score,
+                    score_metric=search_results["revised"].score_metric,
+                ),
+            ),
+            search_evaluator.metric,
+        )
+        selected_search_state = archive_snapshot(
+            tuple(
+                archive_entry(
+                    candidate_id,
+                    status=(
+                        "retained"
+                        if candidate_id == selected_id
+                        else ("eligible" if candidate_id in search_results else "ineligible")
+                    ),
+                    score=(
+                        search_results[candidate_id].score
+                        if candidate_id in search_results
+                        else None
+                    ),
+                    score_metric=(
+                        search_results[candidate_id].score_metric
+                        if candidate_id in search_results
+                        else None
+                    ),
+                )
+                for candidate_id in ("seed", "generated", "revised")
+            ),
+            search_evaluator.metric,
+        )
+        promoted_state = archive_snapshot(
+            tuple(
+                archive_entry(
+                    candidate_id,
+                    status=(
+                        "promoted"
+                        if candidate_id == selected_id
+                        else ("evicted" if candidate_id in search_results else "ineligible")
+                    ),
+                    score=(
+                        holdout_result.score
+                        if candidate_id == selected_id
+                        else None
+                    ),
+                    score_metric=(
+                        holdout_result.score_metric
+                        if candidate_id == selected_id
+                        else None
+                    ),
+                )
+                for candidate_id in ("seed", "generated", "revised")
+            ),
+            holdout_evaluator.metric,
+        )
+
+        # A full-evaluation promotion is explicit even when the evaluator uses
+        # a continuous score and has no binary pass threshold.
+        staged_record = next(
+            record
+            for record in evaluations
+            if record.stage == EvolutionEvaluationStage.search
+            and record.candidate_id == selected_id
+        )
+        promotion_gate = EvolutionPromotionGateReceipt(
+            gate_id="promotion-gate-0000",
+            candidate_id=selected_id,
+            selection_transition_id="transition-select",
+            staged_evaluation_id=staged_record.evaluation_id,
+            full_evaluation_id=holdout_evaluation.evaluation_id,
+            staged_evaluator_digest=staged_record.evaluator_digest,
+            full_evaluator_digest=holdout_evaluation.evaluator_digest,
+            staged_metric=staged_record.score_metric,
+            full_metric=holdout_evaluation.score_metric,
+            staged_score=staged_record.score,
+            full_score=holdout_evaluation.score,
+            decision="promote",
+            reason="selected candidate received the required sealed full evaluation",
+        )
+
+        archive_states = (
+            empty,
+            seed_state,
+            generated_state,
+            generated_scored_state,
+            revised_state,
+            revised_scored_state,
+            selected_search_state,
+            promoted_state,
+            promoted_state,
+        )
+        archive_phases = (
+            EvolutionArchiveTransitionPhase.seed,
+            EvolutionArchiveTransitionPhase.generate,
+            EvolutionArchiveTransitionPhase.staged_evaluation,
+            EvolutionArchiveTransitionPhase.revise,
+            EvolutionArchiveTransitionPhase.staged_evaluation,
+            EvolutionArchiveTransitionPhase.select,
+            EvolutionArchiveTransitionPhase.promote,
+            EvolutionArchiveTransitionPhase.terminate,
+        )
+        archive_ids = (
+            ("seed",),
+            ("generated",),
+            ("generated",),
+            ("revised",),
+            ("revised",),
+            ("generated", "revised"),
+            (selected_id,),
+            (selected_id,),
+        )
+        archive_transitions: list[EvolutionArchiveTransition] = []
+        for index, phase in enumerate(archive_phases):
+            before = archive_states[index]
+            after = archive_states[index + 1]
+            eligible_after = tuple(
+                entry.candidate_id
+                for entry in after.entries
+                if entry.status in {"eligible", "retained", "promoted"}
+            )
+            archive_transitions.append(
+                EvolutionArchiveTransition(
+                    transition_id=f"archive-transition-{index:04d}",
+                    sequence=index,
+                    phase=phase,
+                    before=before,
+                    after=after,
+                    before_archive_digest=before.canonical_digest(),
+                    after_archive_digest=after.canonical_digest(),
+                    previous_transition_digest=(
+                        None
+                        if not archive_transitions
+                        else archive_transitions[-1].canonical_digest()
+                    ),
+                    candidate_ids=archive_ids[index],
+                    eligible_candidate_ids=eligible_after,
+                    selected_candidate_id=(
+                        selected_id
+                        if phase
+                        in {
+                            EvolutionArchiveTransitionPhase.select,
+                            EvolutionArchiveTransitionPhase.promote,
+                            EvolutionArchiveTransitionPhase.terminate,
+                        }
+                        else None
+                    ),
+                    promotion_gate_id=(
+                        promotion_gate.gate_id
+                        if phase == EvolutionArchiveTransitionPhase.promote
+                        else None
+                    ),
+                    policy_digest=policy_digest,
+                    reason=phase.value,
+                )
+            )
+        archive_ledger = EvolutionArchiveLedger(
+            policy=policy,
+            evaluator_digest=holdout_evaluator.digest,
+            transitions=tuple(archive_transitions),
+            final_archive_digest=archive_transitions[-1].after_archive_digest,
+        )
         runtime_receipt = EvolutionRuntimeReceipt(
             run_id=run_id,
             kind=kind,
@@ -867,6 +1258,9 @@ class EvolutionRuntime:
             evaluations=tuple(evaluations),
             budget_ledger=budget_ledger,
             sealed_holdout=sealed_holdout,
+            archive_ledger=archive_ledger,
+            parent_selection=selection_receipt,
+            promotion_gate=promotion_gate,
             parent_evidence_ref=parent_evidence_ref,
         )
         runtime_receipt_path = run_dir / "evolution-runtime-receipt.json"

@@ -110,6 +110,299 @@
       "title": "BudgetAllocation",
       "type": "object"
     },
+    "EvolutionArchiveEntry": {
+      "additionalProperties": false,
+      "description": "One candidate's immutable state in an archive snapshot.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "child_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "generation": {
+          "minimum": 0,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lineage_depth": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Lineage Depth",
+          "type": "integer"
+        },
+        "parent_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Ids",
+          "type": "array"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "score_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score Metric"
+        },
+        "status": {
+          "enum": [
+            "ineligible",
+            "eligible",
+            "retained",
+            "promoted",
+            "evicted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "generation",
+        "candidate_ref",
+        "status"
+      ],
+      "title": "EvolutionArchiveEntry",
+      "type": "object"
+    },
+    "EvolutionArchiveLedger": {
+      "additionalProperties": false,
+      "description": "Complete archive history; no state may be reconstructed from a snapshot.",
+      "properties": {
+        "evaluator_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evaluator Digest",
+          "type": "string"
+        },
+        "final_archive_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Final Archive Digest",
+          "type": "string"
+        },
+        "format": {
+          "const": "bmp-evolution-archive-ledger-v1",
+          "default": "bmp-evolution-archive-ledger-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/EvolutionSelectionPolicy"
+        },
+        "transitions": {
+          "items": {
+            "$ref": "#/$defs/EvolutionArchiveTransition"
+          },
+          "minItems": 1,
+          "title": "Transitions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "policy",
+        "evaluator_digest",
+        "transitions",
+        "final_archive_digest"
+      ],
+      "title": "EvolutionArchiveLedger",
+      "type": "object"
+    },
+    "EvolutionArchiveSnapshot": {
+      "additionalProperties": false,
+      "description": "A complete archive population at one transition boundary.",
+      "properties": {
+        "entries": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/EvolutionArchiveEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "evaluator_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Evaluator Digest",
+          "type": "string"
+        },
+        "format": {
+          "const": "bmp-evolution-archive-snapshot-v1",
+          "default": "bmp-evolution-archive-snapshot-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluator_digest",
+        "metric",
+        "policy_digest"
+      ],
+      "title": "EvolutionArchiveSnapshot",
+      "type": "object"
+    },
+    "EvolutionArchiveTransition": {
+      "additionalProperties": false,
+      "description": "Hash-chained before/after archive state for one lifecycle transition.",
+      "properties": {
+        "after": {
+          "$ref": "#/$defs/EvolutionArchiveSnapshot"
+        },
+        "after_archive_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "After Archive Digest",
+          "type": "string"
+        },
+        "before": {
+          "$ref": "#/$defs/EvolutionArchiveSnapshot"
+        },
+        "before_archive_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Before Archive Digest",
+          "type": "string"
+        },
+        "candidate_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Ids",
+          "type": "array"
+        },
+        "eligible_candidate_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Eligible Candidate Ids",
+          "type": "array"
+        },
+        "phase": {
+          "$ref": "#/$defs/EvolutionArchiveTransitionPhase"
+        },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "previous_transition_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Transition Digest"
+        },
+        "promotion_gate_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Promotion Gate Id"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "selected_candidate_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Candidate Id"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "transition_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Transition Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transition_id",
+        "sequence",
+        "phase",
+        "before",
+        "after",
+        "before_archive_digest",
+        "after_archive_digest",
+        "policy_digest",
+        "reason"
+      ],
+      "title": "EvolutionArchiveTransition",
+      "type": "object"
+    },
+    "EvolutionArchiveTransitionPhase": {
+      "description": "Lifecycle boundary represented by an archive transition.",
+      "enum": [
+        "seed",
+        "generate",
+        "staged_evaluation",
+        "revise",
+        "select",
+        "promote",
+        "terminate"
+      ],
+      "title": "EvolutionArchiveTransitionPhase",
+      "type": "string"
+    },
     "EvolutionBudgetEvent": {
       "additionalProperties": false,
       "description": "One measured operation debit and its root-budget lineage.",
@@ -233,10 +526,105 @@
         "generate",
         "search_evaluate",
         "revise",
-        "holdout_evaluate"
+        "holdout_evaluate",
+        "coding_agent_call",
+        "meta_agent_call",
+        "diagnosis",
+        "parent_selection",
+        "staged_evaluation",
+        "full_evaluation",
+        "retry",
+        "checkpoint",
+        "container_build",
+        "failure_sampling"
       ],
       "title": "EvolutionBudgetOperation",
       "type": "string"
+    },
+    "EvolutionDiagnosisReceipt": {
+      "additionalProperties": false,
+      "description": "Content-addressed diagnosis of one sampled failure.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "budget_event_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Budget Event Id",
+          "type": "string"
+        },
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "diagnosis_component_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Diagnosis Component Digest",
+          "type": "string"
+        },
+        "diagnosis_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Diagnosis Id",
+          "type": "string"
+        },
+        "failure_evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "minItems": 1,
+          "title": "Failure Evidence Refs",
+          "type": "array"
+        },
+        "failure_sampling_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Failure Sampling Id",
+          "type": "string"
+        },
+        "format": {
+          "const": "bmp-evolution-diagnosis-v1",
+          "default": "bmp-evolution-diagnosis-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "prompt_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "result_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "retry_recommended": {
+          "title": "Retry Recommended",
+          "type": "boolean"
+        },
+        "root_cause": {
+          "minLength": 1,
+          "title": "Root Cause",
+          "type": "string"
+        },
+        "sampled_item_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Sampled Item Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diagnosis_id",
+        "failure_sampling_id",
+        "sampled_item_id",
+        "candidate_id",
+        "diagnosis_component_digest",
+        "prompt_ref",
+        "result_ref",
+        "failure_evidence_refs",
+        "budget_event_id",
+        "root_cause",
+        "retry_recommended"
+      ],
+      "title": "EvolutionDiagnosisReceipt",
+      "type": "object"
     },
     "EvolutionEvaluationRecord": {
       "additionalProperties": false,
@@ -328,6 +716,355 @@
       "title": "EvolutionEvaluationStage",
       "type": "string"
     },
+    "EvolutionFailureSample": {
+      "additionalProperties": false,
+      "description": "One member of the complete population considered for diagnosis.\n\nSuccessful and failed members are retained together.  This keeps the\nfailure-sampling denominator auditable and prevents adapters from building\na convenient sample by silently dropping infrastructure failures.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "evidence_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "minItems": 1,
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "included": {
+          "title": "Included",
+          "type": "boolean"
+        },
+        "inclusion_probability": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Inclusion Probability",
+          "type": "number"
+        },
+        "item_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Item Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "success",
+            "task_failure",
+            "no_output",
+            "invalid_output",
+            "timeout",
+            "agent_error",
+            "harness_fault",
+            "verifier_error",
+            "infra_error",
+            "unsupported"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "candidate_id",
+        "outcome",
+        "eligible",
+        "included",
+        "inclusion_probability",
+        "evidence_refs"
+      ],
+      "title": "EvolutionFailureSample",
+      "type": "object"
+    },
+    "EvolutionFailureSamplingReceipt": {
+      "additionalProperties": false,
+      "description": "Replayable selection of failures passed to a diagnosis component.",
+      "properties": {
+        "budget_event_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Event Id"
+        },
+        "complete_population": {
+          "const": true,
+          "default": true,
+          "title": "Complete Population",
+          "type": "boolean"
+        },
+        "format": {
+          "const": "bmp-evolution-failure-sampling-v1",
+          "default": "bmp-evolution-failure-sampling-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "population": {
+          "items": {
+            "$ref": "#/$defs/EvolutionFailureSample"
+          },
+          "minItems": 1,
+          "title": "Population",
+          "type": "array"
+        },
+        "population_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Population Digest",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng Algorithm",
+          "type": "string"
+        },
+        "rng_seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Seed"
+        },
+        "rng_state_after": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State After",
+          "type": "string"
+        },
+        "rng_state_before": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State Before",
+          "type": "string"
+        },
+        "sample_size": {
+          "minimum": 0,
+          "title": "Sample Size",
+          "type": "integer"
+        },
+        "sampling_algorithm": {
+          "minLength": 1,
+          "title": "Sampling Algorithm",
+          "type": "string"
+        },
+        "sampling_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Sampling Id",
+          "type": "string"
+        },
+        "selected_item_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Selected Item Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sampling_id",
+        "policy_id",
+        "population",
+        "population_digest",
+        "sample_size",
+        "sampling_algorithm",
+        "reason"
+      ],
+      "title": "EvolutionFailureSamplingReceipt",
+      "type": "object"
+    },
+    "EvolutionParentSelectionReceipt": {
+      "additionalProperties": false,
+      "description": "Standalone receipt for the parent/candidate selection decision.",
+      "properties": {
+        "candidate_set": {
+          "items": {
+            "$ref": "#/$defs/EvolutionSelectionCandidate"
+          },
+          "minItems": 1,
+          "title": "Candidate Set",
+          "type": "array"
+        },
+        "candidate_set_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Candidate Set Digest",
+          "type": "string"
+        },
+        "fallback_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fallback Reason"
+        },
+        "format": {
+          "const": "bmp-evolution-parent-selection-v1",
+          "default": "bmp-evolution-parent-selection-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/EvolutionSelectionPolicy"
+        },
+        "selected_candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Selected Candidate Id",
+          "type": "string"
+        },
+        "selection_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Selection Id",
+          "type": "string"
+        },
+        "transition_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Transition Id",
+          "type": "string"
+        },
+        "transition_sequence": {
+          "minimum": 0,
+          "title": "Transition Sequence",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "selection_id",
+        "transition_id",
+        "transition_sequence",
+        "policy",
+        "candidate_set",
+        "candidate_set_digest",
+        "selected_candidate_id"
+      ],
+      "title": "EvolutionParentSelectionReceipt",
+      "type": "object"
+    },
+    "EvolutionPromotionGateReceipt": {
+      "additionalProperties": false,
+      "description": "Explicit staged-to-full promotion decision.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "promote",
+            "reject"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "format": {
+          "const": "bmp-evolution-promotion-gate-v1",
+          "default": "bmp-evolution-promotion-gate-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "full_evaluation_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Full Evaluation Id",
+          "type": "string"
+        },
+        "full_evaluator_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Full Evaluator Digest",
+          "type": "string"
+        },
+        "full_metric": {
+          "minLength": 1,
+          "title": "Full Metric",
+          "type": "string"
+        },
+        "full_score": {
+          "title": "Full Score",
+          "type": "number"
+        },
+        "gate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "reason": {
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "selection_transition_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Selection Transition Id",
+          "type": "string"
+        },
+        "staged_evaluation_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Staged Evaluation Id",
+          "type": "string"
+        },
+        "staged_evaluator_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Staged Evaluator Digest",
+          "type": "string"
+        },
+        "staged_metric": {
+          "minLength": 1,
+          "title": "Staged Metric",
+          "type": "string"
+        },
+        "staged_score": {
+          "title": "Staged Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "gate_id",
+        "candidate_id",
+        "selection_transition_id",
+        "staged_evaluation_id",
+        "full_evaluation_id",
+        "staged_evaluator_digest",
+        "full_evaluator_digest",
+        "staged_metric",
+        "full_metric",
+        "staged_score",
+        "full_score",
+        "decision",
+        "reason"
+      ],
+      "title": "EvolutionPromotionGateReceipt",
+      "type": "object"
+    },
     "EvolutionSealedHoldoutReceipt": {
       "additionalProperties": false,
       "description": "Evidence that the authoritative split opened only after selection.",
@@ -396,6 +1133,292 @@
       "title": "EvolutionSealedHoldoutReceipt",
       "type": "object"
     },
+    "EvolutionSelectionCandidate": {
+      "additionalProperties": false,
+      "description": "One member of the complete parent-selection population.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "child_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "probability": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Probability",
+          "type": "number"
+        },
+        "raw_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Score"
+        },
+        "transformed_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transformed Score"
+        },
+        "weight": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "eligible"
+      ],
+      "title": "EvolutionSelectionCandidate",
+      "type": "object"
+    },
+    "EvolutionSelectionPolicy": {
+      "additionalProperties": false,
+      "description": "Explicit, replayable policy for choosing a parent/candidate.\n\nThe runtime must receive this object from the experiment configuration (or\nuse the documented deterministic default).  Keeping the selector identity,\ndirection, tie break, and RNG state in the receipt prevents a later\nimplementation change from silently changing which candidate was chosen.",
+      "properties": {
+        "child_count_penalty": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Child Count Penalty",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "maximize",
+            "minimize"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng Algorithm",
+          "type": "string"
+        },
+        "rng_seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Seed"
+        },
+        "rng_state_after": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State After",
+          "type": "string"
+        },
+        "rng_state_before": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State Before",
+          "type": "string"
+        },
+        "selector": {
+          "enum": [
+            "extreme",
+            "weighted"
+          ],
+          "title": "Selector",
+          "type": "string"
+        },
+        "tie_break_rule": {
+          "minLength": 1,
+          "title": "Tie Break Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "selector",
+        "metric",
+        "direction",
+        "tie_break_rule"
+      ],
+      "title": "EvolutionSelectionPolicy",
+      "type": "object"
+    },
+    "MetaEvolutionEditPolicy": {
+      "additionalProperties": false,
+      "description": "Closed edit/visibility boundary for a meta-evolution method.",
+      "properties": {
+        "editable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Editable Paths",
+          "type": "array"
+        },
+        "feedback_visibility": {
+          "default": [],
+          "items": {
+            "enum": [
+              "search_scores",
+              "search_feedback",
+              "failure_diagnostics",
+              "candidate_history",
+              "resource_usage"
+            ],
+            "type": "string"
+          },
+          "title": "Feedback Visibility",
+          "type": "array"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "protected_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Protected Paths",
+          "type": "array"
+        },
+        "sealed_holdout_visible": {
+          "const": false,
+          "default": false,
+          "title": "Sealed Holdout Visible",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "policy_id",
+        "editable_paths",
+        "protected_paths"
+      ],
+      "title": "MetaEvolutionEditPolicy",
+      "type": "object"
+    },
+    "MetaEvolutionEditReceipt": {
+      "additionalProperties": false,
+      "description": "Replayable prompt/patch application under a meta-evolution policy.",
+      "properties": {
+        "budget_event_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Budget Event Id",
+          "type": "string"
+        },
+        "changed_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Changed Paths",
+          "type": "array"
+        },
+        "edit_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Edit Id",
+          "type": "string"
+        },
+        "format": {
+          "const": "bmp-meta-evolution-edit-v1",
+          "default": "bmp-meta-evolution-edit-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "patch_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "policy": {
+          "$ref": "#/$defs/MetaEvolutionEditPolicy"
+        },
+        "policy_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Policy Digest",
+          "type": "string"
+        },
+        "prompt_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "result_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "sealed_holdout_access_count": {
+          "const": 0,
+          "default": 0,
+          "title": "Sealed Holdout Access Count",
+          "type": "integer"
+        },
+        "target_after_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target After Digest",
+          "type": "string"
+        },
+        "target_before_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Target Before Digest",
+          "type": "string"
+        },
+        "visible_feedback_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Visible Feedback Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "edit_id",
+        "policy",
+        "policy_digest",
+        "target_before_digest",
+        "target_after_digest",
+        "changed_paths",
+        "prompt_ref",
+        "patch_ref",
+        "result_ref",
+        "budget_event_id"
+      ],
+      "title": "MetaEvolutionEditReceipt",
+      "type": "object"
+    },
     "UsageRecord": {
       "additionalProperties": false,
       "properties": {
@@ -438,6 +1461,19 @@
           "default": null,
           "title": "Cost"
         },
+        "cpu_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpu Seconds"
+        },
         "input_tokens": {
           "anyOf": [
             {
@@ -451,6 +1487,71 @@
           "default": null,
           "title": "Input Tokens"
         },
+        "io_read_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Io Read Bytes"
+        },
+        "io_write_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Io Write Bytes"
+        },
+        "model_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Calls"
+        },
+        "network_egress_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Egress Bytes"
+        },
+        "network_ingress_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Network Ingress Bytes"
+        },
         "output_tokens": {
           "anyOf": [
             {
@@ -463,6 +1564,71 @@
           ],
           "default": null,
           "title": "Output Tokens"
+        },
+        "peak_memory_bytes": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Peak Memory Bytes"
+        },
+        "reasoning_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Tokens"
+        },
+        "retries": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Retries"
+        },
+        "tool_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Calls"
+        },
+        "tool_errors": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Errors"
         },
         "total_tokens": {
           "anyOf": [
@@ -503,6 +1669,17 @@
       "title": "Adapter Digest",
       "type": "string"
     },
+    "archive_ledger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvolutionArchiveLedger"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "budget_digest": {
       "pattern": "^[0-9a-f]{64}$",
       "title": "Budget Digest",
@@ -516,6 +1693,14 @@
       "title": "Candidate Ledger Digest",
       "type": "string"
     },
+    "diagnoses": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EvolutionDiagnosisReceipt"
+      },
+      "title": "Diagnoses",
+      "type": "array"
+    },
     "evaluations": {
       "items": {
         "$ref": "#/$defs/EvolutionEvaluationRecord"
@@ -528,6 +1713,17 @@
       "pattern": "^[0-9a-f]{64}$",
       "title": "Evaluator Digest",
       "type": "string"
+    },
+    "failure_sampling": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvolutionFailureSamplingReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "format": {
       "const": "bmp-evolution-runtime-v1",
@@ -543,10 +1739,43 @@
       "title": "Kind",
       "type": "string"
     },
+    "meta_edit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetaEvolutionEditReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "parent_evidence_ref": {
       "anyOf": [
         {
           "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "parent_selection": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvolutionParentSelectionReceipt"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "promotion_gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvolutionPromotionGateReceipt"
         },
         {
           "type": "null"

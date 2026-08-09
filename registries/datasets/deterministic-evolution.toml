@@ -1,0 +1,21 @@
+[dataset]
+id = "dataset.deterministic.evolution.v1"
+kind = "dataset"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+source = "../../MagentaBench/conformance/fixtures/deterministic_evolution"
+commit = "deterministic-evolution-v1"
+content_globs = [
+  "public-input.json",
+  "search-evaluator.json",
+  "search-split.json",
+  "holdout-split.json",
+]
+format = "json-evolution-fixture"
+split = "search"
+
+[dataset.config]
+public_input = "public-input.json"
+search_evaluator = "search-evaluator.json"
+search_split = "search-split.json"
+holdout_split = "holdout-split.json"

@@ -41,16 +41,16 @@ class StatisticalAnalysisResult:
         return self.receipt is not None and not self.errors
 
 
-def benchmark_evaluation_split(benchmark: object) -> str | None:
-    """Read one explicit adapter-owned evaluation split without guessing.
+def benchmark_evaluation_split(dataset: object) -> str | None:
+    """Read one explicit dataset-owned evaluation split without guessing.
 
     Custom benchmark adapters commonly use one of these four configuration
     keys. Conflicting declarations are treated as unbound and therefore fail a
     holdout-required analysis.
     """
 
-    explicit = getattr(benchmark, "evaluation_split", None)
-    config = getattr(benchmark, "config", {})
+    explicit = getattr(dataset, "split", None)
+    config = getattr(dataset, "config", {})
     values = {
         value
         for value in (

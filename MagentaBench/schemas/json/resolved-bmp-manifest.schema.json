@@ -335,6 +335,14 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -378,6 +386,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter"
       ],
       "title": "AssemblySubjectArtifact",
@@ -534,13 +543,34 @@
     },
     "ClaimDesign": {
       "additionalProperties": false,
-      "description": "Identity-bearing declaration of a run's attribution and purpose.",
+      "description": "Orthogonal research subject, registered intervention, and purpose.",
       "properties": {
+        "comparison_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComparisonKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "intervention_factor_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intervention Factor Id"
+        },
         "purpose": {
           "$ref": "#/$defs/RunPurpose"
-        },
-        "scope": {
-          "$ref": "#/$defs/ClaimScope"
         },
         "statistical_analysis": {
           "anyOf": [
@@ -552,37 +582,23 @@
             }
           ],
           "default": null
-        },
-        "vary": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Vary",
-          "type": "array"
         }
       },
       "required": [
-        "scope",
-        "purpose",
-        "vary"
+        "purpose"
       ],
       "title": "ClaimDesign",
       "type": "object"
     },
-    "ClaimScope": {
+    "ComparisonKind": {
+      "description": "The four semantic subjects that BMP is allowed to compare.",
       "enum": [
-        "component",
-        "whole_harness",
-        "model",
-        "checkpoint",
-        "evolver",
-        "meta_evolver",
-        "schedule",
-        "ablation",
-        "hyperparameter",
-        "conformance"
+        "agent",
+        "coding_agent",
+        "evolution_method",
+        "meta_evolution_method"
       ],
-      "title": "ClaimScope",
+      "title": "ComparisonKind",
       "type": "string"
     },
     "ConfigurationArtifact": {
@@ -796,42 +812,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "config": {
-          "additionalProperties": true,
-          "title": "Config",
-          "type": "object"
-        },
-        "content_globs": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Content Globs",
-          "type": "array"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -842,49 +830,14 @@
           "const": "custom",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
-        "adapter",
-        "content_globs",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "CustomBenchmarkArtifact",
       "type": "object"
@@ -921,6 +874,109 @@
         "size_bytes"
       ],
       "title": "CustomCaseOrderSpec",
+      "type": "object"
+    },
+    "DatasetArtifact": {
+      "additionalProperties": false,
+      "description": "Digest-bound dataset declaration carried by a resolved manifest.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "commit": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commit"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "content_globs": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Content Globs",
+          "type": "array"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "format": {
+          "default": "opaque",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Format",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "dataset",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "source_content_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Content Digest",
+          "type": "string"
+        },
+        "split": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Split"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "source",
+        "source_content_digest",
+        "id",
+        "kind",
+        "adapter",
+        "declaration_ref",
+        "content_globs"
+      ],
+      "title": "DatasetArtifact",
       "type": "object"
     },
     "EnvironmentSpec": {
@@ -981,6 +1037,350 @@
       "title": "EnvironmentSpec",
       "type": "object"
     },
+    "EvaluatorArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "evaluator": {
+          "$ref": "#/$defs/EvaluatorSpec"
+        }
+      },
+      "required": [
+        "evaluator",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "EvaluatorArtifact",
+      "type": "object"
+    },
+    "EvaluatorMetricBinding": {
+      "additionalProperties": false,
+      "description": "Maps one adapter-native output key onto a registered metric identity.",
+      "properties": {
+        "absolute_tolerance": {
+          "default": 0.0,
+          "minimum": 0,
+          "title": "Absolute Tolerance",
+          "type": "number"
+        },
+        "authoritative": {
+          "default": false,
+          "title": "Authoritative",
+          "type": "boolean"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "source_key": {
+          "minLength": 1,
+          "title": "Source Key",
+          "type": "string"
+        },
+        "success_operator": {
+          "anyOf": [
+            {
+              "enum": [
+                "eq",
+                "gte",
+                "lte",
+                "gt",
+                "lt",
+                "range"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Operator"
+        },
+        "success_threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Threshold"
+        },
+        "success_upper_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Upper Bound"
+        }
+      },
+      "required": [
+        "metric_id",
+        "source_key"
+      ],
+      "title": "EvaluatorMetricBinding",
+      "type": "object"
+    },
+    "EvaluatorSpec": {
+      "additionalProperties": false,
+      "description": "TOML-registered evaluator and its emitted metric bindings.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "implementation": {
+          "minLength": 1,
+          "title": "Implementation",
+          "type": "string"
+        },
+        "kind": {
+          "const": "evaluator",
+          "title": "Kind",
+          "type": "string"
+        },
+        "metrics": {
+          "items": {
+            "$ref": "#/$defs/EvaluatorMetricBinding"
+          },
+          "minItems": 1,
+          "title": "Metrics",
+          "type": "array"
+        },
+        "scoring_kind": {
+          "$ref": "#/$defs/ScoringKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "implementation",
+        "scoring_kind",
+        "metrics"
+      ],
+      "title": "EvaluatorSpec",
+      "type": "object"
+    },
+    "EvolutionMethodArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved evolver declaration bound to the full configuration identity.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "comparison_kind": {
+          "const": "evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
+        },
+        "configuration_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Configuration Digest",
+          "type": "string"
+        },
+        "configuration_profile_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Configuration Profile Id",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/EvolutionSelectionSpec"
+        },
+        "selection_configuration_path": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+          "title": "Selection Configuration Path",
+          "type": "string"
+        },
+        "subject_adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Subject Adapter",
+          "type": "string"
+        },
+        "surface": {
+          "$ref": "#/$defs/EvolutionSurfacePolicy"
+        },
+        "target": {
+          "const": "harness",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "declaration_ref",
+        "id",
+        "kind",
+        "adapter",
+        "comparison_kind",
+        "subject_adapter",
+        "target",
+        "configuration_profile_id",
+        "configuration_digest",
+        "selection_configuration_path",
+        "selection",
+        "surface"
+      ],
+      "title": "EvolutionMethodArtifact",
+      "type": "object"
+    },
+    "EvolutionSelectionSpec": {
+      "additionalProperties": false,
+      "description": "Registered parent-selection semantics for an evolution method.\n\nThe registry owns the selector and every parameter that can change its\nrealized choice. Runtime receipts add the concrete candidate population\nand RNG state; they must not invent a selector that is absent here.",
+      "properties": {
+        "child_count_penalty": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Child Count Penalty",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "maximize",
+            "minimize"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "default": "none",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Rng Algorithm",
+          "type": "string"
+        },
+        "rng_seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Seed"
+        },
+        "selector": {
+          "enum": [
+            "extreme",
+            "weighted"
+          ],
+          "title": "Selector",
+          "type": "string"
+        },
+        "tie_break_rule": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Tie Break Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "selector",
+        "metric_id",
+        "direction",
+        "tie_break_rule"
+      ],
+      "title": "EvolutionSelectionSpec",
+      "type": "object"
+    },
+    "EvolutionSurfacePolicy": {
+      "additionalProperties": false,
+      "description": "Explicit mutation boundary for evolution and meta-evolution.\n\nPaths use a semantic namespace rather than host filesystem paths. A change\nis authorized only when it is under an editable root and under no protected\nroot. Evaluation authority is always protected so a method cannot improve\nits own score by rewriting the measurement contract.",
+      "properties": {
+        "editable_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Editable Paths",
+          "type": "array"
+        },
+        "protected_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Protected Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "editable_paths",
+        "protected_paths"
+      ],
+      "title": "EvolutionSurfacePolicy",
+      "type": "object"
+    },
     "EvolverSubjectArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -1012,6 +1412,11 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "const": "evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -1050,6 +1455,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "target"
       ],
@@ -1058,90 +1464,8 @@
     },
     "ExperimentContrast": {
       "additionalProperties": false,
-      "oneOf": [
-        {
-          "properties": {
-            "control_id": {
-              "type": "null"
-            },
-            "control_value": {
-              "type": "null"
-            },
-            "counterbalanced": {
-              "const": false
-            },
-            "factor_path": {
-              "type": "null"
-            },
-            "mode": {
-              "const": "all_arms"
-            },
-            "treatment_id": {
-              "type": "null"
-            },
-            "treatment_value": {
-              "type": "null"
-            }
-          },
-          "required": [
-            "mode",
-            "counterbalanced"
-          ]
-        },
-        {
-          "properties": {
-            "control_id": {
-              "type": "string"
-            },
-            "control_value": {
-              "type": "null"
-            },
-            "factor_path": {
-              "type": "null"
-            },
-            "mode": {
-              "const": "one_factor"
-            },
-            "treatment_id": {
-              "type": "string"
-            },
-            "treatment_value": {
-              "type": "null"
-            }
-          },
-          "required": [
-            "mode",
-            "counterbalanced",
-            "control_id",
-            "treatment_id"
-          ]
-        },
-        {
-          "properties": {
-            "control_id": {
-              "type": "null"
-            },
-            "factor_path": {
-              "type": "string"
-            },
-            "mode": {
-              "const": "one_factor"
-            },
-            "treatment_id": {
-              "type": "null"
-            }
-          },
-          "required": [
-            "mode",
-            "counterbalanced",
-            "factor_path",
-            "control_value",
-            "treatment_value"
-          ]
-        }
-      ],
       "properties": {
-        "control_id": {
+        "control_level": {
           "anyOf": [
             {
               "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -1152,25 +1476,25 @@
             }
           ],
           "default": null,
-          "title": "Control Id"
-        },
-        "control_value": {
-          "anyOf": [
-            {},
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Control Value"
+          "title": "Control Level"
         },
         "counterbalanced": {
           "title": "Counterbalanced",
           "type": "boolean"
         },
-        "factor_path": {
+        "design": {
+          "default": "direct",
+          "enum": [
+            "direct",
+            "ablation"
+          ],
+          "title": "Design",
+          "type": "string"
+        },
+        "factor_id": {
           "anyOf": [
             {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
               "type": "string"
             },
             {
@@ -1178,7 +1502,7 @@
             }
           ],
           "default": null,
-          "title": "Factor Path"
+          "title": "Factor Id"
         },
         "mode": {
           "enum": [
@@ -1188,7 +1512,7 @@
           "title": "Mode",
           "type": "string"
         },
-        "treatment_id": {
+        "treatment_level": {
           "anyOf": [
             {
               "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -1199,17 +1523,7 @@
             }
           ],
           "default": null,
-          "title": "Treatment Id"
-        },
-        "treatment_value": {
-          "anyOf": [
-            {},
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Treatment Value"
+          "title": "Treatment Level"
         }
       },
       "required": [
@@ -1217,6 +1531,179 @@
         "counterbalanced"
       ],
       "title": "ExperimentContrast",
+      "type": "object"
+    },
+    "FactorActivationEvidence": {
+      "enum": [
+        "subject_activation",
+        "component_activation",
+        "model_activation",
+        "configuration_activation",
+        "dataset_activation",
+        "schedule_activation",
+        "backend_activation",
+        "none"
+      ],
+      "title": "FactorActivationEvidence",
+      "type": "string"
+    },
+    "FactorArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "factor": {
+          "$ref": "#/$defs/FactorSpec"
+        }
+      },
+      "required": [
+        "factor",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "FactorArtifact",
+      "type": "object"
+    },
+    "FactorCategory": {
+      "description": "Closed semantic classes for registered intervention/nuisance factors.",
+      "enum": [
+        "subject_identity",
+        "agent_component",
+        "model",
+        "model_checkpoint",
+        "configuration",
+        "hyperparameter",
+        "dataset",
+        "protocol",
+        "schedule",
+        "backend",
+        "repetition",
+        "conformance_fixture"
+      ],
+      "title": "FactorCategory",
+      "type": "string"
+    },
+    "FactorLevel": {
+      "additionalProperties": false,
+      "description": "One named, TOML-registered value in a factor domain.",
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ],
+      "title": "FactorLevel",
+      "type": "object"
+    },
+    "FactorSpec": {
+      "additionalProperties": false,
+      "description": "Single source of truth for a sweep axis and its isolation contract.\n\nA factor declaration replaces the former four-way repetition across\n``ClaimScope``, ``factor_path``, ``allowed_diff`` and ``vary``.  The\ncompiler derives every arm and allowed resolved diff from this object.",
+      "properties": {
+        "activation_evidence": {
+          "$ref": "#/$defs/FactorActivationEvidence"
+        },
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "applies_to": {
+          "items": {
+            "$ref": "#/$defs/ComparisonKind"
+          },
+          "title": "Applies To",
+          "type": "array"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "category": {
+          "$ref": "#/$defs/FactorCategory"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "factor",
+          "title": "Kind",
+          "type": "string"
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/FactorLevel"
+          },
+          "title": "Levels",
+          "type": "array"
+        },
+        "metadata_only": {
+          "default": false,
+          "title": "Metadata Only",
+          "type": "boolean"
+        },
+        "resolved_diff_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Resolved Diff Paths",
+          "type": "array"
+        },
+        "selector_path": {
+          "title": "Selector Path",
+          "type": "string"
+        },
+        "value_registry": {
+          "anyOf": [
+            {
+              "enum": [
+                "subject",
+                "dataset",
+                "protocol",
+                "backend",
+                "configuration",
+                "evolver",
+                "meta_evolver"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Registry"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "category",
+        "selector_path",
+        "applies_to",
+        "levels",
+        "activation_evidence"
+      ],
+      "title": "FactorSpec",
       "type": "object"
     },
     "FakeSubjectArtifact": {
@@ -1279,6 +1766,106 @@
       "title": "FakeSubjectArtifact",
       "type": "object"
     },
+    "MetaEvolutionMethodArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved meta-evolver bound to its parent method and configuration.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "comparison_kind": {
+          "const": "meta_evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
+        },
+        "configuration_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Configuration Digest",
+          "type": "string"
+        },
+        "configuration_profile_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Configuration Profile Id",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "meta_evolver",
+          "title": "Kind",
+          "type": "string"
+        },
+        "parent_evolver_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Parent Evolver Digest",
+          "type": "string"
+        },
+        "parent_evolver_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Parent Evolver Id",
+          "type": "string"
+        },
+        "selection": {
+          "$ref": "#/$defs/EvolutionSelectionSpec"
+        },
+        "selection_configuration_path": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_-]*(?:\\.[A-Za-z_][A-Za-z0-9_-]*)*$",
+          "title": "Selection Configuration Path",
+          "type": "string"
+        },
+        "subject_adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Subject Adapter",
+          "type": "string"
+        },
+        "surface": {
+          "$ref": "#/$defs/EvolutionSurfacePolicy"
+        },
+        "target": {
+          "const": "evolver",
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "declaration_ref",
+        "id",
+        "kind",
+        "adapter",
+        "comparison_kind",
+        "subject_adapter",
+        "target",
+        "parent_evolver_id",
+        "parent_evolver_digest",
+        "configuration_profile_id",
+        "configuration_digest",
+        "selection_configuration_path",
+        "selection",
+        "surface"
+      ],
+      "title": "MetaEvolutionMethodArtifact",
+      "type": "object"
+    },
     "MetaEvolverSubjectArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -1310,6 +1897,11 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "const": "meta_evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -1348,11 +1940,226 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "target"
       ],
       "title": "MetaEvolverSubjectArtifact",
       "type": "object"
+    },
+    "MetricArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricSpec"
+        }
+      },
+      "required": [
+        "metric",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "MetricArtifact",
+      "type": "object"
+    },
+    "MetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize",
+        "neutral"
+      ],
+      "title": "MetricDirection",
+      "type": "string"
+    },
+    "MetricFormula": {
+      "enum": [
+        "direct_v1",
+        "mean_v1",
+        "sum_v1",
+        "pass_at_1_v1",
+        "ratio_v1",
+        "successes_per_million_tokens_v1",
+        "completed_per_hour_v1"
+      ],
+      "title": "MetricFormula",
+      "type": "string"
+    },
+    "MetricLevel": {
+      "enum": [
+        "event",
+        "rollout",
+        "task",
+        "configuration",
+        "experiment"
+      ],
+      "title": "MetricLevel",
+      "type": "string"
+    },
+    "MetricMissingDisposition": {
+      "enum": [
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricMissingDisposition",
+      "type": "string"
+    },
+    "MetricPopulation": {
+      "enum": [
+        "evaluator_observations",
+        "planned_rollouts",
+        "launched_rollouts",
+        "completed_rollouts",
+        "observed_rollouts",
+        "experiment_wall_clock"
+      ],
+      "title": "MetricPopulation",
+      "type": "string"
+    },
+    "MetricSource": {
+      "enum": [
+        "evaluator",
+        "usage",
+        "trajectory",
+        "schedule",
+        "derived"
+      ],
+      "title": "MetricSource",
+      "type": "string"
+    },
+    "MetricSpec": {
+      "additionalProperties": false,
+      "description": "Versioned metric semantics selected only through a TOML registry.\n\nThe formula, population, failure handling, unit, and dependency identities\nare all part of the metric digest. This prevents a familiar display name\nsuch as ``pass@1`` from silently changing denominator or exception policy.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/MetricDirection"
+        },
+        "formula": {
+          "$ref": "#/$defs/MetricFormula"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "kind": {
+          "const": "metric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/MetricLevel"
+        },
+        "missing_observation": {
+          "$ref": "#/$defs/MetricMissingDisposition"
+        },
+        "population": {
+          "$ref": "#/$defs/MetricPopulation"
+        },
+        "scale": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "source": {
+          "$ref": "#/$defs/MetricSource"
+        },
+        "source_field": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Field"
+        },
+        "status_policy": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricStatusDisposition"
+          },
+          "title": "Status Policy",
+          "type": "object"
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value_kind": {
+          "$ref": "#/$defs/MetricValueKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "value_kind",
+        "level",
+        "direction",
+        "unit",
+        "source",
+        "formula",
+        "population",
+        "missing_observation"
+      ],
+      "title": "MetricSpec",
+      "type": "object"
+    },
+    "MetricStatusDisposition": {
+      "enum": [
+        "observe",
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricStatusDisposition",
+      "type": "string"
+    },
+    "MetricValueKind": {
+      "enum": [
+        "binary",
+        "count",
+        "continuous",
+        "duration",
+        "tokens",
+        "currency",
+        "rate",
+        "efficiency"
+      ],
+      "title": "MetricValueKind",
+      "type": "string"
     },
     "MountSpec": {
       "additionalProperties": false,
@@ -1432,6 +2239,14 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -1489,6 +2304,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "entrypoint",
         "interface"
@@ -1755,15 +2571,45 @@
           ],
           "default": null
         },
+        "evolver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvolutionMethodArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "experiment_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Experiment Id",
           "type": "string"
         },
+        "factor_artifacts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FactorArtifact"
+          },
+          "title": "Factor Artifacts",
+          "type": "array"
+        },
         "factors": {
           "additionalProperties": true,
           "title": "Factors",
           "type": "object"
+        },
+        "meta_evolver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetaEvolutionMethodArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "run_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -1921,29 +2767,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -1954,54 +2785,14 @@
           "const": "task_suite",
           "title": "Kind",
           "type": "string"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "task_manifest": {
-          "minLength": 1,
-          "title": "Task Manifest",
-          "type": "string"
-        },
-        "verifier": {
-          "minLength": 1,
-          "title": "Verifier",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
-        "adapter",
-        "task_manifest",
-        "verifier",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "adapter"
       ],
       "title": "TaskSuiteBenchmarkArtifact",
       "type": "object"
@@ -2009,16 +2800,15 @@
     "TestOverrideReceipt": {
       "additionalProperties": false,
       "properties": {
+        "forced_comparison_kind": {
+          "default": null,
+          "title": "Forced Comparison Kind",
+          "type": "null"
+        },
         "forced_purpose": {
           "const": "exploratory",
           "default": "exploratory",
           "title": "Forced Purpose",
-          "type": "string"
-        },
-        "forced_scope": {
-          "const": "conformance",
-          "default": "conformance",
-          "title": "Forced Scope",
           "type": "string"
         },
         "reason": {
@@ -2046,34 +2836,14 @@
           "title": "Artifact Digest",
           "type": "string"
         },
-        "authoritative_reward_metric": {
-          "minLength": 1,
-          "title": "Authoritative Reward Metric",
-          "type": "string"
-        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
           "title": "Bmp Version",
           "type": "string"
         },
-        "commit": {
-          "anyOf": [
-            {
-              "minLength": 1,
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Commit"
-        },
-        "evaluator": {
-          "minLength": 1,
-          "title": "Evaluator",
-          "type": "string"
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -2097,51 +2867,16 @@
           "minItems": 1,
           "title": "Output Contract",
           "type": "array"
-        },
-        "reward_pass_value": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reward Pass Value"
-        },
-        "scoring_kind": {
-          "$ref": "#/$defs/ScoringKind"
-        },
-        "source": {
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "source_content_digest": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Content Digest",
-          "type": "string"
-        },
-        "task_root": {
-          "minLength": 1,
-          "title": "Task Root",
-          "type": "string"
         }
       },
       "required": [
         "artifact_digest",
-        "source",
-        "source_content_digest",
+        "declaration_ref",
         "id",
         "kind",
         "adapter",
-        "task_root",
         "input_contract",
-        "output_contract",
-        "evaluator",
-        "scoring_kind",
-        "authoritative_reward_metric"
+        "output_contract"
       ],
       "title": "ToolAgentSuiteBenchmarkArtifact",
       "type": "object"
@@ -2195,11 +2930,24 @@
       "default": null,
       "title": "Created At"
     },
+    "dataset": {
+      "$ref": "#/$defs/DatasetArtifact"
+    },
+    "evaluator": {
+      "$ref": "#/$defs/EvaluatorArtifact"
+    },
     "execution": {
       "$ref": "#/$defs/ResolvedExecutionSpec"
     },
     "metadata": {
       "$ref": "#/$defs/ResolvedManifestMetadata"
+    },
+    "metrics": {
+      "items": {
+        "$ref": "#/$defs/MetricArtifact"
+      },
+      "title": "Metrics",
+      "type": "array"
     },
     "record_root": {
       "anyOf": [
@@ -2288,6 +3036,9 @@
   },
   "required": [
     "benchmark",
+    "dataset",
+    "evaluator",
+    "metrics",
     "subject",
     "execution",
     "claim_design",

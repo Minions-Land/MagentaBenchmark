@@ -1,0 +1,15 @@
+[evaluator]
+id = "evaluator.terminal-bench.native.v1"
+kind = "evaluator"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+implementation = "harbor.native"
+scoring_kind = "binary"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "reward"
+authoritative = true
+success_operator = "eq"
+success_threshold = 1.0
+absolute_tolerance = 0.0

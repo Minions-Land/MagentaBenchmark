@@ -22,6 +22,9 @@ def _declarative_adapter_project(tmp_path: Path) -> tuple[Path, Path]:
         "registries/adapters",
         "registries/backends",
         "registries/benchmarks",
+        "registries/datasets",
+        "registries/evaluators",
+        "registries/metrics",
         "registries/protocols",
         "registries/subjects",
         "plugins",
@@ -68,12 +71,56 @@ id = "novel.benchmark.v1"
 kind = "custom"
 adapter = "novel-benchmark"
 bmp_version = "0.1"
+''',
+        encoding="utf-8",
+    )
+    (project / "registries/datasets/novel.toml").write_text(
+        '''[dataset]
+id = "novel.dataset.v1"
+kind = "dataset"
+adapter = "novel-benchmark"
+bmp_version = "0.1"
 source = "../../fixture"
+commit = "novel-fixture-v1"
 content_globs = ["case.txt"]
-verifier = "novel.verifier:v1"
+format = "opaque"
+split = "test"
+''',
+        encoding="utf-8",
+    )
+    (project / "registries/metrics/reward.toml").write_text(
+        '''[metric]
+id = "novel.reward.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "continuous"
+level = "rollout"
+direction = "maximize"
+unit = "reward"
+source = "evaluator"
+source_field = "evaluator_binding"
+formula = "direct_v1"
+population = "evaluator_observations"
+missing_observation = "invalidate"
+''',
+        encoding="utf-8",
+    )
+    (project / "registries/evaluators/novel.toml").write_text(
+        '''[evaluator]
+id = "novel.evaluator.v1"
+kind = "evaluator"
+adapter = "novel-benchmark"
+bmp_version = "0.1"
+implementation = "novel.verifier:v1"
 scoring_kind = "binary"
-authoritative_reward_metric = "reward"
-reward_pass_value = 1.0
+
+[[evaluator.metrics]]
+metric_id = "novel.reward.v1"
+source_key = "reward"
+authoritative = true
+success_operator = "gte"
+success_threshold = 1.0
 ''',
         encoding="utf-8",
     )
@@ -84,6 +131,8 @@ kind = "opaque_agent"
 adapter = "novel-subject"
 bmp_version = "0.1"
 source = "../../subject"
+commit = "novel-subject-v1"
+comparison_kind = "coding_agent"
 entrypoint = "/bin/true"
 interface = "novel-wire-v1"
 emits_trace = false
@@ -175,13 +224,19 @@ supported_state_reset_policies = ["per_case"]
         '''[experiment]
 id = "novel-adapter"
 benchmark = "novel.benchmark.v1"
+dataset = "novel.dataset.v1"
+evaluator = "novel.evaluator.v1"
+metrics = ["novel.reward.v1"]
 subject = "novel.subject.v1"
 protocol = "novel.protocol.v1"
 
+[experiment.contrast]
+mode = "all_arms"
+counterbalanced = false
+
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "novel.backend.v1"

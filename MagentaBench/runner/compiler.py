@@ -36,33 +36,46 @@ from MagentaBench.schemas import (
     BenchmarkSpecAdapter,
     ClaimDesign,
     ClaimReport,
-    ClaimScope,
+    ComparisonKind,
     ConfigurationArtifact,
     ConfigurationCompositionStep,
     ConfigurationSelection,
     ConfigurationSpec,
+    DatasetArtifact,
+    DatasetSpec,
+    EvaluatorArtifact,
+    EvaluatorSpec,
     ExecutionSpec,
+    EvolutionMethodArtifact,
+    EvolutionMethodSpec,
     ExperimentContrast,
+    FactorArtifact,
+    FactorCategory,
+    FactorSpec,
     GateName,
     GateResult,
     ObservationReport,
+    MetricArtifact,
+    MetricSpec,
+    MetaEvolutionMethodArtifact,
+    MetaEvolutionMethodSpec,
     ProtocolSpec,
     ResolvedBmpManifest,
     ResolvedManifestMetadata,
     RunPurpose,
-    SUBJECT_KIND_SCOPE_MATRIX,
+    SUBJECT_KIND_COMPARISON_MATRIX,
     SubjectSpecAdapter,
     TestOverrideReceipt,
 )
 from MagentaBench.schemas.compiler import (
     _compile_benchmark_artifact,
+    _compile_dataset_artifact,
     _compile_subject_artifact,
     _resolve_execution_spec,
 )
 from MagentaBench.schemas.models import SubjectKind
 
 from .configuration import (
-    ConfigurationRegistry,
     ConfigurationRegistryError,
     apply_dotted_overrides,
     validate_json_schema_configuration,
@@ -190,7 +203,8 @@ def expand_factor_sweep(
 
     Returns pairs of ``(expanded_declaration, selected_factor_values)``. Factor
     paths that start with ``experiment.`` or ``execution.`` modify those tables;
-    bare ``benchmark``, ``subject`` and ``protocol`` modify experiment refs.
+    bare ``benchmark``, ``dataset``, ``subject``, ``protocol``, ``evolver``, and
+    ``meta_evolver`` modify experiment refs.
     Other bare factors are metadata-only (for example ``repetition``).
     """
 
@@ -211,7 +225,14 @@ def expand_factor_sweep(
         selected: dict[str, Any] = {}
         for (path, _), value in zip(axes, combination):
             selected[path] = copy.deepcopy(value)
-            if path in {"benchmark", "subject", "protocol"}:
+            if path in {
+                "benchmark",
+                "dataset",
+                "subject",
+                "protocol",
+                "evolver",
+                "meta_evolver",
+            }:
                 declaration.setdefault("experiment", {})[path] = copy.deepcopy(value)
             elif path.startswith("experiment.") or path.startswith("execution."):
                 _deep_set(declaration, path, value)
@@ -297,15 +318,45 @@ def enforce_allowed_diff(
 
         left = {
             "benchmark": control.benchmark.model_dump(mode="json"),
+            "dataset": (
+                None
+                if control.dataset is None
+                else control.dataset.model_dump(mode="json", exclude={"source"})
+            ),
             "subject": control.subject.model_dump(mode="json"),
             "execution": control.execution.model_dump(mode="json"),
             "configuration": configuration_projection(control.metadata.configuration),
+            "evolver": (
+                None
+                if control.metadata.evolver is None
+                else control.metadata.evolver.model_dump(mode="json")
+            ),
+            "meta_evolver": (
+                None
+                if control.metadata.meta_evolver is None
+                else control.metadata.meta_evolver.model_dump(mode="json")
+            ),
         }
         right = {
             "benchmark": treatment.benchmark.model_dump(mode="json"),
+            "dataset": (
+                None
+                if treatment.dataset is None
+                else treatment.dataset.model_dump(mode="json", exclude={"source"})
+            ),
             "subject": treatment.subject.model_dump(mode="json"),
             "execution": treatment.execution.model_dump(mode="json"),
             "configuration": configuration_projection(treatment.metadata.configuration),
+            "evolver": (
+                None
+                if treatment.metadata.evolver is None
+                else treatment.metadata.evolver.model_dump(mode="json")
+            ),
+            "meta_evolver": (
+                None
+                if treatment.metadata.meta_evolver is None
+                else treatment.metadata.meta_evolver.model_dump(mode="json")
+            ),
         }
         paths = resolved_diff_paths(left, right)
     else:
@@ -324,20 +375,31 @@ class Compiler:
         {
             "id",
             "benchmark",
+            "dataset",
+            "evaluator",
+            "metrics",
             "subject",
             "protocol",
+            "factors",
             "contrast",
-            "allowed_diff",
             "design",
             "configuration",
+            "evolver",
+            "meta_evolver",
         }
     )
     _REGISTRY_SECTIONS = {
         "benchmark": ("benchmarks", BenchmarkSpecAdapter),
+        "dataset": ("datasets", DatasetSpec),
+        "evaluator": ("evaluators", EvaluatorSpec),
+        "metric": ("metrics", MetricSpec),
         "subject": ("subjects", SubjectSpecAdapter),
         "protocol": ("protocols", ProtocolSpec),
         "backend": ("backends", BackendSpec),
         "configuration": ("configurations", ConfigurationSpec),
+        "evolver": ("evolvers", EvolutionMethodSpec),
+        "meta_evolver": ("meta_evolvers", MetaEvolutionMethodSpec),
+        "factor": ("factors", FactorSpec),
         "adapter": ("adapters", AdapterCapability),
     }
 
@@ -351,6 +413,19 @@ class Compiler:
         self.allow_test_override = allow_test_override
         self.registry_root = self.project_root / "registries"
         self._registry_cache: dict[tuple[str, str], tuple[Any, Path]] = {}
+
+    def verify_registry_lock(self, lock_path: str | os.PathLike[str] | None = None):
+        """Verify the repository-level TOML registry lock when requested.
+
+        This is deliberately explicit: conformance tests and temporary
+        projects commonly add fixture declarations after copying the base
+        registry, while release/CI entry points can require the lock before
+        compiling a claim.
+        """
+
+        from MagentaBench.schemas.registry_lock import verify_registry_lock
+
+        return verify_registry_lock(self.registry_root, lock_path)
 
     @staticmethod
     def _parse_contrast(experiment: Mapping[str, Any]) -> ExperimentContrast:
@@ -426,11 +501,156 @@ class Compiler:
 
     def _benchmark_artifact(self, entry_id: str):
         spec, registry_path = self._lookup("benchmark", entry_id)
-        return _compile_benchmark_artifact(spec, base_dir=registry_path.parent)
+        return _compile_benchmark_artifact(
+            spec,
+            declaration_path=registry_path,
+        )
+
+    def _dataset_artifact(self, entry_id: str) -> DatasetArtifact:
+        spec, registry_path = self._lookup("dataset", entry_id)
+        return _compile_dataset_artifact(spec, declaration_path=registry_path)
 
     def _subject_artifact(self, entry_id: str):
         spec, registry_path = self._lookup("subject", entry_id)
         return _compile_subject_artifact(spec, base_dir=registry_path.parent)
+
+    def _factor_artifact(self, entry_id: str) -> FactorArtifact:
+        factor, declaration_path = self._lookup("factor", entry_id)
+        declaration_ref = self._configuration_source_ref(declaration_path)
+        provisional = FactorArtifact(
+            factor=factor,
+            declaration_ref=declaration_ref,
+            artifact_digest="0" * 64,
+        )
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    def _evaluator_artifact(self, entry_id: str) -> EvaluatorArtifact:
+        evaluator, declaration_path = self._lookup("evaluator", entry_id)
+        declaration_ref = self._configuration_source_ref(declaration_path)
+        provisional = EvaluatorArtifact(
+            evaluator=evaluator,
+            declaration_ref=declaration_ref,
+            artifact_digest="0" * 64,
+        )
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    def _metric_artifact(self, entry_id: str) -> MetricArtifact:
+        metric, declaration_path = self._lookup("metric", entry_id)
+        declaration_ref = self._configuration_source_ref(declaration_path)
+        provisional = MetricArtifact(
+            metric=metric,
+            declaration_ref=declaration_ref,
+            artifact_digest="0" * 64,
+        )
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    def _evolver_artifact(
+        self,
+        entry_id: str,
+        configuration: ConfigurationArtifact,
+    ) -> EvolutionMethodArtifact:
+        method, declaration_path = self._lookup("evolver", entry_id)
+        payload = method.model_dump(mode="json")
+        payload.update(
+            {
+                "declaration_ref": self._configuration_source_ref(declaration_path),
+                "configuration_digest": configuration.artifact_digest,
+                "artifact_digest": "0" * 64,
+            }
+        )
+        provisional = EvolutionMethodArtifact.model_validate(payload)
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    def _meta_evolver_artifact(
+        self,
+        entry_id: str,
+        configuration: ConfigurationArtifact,
+        parent: EvolutionMethodArtifact,
+    ) -> MetaEvolutionMethodArtifact:
+        method, declaration_path = self._lookup("meta_evolver", entry_id)
+        if method.parent_evolver_id != parent.id:
+            raise CompilationError(
+                f"meta-evolver {entry_id!r} parent does not match {parent.id!r}"
+            )
+        payload = method.model_dump(mode="json")
+        payload.update(
+            {
+                "declaration_ref": self._configuration_source_ref(declaration_path),
+                "configuration_digest": configuration.artifact_digest,
+                "parent_evolver_digest": parent.artifact_digest,
+                "artifact_digest": "0" * 64,
+            }
+        )
+        provisional = MetaEvolutionMethodArtifact.model_validate(payload)
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    @staticmethod
+    def _validate_evolution_method_binding(
+        method: EvolutionMethodArtifact | MetaEvolutionMethodArtifact,
+        *,
+        configuration: ConfigurationArtifact,
+        metrics: tuple[MetricArtifact, ...],
+        subject_adapter: str,
+    ) -> None:
+        if method.subject_adapter != subject_adapter:
+            raise CompilationError(
+                f"evolution method {method.id!r} requires subject adapter "
+                f"{method.subject_adapter!r}, got {subject_adapter!r}"
+            )
+        if method.configuration_profile_id not in configuration.profiles:
+            raise CompilationError(
+                f"evolution method {method.id!r} requires configuration profile "
+                f"{method.configuration_profile_id!r}"
+            )
+        metric_by_id = {artifact.metric.id: artifact.metric for artifact in metrics}
+        metric = metric_by_id.get(method.selection.metric_id)
+        if metric is None:
+            raise CompilationError(
+                f"evolution method {method.id!r} requires selected metric "
+                f"{method.selection.metric_id!r}"
+            )
+        if metric.direction.value != method.selection.direction:
+            raise CompilationError(
+                f"evolution method {method.id!r} selection direction differs from "
+                f"metric {metric.id!r}"
+            )
+        observed: Any = configuration.values
+        try:
+            for part in method.selection_configuration_path.split("."):
+                if not isinstance(observed, Mapping):
+                    raise KeyError(part)
+                observed = observed[part]
+        except KeyError as exc:
+            raise CompilationError(
+                f"evolution method {method.id!r} selection configuration is absent"
+            ) from exc
+        if observed != method.selection.configuration_data():
+            raise CompilationError(
+                f"evolution method {method.id!r} selection configuration drift"
+            )
+        wrong_owners = sorted(
+            path
+            for path in (
+                f"{method.selection_configuration_path}.{key}"
+                for key in method.selection.configuration_data()
+            )
+            if configuration.ownership.get(path) != method.adapter
+        )
+        if wrong_owners:
+            raise CompilationError(
+                f"evolution method {method.id!r} selection configuration has "
+                f"wrong ownership: {wrong_owners}"
+            )
 
     def _resolved_protocol(self, entry_id: str) -> ProtocolSpec:
         protocol, _ = self._lookup("protocol", entry_id)
@@ -670,68 +890,12 @@ class Compiler:
         ownership: dict[str, str] = {}
         composition: list[ConfigurationCompositionStep] = []
         visiting: list[str] = []
-        config_registry: ConfigurationRegistry | None = None
         applied_profile_sources: set[tuple[str, str, int]] = set()
         profile_source_by_id: dict[str, tuple[str, int]] = {}
 
         def load_profile(profile_id: str) -> tuple[ConfigurationSpec, Path, str]:
-            nonlocal config_registry
-            if config_registry is None:
-                registry_path = self.registry_root / "configurations"
-                if not registry_path.is_dir():
-                    raise RegistryLookupError(
-                        f"configuration registry is missing: {registry_path}"
-                    )
-                try:
-                    config_registry = ConfigurationRegistry(registry_path)
-                except ConfigurationRegistryError as exc:
-                    raise CompilationError(str(exc)) from exc
-            try:
-                record = config_registry.get(profile_id)
-            except ConfigurationRegistryError as exc:
-                raise RegistryLookupError(str(exc)) from exc
-            raw_document = record.data
-            if "configuration" in raw_document:
-                if not (
-                    set(raw_document) == {"configuration"}
-                    and isinstance(raw_document.get("configuration"), Mapping)
-                    and raw_document["configuration"].get("kind") == "configuration"
-                ):
-                    raise CompilationError(
-                        f"configuration profile {profile_id!r} contains a malformed "
-                        "[configuration] envelope; raw documents require explicit raw_files"
-                    )
-                table = raw_document.get("configuration")
-                if not isinstance(table, Mapping):
-                    raise CompilationError(
-                        f"configuration profile {profile_id!r} has malformed envelope"
-                    )
-                try:
-                    spec = ConfigurationSpec.model_validate(table)
-                except pydantic.ValidationError as exc:
-                    raise CompilationError(
-                        f"invalid configuration profile {profile_id!r}: {exc}"
-                    ) from exc
-                if spec.id != profile_id:
-                    raise CompilationError(
-                        f"configuration profile id drift: name={profile_id!r}, id={spec.id!r}"
-                    )
-                return spec, record.path, "envelope"
-            try:
-                return (
-                    ConfigurationSpec(
-                        id=profile_id,
-                        kind="configuration",
-                        adapter="generic",
-                        values=raw_document,
-                    ),
-                    record.path,
-                    "raw",
-                )
-            except pydantic.ValidationError as exc:
-                raise CompilationError(
-                    f"invalid configuration profile {profile_id!r}: {exc}"
-                ) from exc
+            spec, path = self._lookup("configuration", profile_id)
+            return spec, path, "envelope"
 
         def apply_spec(
             spec: ConfigurationSpec,
@@ -933,31 +1097,6 @@ class Compiler:
         )
         return artifact.model_copy(update={"artifact_digest": artifact.canonical_digest()})
 
-    _SCOPE_PROOF_TYPES = {
-        ClaimScope.component: "AssemblySidecarRef",
-        ClaimScope.model: "ModelActivationReceipt",
-        ClaimScope.checkpoint: "CheckpointLoadReceipt",
-        ClaimScope.evolver: "EvolutionRunEvidence",
-        ClaimScope.meta_evolver: "NestedIsolationReceipt and RecursiveBudgetReceipt",
-        ClaimScope.schedule: "ScheduleActivationReceipt",
-        ClaimScope.ablation: "AssemblySidecarRef",
-        ClaimScope.hyperparameter: "HyperparameterActivationReceipt",
-        ClaimScope.conformance: "FakeConformanceEvidence",
-        ClaimScope.whole_harness: "WholeHarnessArtifactEvidence",
-    }
-    # Model scope additionally requires a provider binding plus runtime
-    # ModelActivationReceipt. Evolution scopes are reachable only through an
-    # explicitly declared external execution capability and a runtime
-    # EvolutionRunEvidence provenance reference. Other research scopes remain
-    # inactive.
-    _ACTIVE_SCOPES = frozenset(
-        {
-            ClaimScope.conformance,
-            ClaimScope.evolver,
-            ClaimScope.meta_evolver,
-            ClaimScope.model,
-        }
-    )
     _SCHEDULER_ADAPTER = "magentabench.scheduler"
     # Conservative core fallbacks for adapters shipped with MagentaBench.
     # External adapters must carry these policies in their digest-bound TOML
@@ -995,85 +1134,58 @@ class Compiler:
         }
     )
     _NONE_MODELS = frozenset({"none", "none/deterministic", "none/echo"})
-    _SCHEDULE_VARY_PATHS = frozenset(
-        {
-            "execution.protocol.rollouts_per_case",
-            "execution.protocol.parallelism",
-            "execution.protocol.case_order",
-            "execution.protocol.candidate_selection",
-            "execution.protocol.state_reset",
-            "execution.protocol.checkpoint_policy",
-            "execution.budget.max_tokens",
-            "execution.budget.max_wall_seconds",
-            "execution.budget.max_cost",
-        }
-    )
 
-    def _validate_subject_evidence_for_scope(
+    def _validate_comparison_subject(
         self, manifest: ResolvedBmpManifest
     ) -> None:
-        """Reject attribution scopes unsupported by frozen subject evidence."""
+        """Keep execution packaging separate from the semantic research subject."""
 
-        scope = manifest.claim_design.scope
+        comparison_kind = manifest.claim_design.comparison_kind
         subject = manifest.subject
-        if scope == ClaimScope.schedule:
+        if subject.kind == "fake":
+            if comparison_kind is not None:
+                raise CompilationError(
+                    "fake conformance fixtures cannot declare a research comparison kind"
+                )
+            if manifest.claim_design.purpose != RunPurpose.exploratory:
+                raise CompilationError(
+                    "fake conformance fixtures require exploratory purpose"
+                )
+            return
+        if comparison_kind is None:
             raise CompilationError(
-                "schedule scope requires missing native subprocess schedule tuple "
-                "and CaseSetActivationReceipt with Pipeline multi-case loading"
+                "a real subject requires one of the four comparison kinds"
+            )
+        declared = ComparisonKind(subject.comparison_kind)
+        if comparison_kind != declared:
+            raise CompilationError(
+                f"comparison kind {comparison_kind.value!r} differs from the "
+                f"subject registration {declared.value!r}"
+            )
+        legal = SUBJECT_KIND_COMPARISON_MATRIX.get(subject.kind, frozenset())
+        if comparison_kind not in legal:
+            raise CompilationError(
+                f"comparison kind {comparison_kind.value!r} is incompatible with "
+                f"subject artifact kind {subject.kind!r}"
             )
         if (
-            scope == ClaimScope.conformance
-            and not self.allow_test_override
-            and not (
-                manifest.benchmark.kind == "task_suite"
-                and manifest.benchmark.adapter == "fake"
-                and manifest.subject.kind == "fake"
-                and manifest.subject.adapter == "fake"
-                and manifest.execution.backend.adapter == "fake"
-                and manifest.execution.protocol is not None
-                and manifest.execution.protocol.kind == "mechanism_validation"
-                and manifest.benchmark.verifier == "fake.exact.v1"
-            )
+            comparison_kind == ComparisonKind.evolution_method
+            and subject.kind != "evolver"
         ):
-            raise CompilationError(
-                "conformance tuple requires missing PipelineAdapterActivationReceipt"
-            )
-        legal_scopes = SUBJECT_KIND_SCOPE_MATRIX.get(subject.kind, frozenset())
-        proof_type = self._SCOPE_PROOF_TYPES[scope]
-        if scope not in legal_scopes:
-            raise CompilationError(
-                f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
-                f"requires missing evidence class {proof_type}"
-            )
-        custom_exploratory = (
-            manifest.claim_design.purpose == RunPurpose.exploratory
-            and manifest.benchmark.kind == "custom"
-        )
-        if scope not in self._ACTIVE_SCOPES and not custom_exploratory:
-            raise CompilationError(
-                f"claim scope {scope.value!r} requires missing evidence class "
-                f"{proof_type}; runtime support is not active"
-            )
-        if scope == ClaimScope.component and getattr(subject, "sidecar_ref", None) is None:
-            raise CompilationError(
-                "claim scope 'component' requires missing evidence class AssemblySidecarRef"
-            )
-        if scope == ClaimScope.model and manifest.execution.model in self._NONE_MODELS:
-            raise CompilationError(
-                "claim scope 'model' requires a real model and ModelActivationReceipt"
-            )
+            raise CompilationError("evolution_method requires an evolver subject")
         if (
-            scope == ClaimScope.conformance
-            and manifest.claim_design.purpose != RunPurpose.exploratory
+            comparison_kind == ComparisonKind.meta_evolution_method
+            and subject.kind != "meta_evolver"
         ):
             raise CompilationError(
-                "conformance scope requires run purpose 'exploratory'"
+                "meta_evolution_method requires a meta_evolver subject"
             )
 
     def _compile_expanded(
         self,
         declaration: Mapping[str, Any],
         factor_values: Mapping[str, Any],
+        factor_artifacts: tuple[FactorArtifact, ...],
         run_index: int,
         *,
         base_dir: Path,
@@ -1083,7 +1195,7 @@ class Compiler:
         config_overrides: Mapping[str, Any] | None = None,
     ) -> CompiledRun:
         unexpected_sections = sorted(
-            set(declaration) - {"experiment", "execution", "factors"}
+            set(declaration) - {"experiment", "execution"}
         )
         if unexpected_sections:
             raise CompilationError(
@@ -1102,28 +1214,70 @@ class Compiler:
             raise CompilationError(
                 f"unknown [experiment] fields: {unknown_experiment_keys}"
             )
-        required = ("id", "benchmark", "subject", "protocol")
+        required = (
+            "id",
+            "benchmark",
+            "dataset",
+            "evaluator",
+            "metrics",
+            "subject",
+            "protocol",
+        )
         missing = [name for name in required if not experiment.get(name)]
         if missing:
             raise CompilationError(f"[experiment] missing fields: {', '.join(missing)}")
         design_raw = experiment.get("design")
         if not isinstance(design_raw, dict):
             raise CompilationError(
-                "[experiment.design] is required with scope, purpose, and vary"
+                "[experiment.design] is required with comparison_kind and purpose"
             )
+        if set(design_raw).intersection({"scope", "vary", "intervention_factor_id"}):
+            raise CompilationError(
+                "scope/vary/intervention_factor_id are derived or retired; "
+                "select registered factors instead"
+            )
+        contrast = self._parse_contrast(experiment)
+        resolved_design = dict(design_raw)
+        resolved_design["intervention_factor_id"] = (
+            contrast.factor_id if contrast.mode == "one_factor" else None
+        )
+        if self.allow_test_override:
+            resolved_design["comparison_kind"] = None
+            resolved_design["purpose"] = RunPurpose.exploratory
         try:
-            claim_design = ClaimDesign.model_validate(design_raw)
+            claim_design = ClaimDesign.model_validate(resolved_design)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [experiment.design]: {exc}") from exc
-        if self.allow_test_override:
-            claim_design = ClaimDesign(
-                scope=ClaimScope.conformance,
-                purpose=RunPurpose.exploratory,
-                vary=(),
+        factor_by_id = {
+            artifact.factor.id: artifact for artifact in factor_artifacts
+        }
+        if contrast.factor_id is not None and contrast.factor_id not in factor_by_id:
+            raise CompilationError(
+                f"contrast factor {contrast.factor_id!r} is not selected by the experiment"
             )
-        else:
-            self._validate_scope_vary_declaration(claim_design)
-        contrast = self._parse_contrast(experiment)
+        for artifact in factor_artifacts:
+            factor = artifact.factor
+            if factor.category in {
+                FactorCategory.repetition,
+                FactorCategory.conformance_fixture,
+            }:
+                if (
+                    factor.category == FactorCategory.conformance_fixture
+                    and claim_design.comparison_kind is not None
+                ):
+                    raise CompilationError(
+                        "conformance_fixture factors cannot enter research comparisons"
+                    )
+                continue
+            if claim_design.comparison_kind is None:
+                raise CompilationError(
+                    f"research factor {factor.id!r} requires a comparison kind"
+                )
+            if claim_design.comparison_kind not in factor.applies_to:
+                raise CompilationError(
+                    f"factor {factor.id!r} does not apply to comparison kind "
+                    f"{claim_design.comparison_kind.value!r}"
+                )
         configuration = self._resolve_configuration(
             experiment.get("configuration"),
             base_dir=base_dir,
@@ -1132,6 +1286,17 @@ class Compiler:
             additional_profiles=config_profiles,
             additional_values=config_overrides,
         )
+        if claim_design.purpose == RunPurpose.claim and configuration is not None:
+            unregistered_layers = [
+                layer.kind
+                for layer in configuration.composition
+                if layer.kind != "profile"
+            ]
+            if unregistered_layers:
+                raise CompilationError(
+                    "claim configuration accepts only registered TOML profile ids; "
+                    f"unregistered layers: {unregistered_layers}"
+                )
 
         try:
             execution = ExecutionSpec.model_validate(execution_raw)
@@ -1145,8 +1310,140 @@ class Compiler:
                 "backend_overrides contains unbound backend identity fields: "
                 f"{unsupported_override_fields}"
             )
+        if claim_design.purpose == RunPurpose.claim and execution.backend_overrides:
+            raise CompilationError(
+                "claim execution forbids inline backend_overrides; register a backend"
+            )
         benchmark = self._benchmark_artifact(str(experiment["benchmark"]))
+        dataset = self._dataset_artifact(str(experiment["dataset"]))
+        if dataset.adapter != benchmark.adapter:
+            raise CompilationError(
+                f"dataset adapter {dataset.adapter!r} does not match benchmark "
+                f"adapter {benchmark.adapter!r}"
+            )
+        evaluator = self._evaluator_artifact(str(experiment["evaluator"]))
+        if evaluator.evaluator.adapter != benchmark.adapter:
+            raise CompilationError(
+                f"evaluator adapter {evaluator.evaluator.adapter!r} does not match "
+                f"benchmark adapter {benchmark.adapter!r}"
+            )
+        raw_metric_ids = experiment.get("metrics")
+        if not isinstance(raw_metric_ids, (list, tuple)) or not raw_metric_ids:
+            raise CompilationError("[experiment].metrics must be a non-empty array")
+        if any(not isinstance(metric_id, str) or not metric_id for metric_id in raw_metric_ids):
+            raise CompilationError("[experiment].metrics must contain registry ids")
+        metric_ids = tuple(raw_metric_ids)
+        if len(set(metric_ids)) != len(metric_ids):
+            raise CompilationError("[experiment].metrics must contain unique ids")
+        unresolved_metrics = tuple(
+            self._metric_artifact(metric_id) for metric_id in metric_ids
+        )
+        metric_by_id = {
+            artifact.metric.id: artifact for artifact in unresolved_metrics
+        }
+        selected_metric_ids = {
+            artifact.metric.id for artifact in unresolved_metrics
+        }
+        emitted_metric_ids = {
+            binding.metric_id for binding in evaluator.evaluator.metrics
+        }
+        missing_emitted = sorted(emitted_metric_ids - selected_metric_ids)
+        if missing_emitted:
+            raise CompilationError(
+                f"experiment metrics omit evaluator bindings: {missing_emitted}"
+            )
+        missing_inputs = sorted(
+            {
+                input_id
+                for artifact in unresolved_metrics
+                for input_id in artifact.metric.inputs
+                if input_id not in selected_metric_ids
+            }
+        )
+        if missing_inputs:
+            raise CompilationError(
+                f"experiment metrics omit registered dependencies: {missing_inputs}"
+            )
+        ordered_metrics: list[MetricArtifact] = []
+        visiting_metrics: list[str] = []
+        visited_metrics: set[str] = set()
+
+        def append_metric(metric_id: str) -> None:
+            if metric_id in visited_metrics:
+                return
+            if metric_id in visiting_metrics:
+                cycle = " -> ".join((*visiting_metrics, metric_id))
+                raise CompilationError(f"registered metric dependency cycle: {cycle}")
+            visiting_metrics.append(metric_id)
+            artifact = metric_by_id[metric_id]
+            for dependency in artifact.metric.inputs:
+                append_metric(dependency)
+            visiting_metrics.pop()
+            visited_metrics.add(metric_id)
+            ordered_metrics.append(artifact)
+
+        for metric_id in metric_ids:
+            append_metric(metric_id)
+        metrics = tuple(ordered_metrics)
         subject = self._subject_artifact(str(experiment["subject"]))
+        evolver_artifact: EvolutionMethodArtifact | None = None
+        meta_evolver_artifact: MetaEvolutionMethodArtifact | None = None
+        evolver_id = experiment.get("evolver")
+        meta_evolver_id = experiment.get("meta_evolver")
+        if subject.kind == "evolver":
+            if not isinstance(evolver_id, str) or not evolver_id:
+                raise CompilationError(
+                    "an evolver subject requires [experiment].evolver registry id"
+                )
+            if meta_evolver_id is not None:
+                raise CompilationError(
+                    "an evolver subject cannot select [experiment].meta_evolver"
+                )
+            if configuration is None:
+                raise CompilationError(
+                    "registered evolution methods require experiment configuration"
+                )
+            evolver_artifact = self._evolver_artifact(evolver_id, configuration)
+            self._validate_evolution_method_binding(
+                evolver_artifact,
+                configuration=configuration,
+                metrics=metrics,
+                subject_adapter=subject.adapter,
+            )
+        elif subject.kind == "meta_evolver":
+            if evolver_id is not None:
+                raise CompilationError(
+                    "a meta-evolver derives its parent from the meta method registry"
+                )
+            if not isinstance(meta_evolver_id, str) or not meta_evolver_id:
+                raise CompilationError(
+                    "a meta-evolver subject requires [experiment].meta_evolver registry id"
+                )
+            if configuration is None:
+                raise CompilationError(
+                    "registered meta-evolution methods require experiment configuration"
+                )
+            meta_spec, _ = self._lookup("meta_evolver", meta_evolver_id)
+            evolver_artifact = self._evolver_artifact(
+                meta_spec.parent_evolver_id,
+                configuration,
+            )
+            meta_evolver_artifact = self._meta_evolver_artifact(
+                meta_evolver_id,
+                configuration,
+                evolver_artifact,
+            )
+            for method in (evolver_artifact, meta_evolver_artifact):
+                self._validate_evolution_method_binding(
+                    method,
+                    configuration=configuration,
+                    metrics=metrics,
+                    subject_adapter=subject.adapter,
+                )
+        elif evolver_id is not None or meta_evolver_id is not None:
+            raise CompilationError(
+                "only evolver subjects may select evolution method registries"
+            )
         backend, _ = self._lookup("backend", execution.backend)
         protocol = self._resolved_protocol(str(experiment["protocol"]))
         subject_interface = (
@@ -1276,20 +1573,20 @@ class Compiler:
             raise CompilationError(
                 f"unknown benchmark adapter combination: {benchmark_pair!r}"
             )
+        authoritative_binding = evaluator.evaluator.authoritative_metric
         if (
             benchmark.adapter == "fake"
-            and benchmark.verifier == "fake.exact.v1"
-            and benchmark.authoritative_reward_metric != "exact_match"
+            and evaluator.evaluator.implementation == "fake.exact.v1"
+            and authoritative_binding.source_key != "exact_match"
         ):
             raise CompilationError(
-                "fake.exact.v1 requires authoritative_reward_metric='exact_match'"
+                "fake.exact.v1 requires authoritative source_key='exact_match'"
             )
         if benchmark.adapter == "aosebench" and (
-            benchmark.task_root != "benchmark/tasks"
-            or benchmark.input_contract != "/app/instruction.md; /app/data:ro"
+            benchmark.input_contract != "/app/instruction.md; /app/data:ro"
             or tuple(benchmark.output_contract)
             != ("/app/trace.md", "/app/answer.txt")
-            or benchmark.evaluator != "aosebench.rubric-judge"
+            or evaluator.evaluator.implementation != "aosebench.rubric-judge"
         ):
             raise CompilationError("AOSE benchmark native task contract mismatch")
         if subject.kind in {"evolver", "meta_evolver"}:
@@ -1306,12 +1603,12 @@ class Compiler:
         deterministic_allowed = (
             protocol.kind == "mechanism_validation"
             and claim_design.purpose == RunPurpose.exploratory
-            and claim_design.scope == ClaimScope.conformance
+            and claim_design.comparison_kind is None
             and benchmark.adapter == "fake"
             and subject.kind == "fake"
             and subject.adapter == "fake"
             and backend.adapter == "fake"
-            and benchmark.verifier == "fake.exact.v1"
+            and evaluator.evaluator.implementation == "fake.exact.v1"
         )
         if deterministic and not deterministic_allowed:
             raise CompilationError(
@@ -1323,72 +1620,45 @@ class Compiler:
                 "all-fake conformance requires deterministic_conformance=true"
             )
 
-        scope = claim_design.scope
-        if scope == ClaimScope.schedule:
+        if claim_design.comparison_kind is None:
+            if protocol.kind != "mechanism_validation":
+                raise CompilationError(
+                    "comparison-free conformance requires mechanism_validation"
+                )
+        elif protocol.kind == "mechanism_validation" and (
+            claim_design.purpose != RunPurpose.exploratory
+        ):
             raise CompilationError(
-                "schedule scope requires missing native subprocess schedule tuple "
-                "and CaseSetActivationReceipt with Pipeline multi-case loading"
+                "mechanism_validation cannot produce a research claim"
             )
-        proof_type = self._SCOPE_PROOF_TYPES[scope]
-        legal_scopes = SUBJECT_KIND_SCOPE_MATRIX.get(subject.kind, frozenset())
-        if scope not in legal_scopes:
-            raise CompilationError(
-                f"claim scope {scope.value!r} for subject kind {subject.kind!r} "
-                f"requires missing evidence class {proof_type}"
-            )
-        custom_exploratory = (
-            claim_design.purpose == RunPurpose.exploratory
-            and benchmark.kind == "custom"
+        intervention = (
+            None
+            if claim_design.intervention_factor_id is None
+            else factor_by_id[claim_design.intervention_factor_id].factor
         )
-        if scope not in self._ACTIVE_SCOPES and not custom_exploratory:
-            raise CompilationError(
-                f"claim scope {scope.value!r} requires missing evidence class "
-                f"{proof_type}; runtime support is not active"
-            )
-        if scope == ClaimScope.model and execution.model in self._NONE_MODELS:
-            raise CompilationError(
-                "claim scope 'model' requires a real model and ModelActivationReceipt"
-            )
-
-        kind_scope_matrix = {
-            "mechanism_validation": {
-                RunPurpose.exploratory: {
-                    ClaimScope.conformance,
-                    ClaimScope.whole_harness,
-                },
-            },
-            "test_time_scaling": {
-                RunPurpose.exploratory: {
-                    ClaimScope.schedule,
-                    ClaimScope.conformance,
-                },
-                RunPurpose.claim: {ClaimScope.schedule},
-            },
-            "benchmark_evaluation": {
-                RunPurpose.exploratory: {
-                    ClaimScope.whole_harness,
-                    ClaimScope.model,
-                    ClaimScope.conformance,
-                    ClaimScope.evolver,
-                    ClaimScope.meta_evolver,
-                },
-                RunPurpose.claim: {
-                    ClaimScope.whole_harness,
-                    ClaimScope.model,
-                    ClaimScope.evolver,
-                    ClaimScope.meta_evolver,
-                },
-            },
-        }
-        permitted_scopes = kind_scope_matrix.get(protocol.kind, {}).get(
-            claim_design.purpose, set()
-        )
-        if claim_design.scope not in permitted_scopes:
-            raise CompilationError(
-                f"protocol kind {protocol.kind!r} does not permit purpose "
-                f"{claim_design.purpose.value!r} with scope "
-                f"{claim_design.scope.value!r}"
-            )
+        if intervention is not None:
+            if (
+                intervention.category
+                in {FactorCategory.model, FactorCategory.model_checkpoint}
+                and execution.model in self._NONE_MODELS
+            ):
+                raise CompilationError(
+                    "model factors require a real model and ModelActivationReceipt"
+                )
+            if (
+                intervention.category == FactorCategory.agent_component
+                and subject.kind != "hcp_harness"
+            ):
+                raise CompilationError(
+                    "agent_component factors require an HCP-native subject"
+                )
+            if (
+                intervention.category in {FactorCategory.protocol, FactorCategory.schedule}
+                and protocol.kind != "test_time_scaling"
+            ):
+                raise CompilationError(
+                    "protocol/schedule factors require a test_time_scaling protocol"
+                )
         if protocol.adapter != self._SCHEDULER_ADAPTER:
             raise CompilationError(
                 "protocol adapter does not match active scheduler: "
@@ -1469,16 +1739,23 @@ class Compiler:
             raise CompilationError(
                 f"candidate_selection {selection!r} requires rollouts_per_case=1"
             )
-        if selection == "exact" and benchmark.scoring_kind.value != "binary":
+        if selection == "exact" and evaluator.evaluator.scoring_kind.value != "binary":
             raise CompilationError(
                 "candidate_selection='exact' requires binary benchmark scoring "
                 "and ExactSelectionReceipt"
             )
-        allowed_raw = experiment.get("allowed_diff", ())
-        if isinstance(allowed_raw, str):
-            allowed_diff = (allowed_raw,)
-        else:
-            allowed_diff = tuple(allowed_raw or ())
+        authoritative_direction = next(
+            artifact.metric.direction
+            for artifact in metrics
+            if artifact.metric.id == authoritative_binding.metric_id
+        )
+        if selection == "best_of_n" and authoritative_direction.value == "neutral":
+            raise CompilationError(
+                "candidate_selection='best_of_n' requires a directional authoritative metric"
+            )
+        allowed_diff = (
+            () if intervention is None else intervention.resolved_diff_paths
+        )
 
         # The stable ordinal is defined over the canonical lexical sweep order.
         metadata = ResolvedManifestMetadata(
@@ -1486,7 +1763,10 @@ class Compiler:
             run_id=f"{experiment['id']}__run{run_index:04d}",
             allowed_diff=allowed_diff,
             factors=dict(factor_values),
+            factor_artifacts=factor_artifacts,
             configuration=configuration,
+            evolver=evolver_artifact,
+            meta_evolver=meta_evolver_artifact,
             adapter_capabilities=(),
             test_override=(
                 TestOverrideReceipt(reason="explicit allow_test_override=true")
@@ -1501,13 +1781,16 @@ class Compiler:
         )
         manifest = ResolvedBmpManifest(
             benchmark=benchmark,
+            dataset=dataset,
+            evaluator=evaluator,
+            metrics=metrics,
             subject=subject,
             execution=resolved_execution,
             claim_design=claim_design,
             contrast=contrast,
             metadata=metadata,
         )
-        self._validate_subject_evidence_for_scope(manifest)
+        self._validate_comparison_subject(manifest)
         # Test-only callers may inject a backend/adapter registry that is not
         # represented by project TOML declarations.  Production compilation
         # remains strict: every non-built-in loader, backend factory, and
@@ -1583,100 +1866,66 @@ class Compiler:
         return canonical_json_bytes(factors)
 
     @staticmethod
-    def _validate_scope_vary_declaration(design: ClaimDesign) -> None:
-        dotted_path = re.compile(
-            r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_-]+)+$"
-        )
-        invalid = [path for path in design.vary if not dotted_path.fullmatch(path)]
-        if invalid:
-            raise CompilationError(
-                f"claim scope {design.scope.value!r} has invalid canonical vary paths: {invalid}"
-            )
-        if design.scope == ClaimScope.conformance:
-            if design.vary:
-                raise CompilationError("conformance scope requires vary=[]")
-            return
-        if design.scope == ClaimScope.whole_harness:
-            forbidden = [path for path in design.vary if not path.startswith("subject.")]
-            if forbidden:
-                raise CompilationError(
-                    "whole_harness scope permits only subject.* vary paths; "
-                    f"forbidden: {forbidden}"
-                )
-        if design.scope == ClaimScope.schedule:
-            forbidden = [
-                path for path in design.vary
-                if path not in Compiler._SCHEDULE_VARY_PATHS
-            ]
-            if forbidden:
-                raise CompilationError(
-                    "schedule scope contains non-schedule vary paths: "
-                    f"{forbidden}"
-                )
-
-    @classmethod
-    def _enforce_scope_diff(
-        cls,
+    def _enforce_registered_factor_diff(
         control: ResolvedBmpManifest,
         treatment: ResolvedBmpManifest,
         resolved_paths: tuple[str, ...],
+        factor: FactorSpec,
     ) -> None:
         if control.claim_design != treatment.claim_design:
             raise CompilationError("claim design must be invariant across comparison arms")
-        design = control.claim_design
-        cls._validate_scope_vary_declaration(design)
-        if design.scope == ClaimScope.conformance:
-            return
         enforce_allowed_diff(
             control,
             treatment,
-            design.vary,
+            factor.resolved_diff_paths,
             resolved_paths=resolved_paths,
         )
-        unused = sorted(set(design.vary) - set(resolved_paths))
+        unused = sorted(set(factor.resolved_diff_paths) - set(resolved_paths))
         if unused:
             raise CompilationError(
-                f"declared vary paths are not activated by any arm: {unused}"
+                f"registered factor paths are not activated by any arm: {unused}"
             )
 
     def _enforce_one_factor(
         self,
-        declaration: Mapping[str, Any],
         runs: list[CompiledRun],
     ) -> None:
         contrast = runs[0].manifest.contrast
         if contrast.mode != "one_factor":
-            for run in runs:
-                self._validate_scope_vary_declaration(run.manifest.claim_design)
-                if run.manifest.claim_design.vary:
-                    raise CompilationError(
-                        "declared vary paths require explicit comparison arms"
-                    )
             return
-        factor_path = contrast.factor_path
-        if factor_path is None:
-            control_arm: str | bytes = contrast.control_id or ""
-            treatment_arm: str | bytes = contrast.treatment_id or ""
-            if not control_arm or not treatment_arm:
-                raise CompilationError(
-                    "one_factor experiment requires control and treatment subject ids"
-                )
-        else:
-            control_arm = canonical_json_bytes(contrast.control_value)
-            treatment_arm = canonical_json_bytes(contrast.treatment_value)
-
+        factor_id = contrast.factor_id
+        control_level = contrast.control_level
+        treatment_level = contrast.treatment_level
+        if factor_id is None or control_level is None or treatment_level is None:
+            raise CompilationError("one_factor contrast is incomplete")
+        artifacts = {
+            artifact.factor.id: artifact
+            for artifact in runs[0].manifest.metadata.factor_artifacts
+        }
+        try:
+            factor = artifacts[factor_id].factor
+        except KeyError as exc:
+            raise CompilationError(
+                f"one_factor factor {factor_id!r} lacks a resolved registry artifact"
+            ) from exc
+        try:
+            control_value = factor.level(control_level).value
+            treatment_value = factor.level(treatment_level).value
+        except ValueError as exc:
+            raise CompilationError(str(exc)) from exc
+        factor_path = factor.selector_path
+        control_arm = canonical_json_bytes(control_value)
+        treatment_arm = canonical_json_bytes(treatment_value)
         expected_arms = {control_arm, treatment_arm}
 
-        def arm_value(run: CompiledRun) -> str | bytes:
-            if factor_path is None:
-                return run.manifest.subject.id
+        def arm_value(run: CompiledRun) -> bytes:
             if factor_path not in run.factor_values:
                 raise CompilationError(
                     f"one_factor contrast factor {factor_path!r} is not activated"
                 )
             return canonical_json_bytes(run.factor_values[factor_path])
 
-        by_pair: dict[bytes, dict[str | bytes, CompiledRun]] = {}
+        by_pair: dict[bytes, dict[bytes, CompiledRun]] = {}
         for run in runs:
             arm = arm_value(run)
             if arm not in expected_arms:
@@ -1687,11 +1936,8 @@ class Compiler:
             factors = {
                 key: value
                 for key, value in run.factor_values.items()
-                if key not in {"order_position", factor_path or "subject"}
+                if key not in {"order_position", factor_path}
             }
-            if factor_path is None:
-                factors.pop("subject", None)
-                factors.pop("experiment.subject", None)
             by_pair.setdefault(canonical_json_bytes(factors), {})[arm] = run
         if not by_pair:
             raise CompilationError("one_factor sweep contains no control/treatment runs")
@@ -1703,7 +1949,12 @@ class Compiler:
             paths = enforce_allowed_diff(
                 control, treatment, control.metadata.allowed_diff
             )
-            self._enforce_scope_diff(control, treatment, paths)
+            self._enforce_registered_factor_diff(
+                control,
+                treatment,
+                paths,
+                factor,
+            )
 
     def compile(
         self,
@@ -1741,59 +1992,76 @@ class Compiler:
                 f"unknown [experiment] fields: {unknown_experiment_keys}"
             )
         contrast = self._parse_contrast(experiment)
-
-        factors = declaration.get("factors")
-        if factors is not None and not isinstance(factors, dict):
-            raise CompilationError("[factors] must be a table")
-        if isinstance(factors, dict) and any(
-            key.startswith("experiment.design.")
-            and isinstance(values, list)
-            and len(values) > 1
-            for key, values in factors.items()
+        raw_factor_ids = experiment.get("factors", ())
+        if not isinstance(raw_factor_ids, (list, tuple)) or any(
+            not isinstance(value, str) or not value
+            for value in raw_factor_ids
         ):
-            raise CompilationError("claim design must be invariant across comparison arms")
-        base = {key: value for key, value in declaration.items() if key != "factors"}
+            raise CompilationError("[experiment].factors must be an array of registry ids")
+        factor_ids = tuple(raw_factor_ids)
+        if len(set(factor_ids)) != len(factor_ids):
+            raise CompilationError("[experiment].factors must contain unique ids")
+        factor_artifacts = tuple(
+            self._factor_artifact(factor_id) for factor_id in factor_ids
+        )
+        selectors = [artifact.factor.selector_path for artifact in factor_artifacts]
+        if len(set(selectors)) != len(selectors):
+            raise CompilationError(
+                "selected factors must have unique selector_path values"
+            )
+        for artifact in factor_artifacts:
+            factor = artifact.factor
+            if factor.value_registry is None:
+                continue
+            for level in factor.levels:
+                assert isinstance(level.value, str)
+                self._lookup(factor.value_registry, level.value)
 
-        # A one-factor contrast may omit a redundant arm axis.  The legacy
-        # subject-id form injects ``subject``; the generic form injects the
-        # declared dotted factor path and binds its values in metadata.
+        factor_artifact_by_id = {
+            artifact.factor.id: artifact for artifact in factor_artifacts
+        }
         if contrast.mode == "one_factor":
-            if contrast.factor_path is None:
-                if not contrast.control_id or not contrast.treatment_id:
-                    raise CompilationError(
-                        "one_factor contrast requires control_id and treatment_id"
-                    )
-                arm_path = "subject"
-                arm_values = [contrast.control_id, contrast.treatment_id]
-                has_arm_axis = isinstance(factors, dict) and any(
-                    key in {"subject", "experiment.subject"} for key in factors
+            if contrast.factor_id not in factor_artifact_by_id:
+                raise CompilationError(
+                    f"one_factor contrast factor {contrast.factor_id!r} is not selected"
                 )
-            else:
-                arm_path = contrast.factor_path
-                arm_values = [contrast.control_value, contrast.treatment_value]
-                has_arm_axis = isinstance(factors, dict) and arm_path in factors
-            if not has_arm_axis:
-                factors = dict(factors or {})
-                factors = {arm_path: arm_values, **factors}
-            else:
-                declared_values = factors[arm_path]
-                normalized_values = (
-                    list(declared_values)
-                    if isinstance(declared_values, list)
-                    else [declared_values]
+            intervention = factor_artifact_by_id[contrast.factor_id].factor
+            try:
+                selected_level_ids = {
+                    contrast.control_level,
+                    contrast.treatment_level,
+                }
+                intervention_levels = tuple(
+                    level
+                    for level in intervention.levels
+                    if level.id in selected_level_ids
                 )
-                if sorted(normalized_values, key=lambda value: str(value)) != sorted(
-                    arm_values, key=lambda value: str(value)
-                ):
-                    raise CompilationError(
-                        f"one_factor contrast factor {arm_path!r} must contain exactly "
-                        "control_value and treatment_value"
-                    )
+            except ValueError as exc:  # pragma: no cover - model already closes shape
+                raise CompilationError(str(exc)) from exc
+            if len(intervention_levels) != 2:
+                raise CompilationError(
+                    "one_factor contrast levels are absent from the factor registry"
+                )
+        else:
+            intervention = None
+            intervention_levels = ()
+
+        factors: dict[str, list[Any]] = {}
+        for artifact in factor_artifacts:
+            factor = artifact.factor
+            levels = (
+                intervention_levels
+                if intervention is not None and factor.id == intervention.id
+                else factor.levels
+            )
+            factors[factor.selector_path] = [level.value for level in levels]
+        base = dict(declaration)
 
         runs = [
             self._compile_expanded(
                 expanded,
                 selected,
+                factor_artifacts,
                 index,
                 base_dir=path.parent,
                 config_files=tuple(config_files),
@@ -1811,7 +2079,7 @@ class Compiler:
                 "claim design must be invariant across every expanded run"
             )
         try:
-            self._enforce_one_factor(declaration, runs)
+            self._enforce_one_factor(runs)
         except IsolationViolation as exc:
             if record_root is not None:
                 self._write_isolation_rejection(
@@ -1835,13 +2103,23 @@ class Compiler:
             violation.forbidden_paths
         )
         purpose = runs[0].manifest.claim_design.purpose
+        comparison_kind = runs[0].manifest.claim_design.comparison_kind
+        subject_kinds = tuple(
+            sorted(
+                {SubjectKind(run.manifest.subject.kind) for run in runs},
+                key=lambda value: value.value,
+            )
+        )
         if purpose == RunPurpose.claim:
+            if comparison_kind is None:  # ClaimDesign already forbids this.
+                raise AssertionError("claim rejection lacks comparison_kind")
             not_executed = GateResult(
                 valid=False, reason="not executed: isolation violation"
             )
             report: Any = ClaimReport(
                 purpose=RunPurpose.claim,
-                subject_kind=SubjectKind(runs[0].manifest.subject.kind),
+                comparison_kind=comparison_kind,
+                subject_kinds=subject_kinds,
                 experiment_id=experiment_id,
                 manifest_digest=sha256_bytes(digest_basis),
                 gates={
@@ -1857,7 +2135,8 @@ class Compiler:
         else:
             report = ObservationReport(
                 purpose=RunPurpose.exploratory,
-                subject_kind=SubjectKind(runs[0].manifest.subject.kind),
+                comparison_kind=comparison_kind,
+                subject_kinds=subject_kinds,
                 experiment_id=experiment_id,
                 manifest_digest=sha256_bytes(digest_basis),
                 isolation_valid=False,

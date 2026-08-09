@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Content-addressed diagnosis of one sampled failure.",
+  "properties": {
+    "attributes": {
+      "additionalProperties": true,
+      "title": "Attributes",
+      "type": "object"
+    },
+    "budget_event_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Budget Event Id",
+      "type": "string"
+    },
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "diagnosis_component_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Diagnosis Component Digest",
+      "type": "string"
+    },
+    "diagnosis_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Diagnosis Id",
+      "type": "string"
+    },
+    "failure_evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "minItems": 1,
+      "title": "Failure Evidence Refs",
+      "type": "array"
+    },
+    "failure_sampling_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Failure Sampling Id",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-evolution-diagnosis-v1",
+      "default": "bmp-evolution-diagnosis-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "prompt_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "result_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "retry_recommended": {
+      "title": "Retry Recommended",
+      "type": "boolean"
+    },
+    "root_cause": {
+      "minLength": 1,
+      "title": "Root Cause",
+      "type": "string"
+    },
+    "sampled_item_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Sampled Item Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "diagnosis_id",
+    "failure_sampling_id",
+    "sampled_item_id",
+    "candidate_id",
+    "diagnosis_component_digest",
+    "prompt_ref",
+    "result_ref",
+    "failure_evidence_refs",
+    "budget_event_id",
+    "root_cause",
+    "retry_recommended"
+  ],
+  "title": "EvolutionDiagnosisReceipt",
+  "type": "object"
+}

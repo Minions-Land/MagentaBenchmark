@@ -1,6 +1,7 @@
 [subject]
 id = "fake.nonfake"
 kind = "opaque_agent"
+comparison_kind = "coding_agent"
 adapter = "fake"
 bmp_version = "0.1"
 source = "../../MagentaBench/conformance/fixtures/fake_benchmark"

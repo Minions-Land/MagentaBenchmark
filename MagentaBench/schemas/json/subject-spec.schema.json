@@ -33,6 +33,14 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -58,7 +66,8 @@
         "id",
         "kind",
         "adapter",
-        "source"
+        "source",
+        "comparison_kind"
       ],
       "title": "AssemblySubjectSpec",
       "type": "object"
@@ -89,6 +98,11 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "const": "evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -121,6 +135,7 @@
         "kind",
         "adapter",
         "source",
+        "comparison_kind",
         "target"
       ],
       "title": "EvolverSubjectSpec",
@@ -208,6 +223,11 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "const": "meta_evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -239,6 +259,7 @@
         "kind",
         "adapter",
         "source",
+        "comparison_kind",
         "target"
       ],
       "title": "MetaEvolverSubjectSpec",
@@ -270,6 +291,14 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -322,6 +351,7 @@
         "kind",
         "adapter",
         "source",
+        "comparison_kind",
         "entrypoint",
         "interface"
       ],

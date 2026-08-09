@@ -85,6 +85,7 @@
       "type": "string"
     },
     "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
       "enum": [
         "pass",
         "verified_fail",

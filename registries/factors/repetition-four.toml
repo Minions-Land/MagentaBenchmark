@@ -1,0 +1,27 @@
+[factor]
+id = "repetition.four"
+kind = "factor"
+adapter = "magentabench.factor"
+bmp_version = "0.1"
+category = "repetition"
+selector_path = "repetition"
+applies_to = []
+resolved_diff_paths = []
+activation_evidence = "none"
+metadata_only = true
+
+[[factor.levels]]
+id = "rep-0"
+value = 0
+
+[[factor.levels]]
+id = "rep-1"
+value = 1
+
+[[factor.levels]]
+id = "rep-2"
+value = 2
+
+[[factor.levels]]
+id = "rep-3"
+value = 3

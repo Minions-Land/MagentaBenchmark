@@ -638,7 +638,7 @@ def test_pipeline_rejects_source_change_after_compilation(tmp_path: Path) -> Non
     pipeline.compiler.compile = compile_then_mutate  # type: ignore[method-assign]
     with pytest.raises(
         AdapterRegistryError,
-        match="source closure differs from compiled benchmark",
+        match="source closure differs from compiled dataset",
     ):
         pipeline.run(experiment)
 

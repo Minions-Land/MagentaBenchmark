@@ -16,7 +16,7 @@ from MagentaBench.runner.adapter_registry import (
     write_immutable_json,
 )
 from MagentaBench.runner.backend.fake import CaseExecution, FakeBackend
-from MagentaBench.runner.compiler import CompiledRun
+from MagentaBench.runner.compiler import CompiledRun, canonical_json_bytes
 from MagentaBench.runner.evidence import (
     artifact_ref,
     atomic_write_json,
@@ -43,7 +43,7 @@ from MagentaBench.schemas import (
     VerifierEvidence,
 )
 from MagentaBench.schemas.evolution import EvolutionEvaluationStage
-from MagentaBench.schemas.compiler import canonical_json
+from MagentaBench.schemas.evolution import EvolutionSelectionPolicy
 
 
 _MODULE_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -74,7 +74,7 @@ class DeterministicEvolutionLoader:
 
     @staticmethod
     def _source(run: CompiledRun) -> Path:
-        source = getattr(run.manifest.benchmark, "source", None)
+        source = run.manifest.dataset.source
         if not source:
             raise AdapterRegistryError("deterministic evolution source is missing")
         root = Path(source).resolve(strict=True)
@@ -85,9 +85,9 @@ class DeterministicEvolutionLoader:
     @classmethod
     def _content_refs(cls, run: CompiledRun) -> tuple[ArtifactRef, ...]:
         source = cls._source(run)
-        benchmark = run.manifest.benchmark
+        dataset = run.manifest.dataset
         paths: set[Path] = set()
-        for pattern in tuple(getattr(benchmark, "content_globs", ())):
+        for pattern in dataset.content_globs:
             matches = tuple(source.glob(pattern))
             if not matches or any(not path.is_file() for path in matches):
                 raise AdapterRegistryError(
@@ -95,13 +95,13 @@ class DeterministicEvolutionLoader:
                 )
             paths.update(path.resolve(strict=True) for path in matches)
         refs = tuple(artifact_ref(path) for path in sorted(paths))
-        if source_closure_digest(source, refs) != benchmark.source_content_digest:
+        if source_closure_digest(source, refs) != dataset.source_content_digest:
             raise AdapterRegistryError("deterministic evolution source closure drift")
         return refs
 
     @classmethod
     def _config_path(cls, run: CompiledRun, key: str) -> Path:
-        config = getattr(run.manifest.benchmark, "config", {})
+        config = run.manifest.dataset.config
         relative = config.get(key)
         if not isinstance(relative, str) or not relative:
             raise AdapterRegistryError(f"deterministic evolution config lacks {key!r}")
@@ -143,7 +143,9 @@ class DeterministicEvolutionLoader:
                 if protocol.case_order == "seeded_random"
                 else None
             ),
-            source_content_digest=run.manifest.benchmark.source_content_digest,
+            dataset_id=run.manifest.dataset.id,
+            dataset_digest=run.manifest.dataset.artifact_digest,
+            source_content_digest=run.manifest.dataset.source_content_digest,
             source_content_refs=source_refs,
             ordered_case_ids=(case.case_id,),
             cases=(case,),
@@ -182,18 +184,16 @@ class DeterministicEvolutionExecutionAdapter:
 
     @staticmethod
     def _evaluator_identity(run: CompiledRun, directory: Path) -> ArtifactRef:
-        benchmark = run.manifest.benchmark
-        identity = benchmark.model_dump(
-            mode="json", exclude={"source", "artifact_digest"}
-        )
+        evaluator = run.manifest.evaluator
+        identity = evaluator.identity_data()
         path = directory / "holdout-evaluator-identity.json"
         _write_immutable(
             path,
-            canonical_json(identity).encode("utf-8"),
+            canonical_json_bytes(identity),
             label="evolution evaluator identity",
         )
         ref = artifact_ref(path)
-        if ref.sha256 != benchmark.artifact_digest:
+        if ref.sha256 != evaluator.artifact_digest:
             raise AdapterRegistryError("evolution evaluator identity digest drift")
         return ref
 
@@ -228,14 +228,22 @@ class DeterministicEvolutionExecutionAdapter:
                 evaluator_ref=holdout_ref,
                 split_manifest_ref=holdout_split_ref,
                 target=None,
-                metric=run.manifest.benchmark.authoritative_reward_metric,
+                metric=run.manifest.evaluator.evaluator.authoritative_metric.source_key,
             )
 
         holdout = make_holdout()
         public_input = Path(case.public_input_ref.path).read_bytes()
-        generation_step = getattr(run.manifest.benchmark, "config", {}).get(
-            "generation_step", 2
-        )
+        configuration = run.manifest.metadata.configuration
+        if configuration is None:
+            raise AdapterRegistryError(
+                "deterministic evolution requires registered configuration"
+            )
+        evolution_config = configuration.values.get("evolution")
+        if not isinstance(evolution_config, Mapping):
+            raise AdapterRegistryError(
+                "deterministic evolution configuration lacks [evolution]"
+            )
+        generation_step = evolution_config.get("generation_step")
         if (
             not isinstance(generation_step, int)
             or isinstance(generation_step, bool)
@@ -252,13 +260,59 @@ class DeterministicEvolutionExecutionAdapter:
         # implements the delegated deterministic strategy methods.
         strategy.adapter_ref = artifact_ref(Path(__file__))
         strategy.digest = self.digest
+        selection_config = evolution_config.get("selection")
+        if not isinstance(selection_config, Mapping):
+            raise AdapterRegistryError(
+                "deterministic evolution configuration lacks [evolution.selection]"
+            )
+        try:
+            selection_policy = EvolutionSelectionPolicy(
+                policy_id=str(selection_config["policy_id"]),
+                selector=str(selection_config["selector"]),
+                metric=search.metric,
+                direction=str(selection_config["direction"]),
+                tie_break_rule=str(selection_config["tie_break_rule"]),
+                child_count_penalty=float(selection_config["child_count_penalty"]),
+                rng_algorithm=str(selection_config.get("rng_algorithm", "none")),
+                rng_seed=(
+                    None
+                    if selection_config.get("rng_seed") is None
+                    else int(selection_config["rng_seed"])
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AdapterRegistryError(
+                "deterministic evolution selection configuration is invalid"
+            ) from exc
         runtime = EvolutionRuntime(evaluator_directory)
         parent_evidence_ref = None
         if run.manifest.subject.kind == "meta_evolver":
             root_budget = run.manifest.execution.budget
-            if root_budget.max_tokens is not None and root_budget.max_tokens < 12:
+            root_minimum_config = evolution_config.get("root_minimum")
+            parent_budget_config = evolution_config.get("parent_budget")
+            root_minimum = (
+                root_minimum_config.get("tokens")
+                if isinstance(root_minimum_config, Mapping)
+                else None
+            )
+            parent_tokens = (
+                parent_budget_config.get("tokens")
+                if isinstance(parent_budget_config, Mapping)
+                else None
+            )
+            if (
+                not isinstance(root_minimum, int)
+                or isinstance(root_minimum, bool)
+                or not isinstance(parent_tokens, int)
+                or isinstance(parent_tokens, bool)
+                or parent_tokens <= 0
+            ):
                 raise AdapterRegistryError(
-                    "deterministic meta-evolution requires 12 root tokens before parent launch"
+                    "deterministic meta-evolution configuration budgets are invalid"
+                )
+            if root_budget.max_tokens is not None and root_budget.max_tokens < root_minimum:
+                raise AdapterRegistryError(
+                    "deterministic meta-evolution root budget is below registered minimum"
                 )
             parent = runtime.execute(
                 run_id=f"{attempt.attempt_id}__parent",
@@ -267,11 +321,12 @@ class DeterministicEvolutionExecutionAdapter:
                 search_evaluator=search,
                 holdout_evaluator=holdout,
                 budget=Budget(
-                    max_tokens=6,
+                    max_tokens=parent_tokens,
                     max_wall_seconds=root_budget.max_wall_seconds,
                     max_cost=(0.0 if root_budget.max_cost is not None else None),
                 ),
                 public_input=public_input,
+                selection_policy=selection_policy,
             )
             parent_evidence_ref = artifact_ref(parent.evidence_path)
             holdout = make_holdout()
@@ -284,6 +339,7 @@ class DeterministicEvolutionExecutionAdapter:
             budget=run.manifest.execution.budget,
             public_input=public_input,
             parent_evidence_ref=parent_evidence_ref,
+            selection_policy=selection_policy,
         )
         selected = next(
             candidate
@@ -326,10 +382,12 @@ class DeterministicEvolutionExecutionAdapter:
             output_refs=selected.artifact_refs,
             log_refs=(artifact_ref(result.runtime_receipt_path),),
             verifier_evidence=VerifierEvidence(
-                verifier=run.manifest.benchmark.verifier,
+                verifier=run.manifest.evaluator.evaluator.implementation,
                 passed=None,
                 score=score,
-                metrics={run.manifest.benchmark.authoritative_reward_metric: score},
+                metrics={
+                    run.manifest.evaluator.evaluator.authoritative_metric.source_key: score
+                },
                 artifact_refs=(artifact_ref(result.evidence_path),),
                 details={"selected_candidate_id": result.evidence.selected_candidate_id},
             ),

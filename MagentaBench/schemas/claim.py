@@ -3,7 +3,7 @@
 from .models import (
     ClaimDesign,
     ClaimReport,
-    ClaimScope,
+    ComparisonKind,
     EffectEstimate,
     GateName,
     GateResult,
@@ -13,13 +13,13 @@ from .models import (
     RunPurpose,
     RunReport,
     RunReportAdapter,
-    SUBJECT_KIND_SCOPE_MATRIX,
+    SUBJECT_KIND_COMPARISON_MATRIX,
 )
 
 __all__ = [
     "ClaimDesign",
     "ClaimReport",
-    "ClaimScope",
+    "ComparisonKind",
     "EffectEstimate",
     "GateName",
     "GateResult",
@@ -29,5 +29,5 @@ __all__ = [
     "RunPurpose",
     "RunReport",
     "RunReportAdapter",
-    "SUBJECT_KIND_SCOPE_MATRIX",
+    "SUBJECT_KIND_COMPARISON_MATRIX",
 ]

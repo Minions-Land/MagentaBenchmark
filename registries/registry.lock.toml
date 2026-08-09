@@ -1,0 +1,472 @@
+[registry]
+format = "magentabench-registry-lock-v1"
+catalog_digest = "a90102566ebbc0b80bfe866c97a952ec5e0ac2476c6de2a7b70f99dbb92caa73"
+
+[[registry.entries]]
+path = "adapters/deterministic-evolution-execution.toml"
+section = "adapter"
+id = "deterministic-evolution.execution"
+sha256 = "e9155bdf5c88b794b71bf6916cd8b805cd672bb3060f5b982e34913316af177b"
+size_bytes = 646
+
+[[registry.entries]]
+path = "adapters/deterministic-evolution-loader.toml"
+section = "adapter"
+id = "deterministic-evolution.loader"
+sha256 = "8d4c66a24049684d0ad89e3921d268b5d967ccbd539c528ecaa601d3a9b2c8d6"
+size_bytes = 370
+
+[[registry.entries]]
+path = "adapters/swebench-loader.toml"
+section = "adapter"
+id = "swebench.loader.v1"
+sha256 = "e34f56dccb2e5c388404e0e8f0285f74210e940e0f2eee90617612911155296f"
+size_bytes = 331
+
+[[registry.entries]]
+path = "adapters/terminal-bench-backend.toml"
+section = "adapter"
+id = "harbor.terminal-bench.factory"
+sha256 = "abfe0836a0c4557b1559cf6b28d62d215038f97669cba8a03af7e48c6ed8e0bc"
+size_bytes = 517
+
+[[registry.entries]]
+path = "adapters/terminal-bench-execution.toml"
+section = "adapter"
+id = "terminal-bench.harbor.execution"
+sha256 = "ba74b7dfc56eda8a8aa15dff03c521f78e8e6d033aa426f7441726321c2787e4"
+size_bytes = 656
+
+[[registry.entries]]
+path = "adapters/terminal-bench-loader.toml"
+section = "adapter"
+id = "terminal-bench.loader"
+sha256 = "a7ce1e6e3aebb8d4f2aa7cbd4cacff4170fbaed4b7c3c07b51b167afb22f0773"
+size_bytes = 374
+
+[[registry.entries]]
+path = "backends/aose-docker-immutable.toml"
+section = "backend"
+id = "aose.docker.immutable"
+sha256 = "50a1c4a52a23f315e57486800b12aba0ecd747405c4b038f208504848621f5bd"
+size_bytes = 260
+
+[[registry.entries]]
+path = "backends/fake-local.toml"
+section = "backend"
+id = "fake.local"
+sha256 = "6da9e19fd7c3b00b787def371370aecd261db2fd75386dca340f0a5c2915173a"
+size_bytes = 80
+
+[[registry.entries]]
+path = "backends/harbor-020-terminal-bench.toml"
+section = "backend"
+id = "harbor.0.20.0.terminal-bench"
+sha256 = "b8cbc83dc50975076079ef57ee9545df0993e3a082f80d17fd226d2be94acea4"
+size_bytes = 304
+
+[[registry.entries]]
+path = "backends/harbor-020.toml"
+section = "backend"
+id = "harbor.0.20.0"
+sha256 = "432e394331e231267dcd9e24b8710ec596c4aa4f370f709791ea0e65b5057596"
+size_bytes = 289
+
+[[registry.entries]]
+path = "backends/harbor-shim.toml"
+section = "backend"
+id = "harbor.local-shim"
+sha256 = "26fe3ad400502154e33c0a3687043fe299d9b13eb375da59e449055614b72b6b"
+size_bytes = 412
+
+[[registry.entries]]
+path = "backends/subprocess-echo.toml"
+section = "backend"
+id = "subprocess.echo"
+sha256 = "cf406e52eb82c76f49aa212e44bf2fa1ddb6bbf811cc6a7fe4ef2216af075dc4"
+size_bytes = 196
+
+[[registry.entries]]
+path = "benchmarks/aosebench-biomnibench-da.toml"
+section = "benchmark"
+id = "aosebench.biomnibench-da.v1"
+sha256 = "fcbc7c376a0af6aa3049fcf20bee57cc3fd106ce6ad280b1aa755d43bf2e6c42"
+size_bytes = 223
+
+[[registry.entries]]
+path = "benchmarks/deterministic-evolution.toml"
+section = "benchmark"
+id = "deterministic-evolution.v1"
+sha256 = "5cd8ebf7d9efd001f86ddde74fedf6d84de79fe3a0b8b9881fa612593167a7ba"
+size_bytes = 118
+
+[[registry.entries]]
+path = "benchmarks/fake-exact.toml"
+section = "benchmark"
+id = "fake.exact.v1"
+sha256 = "60d3d7a73766e172d58a6d878e97709f930a016ea19179b6e1fb78a19bf0a46d"
+size_bytes = 90
+
+[[registry.entries]]
+path = "benchmarks/swebench-lite-local.toml"
+section = "benchmark"
+id = "swebench.lite.local.v1"
+sha256 = "a0a68be650ddf90229da17613db6a97e59e6777d5b9b1dac243724f69d4792e5"
+size_bytes = 99
+
+[[registry.entries]]
+path = "benchmarks/terminal-bench-2-1.toml"
+section = "benchmark"
+id = "terminal-bench-2.1"
+sha256 = "04ab636092c38058cd0aa44846b07787c09a5360b25b0d7425728246a3f3da86"
+size_bytes = 101
+
+[[registry.entries]]
+path = "configurations/deterministic-evolution-v1.toml"
+section = "configuration"
+id = "evolution.deterministic.v1"
+sha256 = "8f5f522e784129c8bc693c962eaf647e7a5b69df59acc991e0593d64ffefba3f"
+size_bytes = 578
+
+[[registry.entries]]
+path = "datasets/aosebench-biomnibench-da.toml"
+section = "dataset"
+id = "dataset.aosebench.biomnibench-da.v1"
+sha256 = "ee153ec91e4cb8c1909316fa98226f1ddcbb1ff58198e969ce612cb87fe356f6"
+size_bytes = 342
+
+[[registry.entries]]
+path = "datasets/deterministic-evolution.toml"
+section = "dataset"
+id = "dataset.deterministic.evolution.v1"
+sha256 = "8e6e4d539075ca7c55c97694865954d1b6a60bb1ffd0adf06d150d83be071d7d"
+size_bytes = 574
+
+[[registry.entries]]
+path = "datasets/fake-exact.toml"
+section = "dataset"
+id = "dataset.fake.exact.v1"
+sha256 = "cabc60ce1cc44e94eac88f50c7e89e9117b8450426b30e72be507acab1a5a36e"
+size_bytes = 308
+
+[[registry.entries]]
+path = "datasets/swebench-lite-local.toml"
+section = "dataset"
+id = "dataset.swebench.lite.local.v1"
+sha256 = "b0c2ee2b9fa8dce4f7c55ab8428266c1e0473d0a420025df2a7242cef44fe5e0"
+size_bytes = 660
+
+[[registry.entries]]
+path = "datasets/terminal-bench-2-1.toml"
+section = "dataset"
+id = "dataset.terminal-bench-2.1"
+sha256 = "fbd0a5703cef4b7c4a93fd3449309d598ac08d002d34e558c58876c1ac5c0112"
+size_bytes = 322
+
+[[registry.entries]]
+path = "evaluators/aosebench-rubric-judge-v1.toml"
+section = "evaluator"
+id = "evaluator.aosebench.rubric-judge.v1"
+sha256 = "bc467b7d2a492f222df0bf800a6ce3327f0f4f823ab783527395b6e463d788a7"
+size_bytes = 291
+
+[[registry.entries]]
+path = "evaluators/deterministic-evolution-holdout-v1.toml"
+section = "evaluator"
+id = "evaluator.deterministic-evolution.holdout.v1"
+sha256 = "429716082adb1dd3c811a203c688ce027d60dec7cf5194725d5150f8a700051f"
+size_bytes = 331
+
+[[registry.entries]]
+path = "evaluators/fake-exact-v1.toml"
+section = "evaluator"
+id = "evaluator.fake.exact.v1"
+sha256 = "8d7d1f78123a3276c549cd2e979a36564d2e81c54cc4a5310f72fe4ad5098377"
+size_bytes = 338
+
+[[registry.entries]]
+path = "evaluators/swebench-fail-to-pass-v1.toml"
+section = "evaluator"
+id = "evaluator.swebench.fail-to-pass.v1"
+sha256 = "b514d9b67d1a6ef502f5dcfdb0a20e7393c3ca5a1f7bb25520462414166533be"
+size_bytes = 361
+
+[[registry.entries]]
+path = "evaluators/terminal-bench-native-v1.toml"
+section = "evaluator"
+id = "evaluator.terminal-bench.native.v1"
+sha256 = "b71fb105b7890587785e5ed313b8cdd6d86bf92db10f38d0f77cc80ee13a429d"
+size_bytes = 354
+
+[[registry.entries]]
+path = "evolvers/deterministic-v1.toml"
+section = "evolver"
+id = "evolver.deterministic.v1"
+sha256 = "1d0d9ebbe7affa7ea4e150f3d6131bfd4ac42aadbe51ea112541aea3eddfc7fd"
+size_bytes = 736
+
+[[registry.entries]]
+path = "factors/conformance-fake-subject-incomplete.toml"
+section = "factor"
+id = "conformance.fake-subject-incomplete"
+sha256 = "8f32d818fab6f15f677c50db88a3803824aff32ef1ac09be008ea66a3b5c9ca0"
+size_bytes = 438
+
+[[registry.entries]]
+path = "factors/conformance-fake-subject.toml"
+section = "factor"
+id = "conformance.fake-subject"
+sha256 = "1790e972fa04fa268eac2e22cf2278ccf11f6b9567a31a08f30a1321c5603ed1"
+size_bytes = 477
+
+[[registry.entries]]
+path = "factors/conformance-fault-mode.toml"
+section = "factor"
+id = "conformance.fault-mode"
+sha256 = "d211c78a58cb55426203b938d1c61b2ea1fcb867bc91fee7543463ada725f25e"
+size_bytes = 820
+
+[[registry.entries]]
+path = "factors/repetition-four.toml"
+section = "factor"
+id = "repetition.four"
+sha256 = "14bb49c95308033821628ec0eaf31106168fd1741b6ed90dd3fe347c645ec6fc"
+size_bytes = 412
+
+[[registry.entries]]
+path = "factors/repetition-two.toml"
+section = "factor"
+id = "repetition.two"
+sha256 = "7d98ba58c7df0637ff722263261defb9f69729d0714f2404020d740e336cf8fc"
+size_bytes = 327
+
+[[registry.entries]]
+path = "meta_evolvers/deterministic-v1.toml"
+section = "meta_evolver"
+id = "meta-evolver.deterministic.v1"
+sha256 = "9ae4d9a2aee324c16fa5fa709562995e14cac6f7e1764a614188e0287c0d0629"
+size_bytes = 818
+
+[[registry.entries]]
+path = "metrics/cache-read-tokens-mean-completed-v1.toml"
+section = "metric"
+id = "cache-read-tokens.mean-completed.v1"
+sha256 = "7ee673b19ca273064e40642c83a1c4c9079a50185052e096db7bd203da310811"
+size_bytes = 631
+
+[[registry.entries]]
+path = "metrics/cache-write-tokens-mean-completed-v1.toml"
+section = "metric"
+id = "cache-write-tokens.mean-completed.v1"
+sha256 = "6d1419dd36a4017237b0f9c189767c8700b7bceec43b9cb10236e13de5aa2c6e"
+size_bytes = 633
+
+[[registry.entries]]
+path = "metrics/cost-mean-completed-v1.toml"
+section = "metric"
+id = "cost.mean-completed.v1"
+sha256 = "297d01ba7bec8e0589a9245e9791e731174d6f3f93113a9a5d79e16cb042592d"
+size_bytes = 604
+
+[[registry.entries]]
+path = "metrics/input-tokens-mean-completed-v1.toml"
+section = "metric"
+id = "input-tokens.mean-completed.v1"
+sha256 = "f5976ecc98599143769e00f8533fa603797639df74d24bcbed74ab13c7a79d20"
+size_bytes = 621
+
+[[registry.entries]]
+path = "metrics/model-calls-mean-completed-v1.toml"
+section = "metric"
+id = "model-calls.mean-completed.v1"
+sha256 = "bd606e4f0b7d44ee9efd1e3106f3e95d504258b3df957de2b63c4d133697de77"
+size_bytes = 622
+
+[[registry.entries]]
+path = "metrics/output-tokens-mean-completed-v1.toml"
+section = "metric"
+id = "output-tokens.mean-completed.v1"
+sha256 = "94a7301752d8df0c97403630312f2129bf8da003015c73a6b50ae1ca0515c80f"
+size_bytes = 623
+
+[[registry.entries]]
+path = "metrics/pass-at-1-infra-zero-v1.toml"
+section = "metric"
+id = "pass-at-1.infra-zero.v1"
+sha256 = "83b692993014e08c2bc762891994351cd89987763277f0be5f62fd1c41063989"
+size_bytes = 599
+
+[[registry.entries]]
+path = "metrics/reward-authoritative-v1.toml"
+section = "metric"
+id = "reward.authoritative.v1"
+sha256 = "61d3f3082beebfc852ec1eafd635f93283c994d9723cd1ed117b1e340106f275"
+size_bytes = 347
+
+[[registry.entries]]
+path = "metrics/successes-per-million-tokens-v1.toml"
+section = "metric"
+id = "successes-per-million-tokens.v1"
+sha256 = "58733a093a99ef41833790cd34859362a24428facd1c08046ee0f63434cbadc5"
+size_bytes = 424
+
+[[registry.entries]]
+path = "metrics/throughput-completed-per-hour-v1.toml"
+section = "metric"
+id = "throughput.completed-per-hour.v1"
+sha256 = "0291eb57014c34546a75b2c82417077c642f905a13d26727a3a71f5fec01bd03"
+size_bytes = 389
+
+[[registry.entries]]
+path = "metrics/tokens-mean-completed-v1.toml"
+section = "metric"
+id = "tokens.mean-completed.v1"
+sha256 = "ba8a21a9a16c35f12983ef6ddb1eb0556a86c6142de7c1f0bc7f5e59acb4b70c"
+size_bytes = 615
+
+[[registry.entries]]
+path = "metrics/tool-calls-mean-completed-v1.toml"
+section = "metric"
+id = "tool-calls.mean-completed.v1"
+sha256 = "4e35b716ed23696da633e1deebe9a74f24509a0ba936ef9c2649675cf844b0ff"
+size_bytes = 620
+
+[[registry.entries]]
+path = "metrics/wall-time-mean-completed-v1.toml"
+section = "metric"
+id = "wall-time.mean-completed.v1"
+sha256 = "65c0b46d76e86627de957cece9ae1aa616baa7ef328b5499565c7b23afc04452"
+size_bytes = 627
+
+[[registry.entries]]
+path = "protocols/aose-zero-cost-dryrun.toml"
+section = "protocol"
+id = "aose.zero-cost-dryrun.v1"
+sha256 = "5c56bd2a6f22d86d7da211e597ef1becf65721f237ff58abd33e1d4f3c4a2b2e"
+size_bytes = 403
+
+[[registry.entries]]
+path = "protocols/benchmark-evaluation.v1.toml"
+section = "protocol"
+id = "benchmark.evaluation.v1"
+sha256 = "fbd761a4577e94febf00364545d7f0866dbd4c4f9136abeb6aff0f4382fdee26"
+size_bytes = 331
+
+[[registry.entries]]
+path = "protocols/deterministic-evolution.v1.toml"
+section = "protocol"
+id = "deterministic-evolution.v1"
+sha256 = "c2499f5fb73efbdcec86b4f180e930fdae57784340a5128e559470fc2ffda56f"
+size_bytes = 331
+
+[[registry.entries]]
+path = "protocols/fake-checkpoint-lineage.toml"
+section = "protocol"
+id = "fake.checkpoint-lineage.v1"
+sha256 = "7a37565d054053be9825507c21a49a2540c3aab1d568a12fd8925b7a6f2c4f52"
+size_bytes = 398
+
+[[registry.entries]]
+path = "protocols/fake-deterministic.toml"
+section = "protocol"
+id = "fake.deterministic.v1"
+sha256 = "5a1304db8dcb565cd31aa79ea6587df9a37675dce28bdb008922ed8d988ec669"
+size_bytes = 397
+
+[[registry.entries]]
+path = "protocols/harbor-shim-conformance.toml"
+section = "protocol"
+id = "harbor.shim-conformance.v1"
+sha256 = "82232305d81f27fc3c87fedf5ca023370ab36ce9e876f36ae2749308bd01e288"
+size_bytes = 404
+
+[[registry.entries]]
+path = "protocols/subprocess-deterministic.toml"
+section = "protocol"
+id = "subprocess.deterministic.v1"
+sha256 = "11b31809131e28e1f715cb8c7d3153e7dd502fe949456eed8e000ee7577d1ed4"
+size_bytes = 417
+
+[[registry.entries]]
+path = "protocols/swebench-single-astropy-6938.toml"
+section = "protocol"
+id = "swebench.single.astropy-6938.v1"
+sha256 = "9bebefff25477de5faa0b73b7ccbdcec5fadd4198f134af7e2c4278c8d2e5b7d"
+size_bytes = 463
+
+[[registry.entries]]
+path = "protocols/terminal-bench-probe.toml"
+section = "protocol"
+id = "terminal-bench.probe.v1"
+sha256 = "167e4a37c2de324c78fea8e1bbff8936d55537f811988093d6c381d71dc363fc"
+size_bytes = 437
+
+[[registry.entries]]
+path = "protocols/terminal-bench-regex-probe.toml"
+section = "protocol"
+id = "terminal-bench.regex-probe.v1"
+sha256 = "79f72dbd12abbbad96e7c355150e9d1bc978a01a4b912f9aadfe245313941cb5"
+size_bytes = 445
+
+[[registry.entries]]
+path = "subjects/aose-dryrun-echo.toml"
+section = "subject"
+id = "aose.dryrun.echo"
+sha256 = "2f7ac58e2b661e3416009f6cd8b75abe6149bc09de644093bff0d120c4486504"
+size_bytes = 534
+
+[[registry.entries]]
+path = "subjects/aose-dryrun-true.toml"
+section = "subject"
+id = "aose.dryrun.true"
+sha256 = "874c96fc2e94956ae7399b7ca222ad435c6e4ae2109f0362f752a3c4f6506576"
+size_bytes = 343
+
+[[registry.entries]]
+path = "subjects/deterministic-local-evolver.toml"
+section = "subject"
+id = "deterministic-local.evolver"
+sha256 = "62d4878a7616810a7522115fe19aad19e141e627ae90456bb52f4a5c3c1ee0e0"
+size_bytes = 220
+
+[[registry.entries]]
+path = "subjects/deterministic-local-meta-evolver.toml"
+section = "subject"
+id = "deterministic-local.meta-evolver"
+sha256 = "b1da5bfeae1d35b3abbe779c81afa737a0a3a251b7152cd574c83fb28be1672a"
+size_bytes = 235
+
+[[registry.entries]]
+path = "subjects/fake-control.toml"
+section = "subject"
+id = "fake.control"
+sha256 = "8ae5a3c12fef71ec95ce40382814aaeb3c6a4919dcba9dd80d93ece6af44a5a8"
+size_bytes = 126
+
+[[registry.entries]]
+path = "subjects/fake-fault.toml"
+section = "subject"
+id = "fake.fault"
+sha256 = "0d639bedf2da527e85f3f6ed3fce3dbd7f84a5a8a9c9f6f2d7e31bfef890a349"
+size_bytes = 123
+
+[[registry.entries]]
+path = "subjects/fake-nonfake.toml"
+section = "subject"
+id = "fake.nonfake"
+sha256 = "9e42c15236fcd1ebdd56e5b3457ed354bfddda2b52dc2c31ab905d758bbf3d97"
+size_bytes = 292
+
+[[registry.entries]]
+path = "subjects/fake-treatment.toml"
+section = "subject"
+id = "fake.treatment"
+sha256 = "3c010824082e6dc6fa7f37a3fa845aad633dce509d5e30c5f48f87a8743a0db7"
+size_bytes = 127
+
+[[registry.entries]]
+path = "subjects/terminal-bench-nop.toml"
+section = "subject"
+id = "terminal-bench.nop"
+sha256 = "47e3533bd32d08360179c4d69c9f1d5c477a0223b12573e3f467246af0a2ab26"
+size_bytes = 276

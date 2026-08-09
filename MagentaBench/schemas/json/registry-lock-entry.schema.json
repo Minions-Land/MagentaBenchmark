@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "description": "One raw TOML declaration in a lock catalog.",
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "path": {
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "section": {
+      "minLength": 1,
+      "title": "Section",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "path",
+    "section",
+    "id",
+    "sha256",
+    "size_bytes"
+  ],
+  "title": "RegistryLockEntry",
+  "type": "object"
+}

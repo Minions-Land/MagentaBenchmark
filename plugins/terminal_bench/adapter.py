@@ -85,7 +85,7 @@ class TerminalBenchLoader:
 
     @staticmethod
     def _source(run: CompiledRun) -> Path:
-        source = getattr(run.manifest.benchmark, "source", None)
+        source = run.manifest.dataset.source
         if not source:
             raise AdapterRegistryError("Terminal-Bench benchmark source is missing")
         root = Path(source).resolve(strict=True)
@@ -95,9 +95,9 @@ class TerminalBenchLoader:
 
     @classmethod
     def _source_refs(cls, run: CompiledRun) -> tuple[ArtifactRef, ...]:
-        benchmark = run.manifest.benchmark
+        source_artifact = run.manifest.dataset
         source = cls._source(run)
-        patterns = tuple(getattr(benchmark, "content_globs", ()))
+        patterns = tuple(getattr(source_artifact, "content_globs", ()))
         if not patterns:
             raise AdapterRegistryError("Terminal-Bench content_globs must be non-empty")
         files: set[Path] = set()
@@ -124,9 +124,9 @@ class TerminalBenchLoader:
             raise AdapterRegistryError("Terminal-Bench content_globs matched no files")
         refs = tuple(artifact_ref(path) for path in sorted(files))
         observed = source_closure_digest(source, refs)
-        if observed != run.manifest.benchmark.source_content_digest:
+        if observed != source_artifact.source_content_digest:
             raise AdapterRegistryError(
-                "Terminal-Bench source closure differs from compiled benchmark"
+                "Terminal-Bench source closure differs from compiled dataset"
             )
         return refs
 
@@ -145,7 +145,11 @@ class TerminalBenchLoader:
         ...,
     ]:
         source = cls._source(run)
-        task_root = source / "tasks"
+        dataset = run.manifest.dataset
+        task_source = dataset.config.get("task_source")
+        if not isinstance(task_source, str) or not task_source:
+            raise AdapterRegistryError("Terminal-Bench dataset task_source is missing")
+        task_root = source / task_source
         if not task_root.is_dir() or task_root.is_symlink():
             raise AdapterRegistryError(f"Terminal-Bench task root is missing: {task_root}")
         tasks: list[
@@ -302,6 +306,8 @@ class TerminalBenchLoader:
         artifact = CaseSetArtifact(
             benchmark_id=run.manifest.benchmark.id,
             benchmark_digest=run.manifest.benchmark.artifact_digest,
+            dataset_id=run.manifest.dataset.id,
+            dataset_digest=run.manifest.dataset.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
             selection_method={
@@ -325,7 +331,7 @@ class TerminalBenchLoader:
                 if run.manifest.execution.protocol.case_order == "custom"
                 else None
             ),
-            source_content_digest=run.manifest.benchmark.source_content_digest,
+            source_content_digest=run.manifest.dataset.source_content_digest,
             source_content_refs=source_refs,
             ordered_case_ids=tuple(case.case_id for case in cases),
             cases=tuple(cases),

@@ -1,0 +1,13 @@
+[dataset]
+id = "dataset.terminal-bench-2.1"
+kind = "dataset"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+source = "../../../terminal-bench-2-1"
+commit = "5c8eadf1f393183288fa08b8f73ca9a469cc5e00"
+content_globs = ["tasks/**/*"]
+format = "terminal-bench-task-suite"
+split = "test"
+
+[dataset.config]
+task_source = "tasks"

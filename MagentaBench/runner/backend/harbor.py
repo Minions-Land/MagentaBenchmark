@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from math import isclose
 import os
 import re
 import shutil
@@ -227,6 +228,9 @@ def _status_from_result(
     *,
     authoritative_reward_key: str | None = None,
     reward_pass_value: float | None = None,
+    reward_success_operator: str = "eq",
+    reward_upper_bound: float | None = None,
+    reward_tolerance: float = 0.0,
 ) -> RunStatus:
     """Map native TrialResult fields, preserving verifier/agent/infra phases."""
 
@@ -267,7 +271,13 @@ def _status_from_result(
             ):
                 return (
                     RunStatus.pass_
-                    if rewards[authoritative_reward_key] == reward_pass_value
+                    if _reward_is_success(
+                        rewards[authoritative_reward_key],
+                        operator=reward_success_operator,
+                        threshold=reward_pass_value,
+                        upper_bound=reward_upper_bound,
+                        tolerance=reward_tolerance,
+                    )
                     else RunStatus.verified_fail
                 )
             return RunStatus.unsupported
@@ -283,6 +293,29 @@ def _status_from_result(
             return RunStatus.no_output
     # Native fields were present but insufficient to classify the trial.
     return RunStatus.invalid_output
+
+
+def _reward_is_success(
+    value: float,
+    *,
+    operator: str,
+    threshold: float,
+    upper_bound: float | None,
+    tolerance: float,
+) -> bool:
+    if operator == "eq":
+        return isclose(value, threshold, rel_tol=0.0, abs_tol=tolerance)
+    if operator == "gte":
+        return value >= threshold - tolerance
+    if operator == "lte":
+        return value <= threshold + tolerance
+    if operator == "gt":
+        return value > threshold - tolerance
+    if operator == "lt":
+        return value < threshold + tolerance
+    if operator == "range" and upper_bound is not None:
+        return threshold - tolerance <= value <= upper_bound + tolerance
+    raise HarborConfigurationError(f"unsupported reward success operator: {operator!r}")
 
 
 def _native_wall_seconds(result: Mapping[str, Any]) -> float | None:
@@ -433,6 +466,9 @@ def parse_harbor_results(
     environment_receipt: EnvironmentReceipt | None = None,
     authoritative_reward_key: str | None = None,
     reward_pass_value: float | None = None,
+    reward_success_operator: str = "eq",
+    reward_upper_bound: float | None = None,
+    reward_tolerance: float = 0.0,
     allow_test_parse: bool = False,
 ) -> tuple[CaseExecution, ...]:
     """Ingest every native trial into immutable, case-owned evidence."""
@@ -496,6 +532,9 @@ def parse_harbor_results(
             result,
             authoritative_reward_key=authoritative_reward_key,
             reward_pass_value=reward_pass_value,
+            reward_success_operator=reward_success_operator,
+            reward_upper_bound=reward_upper_bound,
+            reward_tolerance=reward_tolerance,
         )
         if status in {RunStatus.pass_, RunStatus.verified_fail} and not output_refs:
             if result_ref is not None:
@@ -609,6 +648,9 @@ def parse_harbor_result(
     environment_receipt: EnvironmentReceipt | None = None,
     authoritative_reward_key: str | None = None,
     reward_pass_value: float | None = None,
+    reward_success_operator: str = "eq",
+    reward_upper_bound: float | None = None,
+    reward_tolerance: float = 0.0,
     allow_test_parse: bool = False,
 ) -> CaseExecution:
     return parse_harbor_results(
@@ -622,6 +664,9 @@ def parse_harbor_result(
         environment_receipt=environment_receipt,
         authoritative_reward_key=authoritative_reward_key,
         reward_pass_value=reward_pass_value,
+        reward_success_operator=reward_success_operator,
+        reward_upper_bound=reward_upper_bound,
+        reward_tolerance=reward_tolerance,
         allow_test_parse=allow_test_parse,
     )[0]
 
@@ -828,9 +873,9 @@ class HarborBackend:
         if not resolved.is_dir():
             raise HarborConfigurationError(f"Harbor task path is not a directory: {resolved}")
         allowed_roots: list[Path] = []
-        benchmark_source = getattr(run.manifest.benchmark, "source", None)
-        if benchmark_source:
-            allowed_roots.append(Path(benchmark_source).resolve(strict=True) / "tasks")
+        dataset_source = run.manifest.dataset.source
+        if dataset_source:
+            allowed_roots.append(Path(dataset_source).resolve(strict=True) / "tasks")
         allowed_roots.append(self.run_directory(run) / "staged_tasks")
         if not any(
             resolved == root or root in resolved.parents
@@ -1058,8 +1103,15 @@ class HarborBackend:
             observed_version=observed_version,
             observed_backend_digest=observed_digest,
             environment_receipt=self.environment_receipt,
-            authoritative_reward_key=run.manifest.benchmark.authoritative_reward_metric,
-            reward_pass_value=run.manifest.benchmark.reward_pass_value,
+            authoritative_reward_key=run.manifest.authoritative_reward_metric,
+            reward_pass_value=run.manifest.reward_pass_value,
+            reward_success_operator=(run.manifest.reward_success_operator or "eq"),
+            reward_upper_bound=(
+                run.manifest.authoritative_metric_binding.success_upper_bound
+            ),
+            reward_tolerance=(
+                run.manifest.authoritative_metric_binding.absolute_tolerance
+            ),
             allow_test_parse=self.allow_test_shim,
         )
         updated_cases: list[CaseExecution] = []

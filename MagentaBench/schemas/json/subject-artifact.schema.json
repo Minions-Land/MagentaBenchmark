@@ -73,6 +73,14 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -116,6 +124,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter"
       ],
       "title": "AssemblySubjectArtifact",
@@ -152,6 +161,11 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "const": "evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -190,6 +204,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "target"
       ],
@@ -288,6 +303,11 @@
           "default": null,
           "title": "Commit"
         },
+        "comparison_kind": {
+          "const": "meta_evolution_method",
+          "title": "Comparison Kind",
+          "type": "string"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",
@@ -325,6 +345,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "target"
       ],
@@ -362,6 +383,14 @@
           ],
           "default": null,
           "title": "Commit"
+        },
+        "comparison_kind": {
+          "enum": [
+            "agent",
+            "coding_agent"
+          ],
+          "title": "Comparison Kind",
+          "type": "string"
         },
         "emits_trace": {
           "default": false,
@@ -420,6 +449,7 @@
         "source_content_digest",
         "id",
         "kind",
+        "comparison_kind",
         "adapter",
         "entrypoint",
         "interface"

@@ -28,6 +28,7 @@ from .compiler import canonical_digest
 from .models import (
     ArtifactRef,
     AttemptExecution,
+    BenchmarkSpecAdapter,
     CaseOrderArtifact,
     CaseSetActivationReceipt,
     CaseSetArtifact,
@@ -38,14 +39,21 @@ from .models import (
     ConfigurationCompositionStep,
     ConfigurationSpec,
     CustomCaseOrderSpec,
+    DatasetSpec,
     GateName,
     EvidenceBundle,
+    EvolutionMethodSpec,
     EvolutionRunEvidence,
+    EvaluatorSpec,
+    FactorSpec,
     IntegrationProbeRecord,
     ExternalProtocolAuthorityReceipt,
     ObservationReport,
+    MetricSpec,
+    MetaEvolutionMethodSpec,
     RecordIndex,
     ResolvedBmpManifest,
+    RolloutTrajectory,
     RunReport,
     RunReportAdapter,
     RunPurpose,
@@ -56,6 +64,7 @@ from .models import (
     UsageRecord,
 )
 from .model_activation import replay_model_activation_receipt
+from .metrics import compute_metric_results
 from .statistics import PairedScore, StatisticalAnalysisResult, analyze_paired_scores, benchmark_evaluation_split
 from .evolution import (
     EvolutionEvaluationStage,
@@ -229,6 +238,51 @@ def _verify_bundle_artifacts(
     )
     if bundle.trace_ref is not None:
         refs.append((f"{label}.trace_ref", bundle.trace_ref))
+    trajectory: RolloutTrajectory | None = None
+    if bundle.trajectory_ref is None:
+        mismatches.append(f"{label}.trajectory_ref: missing")
+    else:
+        trajectory_path, trajectory_content = _verify_ref(
+            bundle.trajectory_ref,
+            label=f"{label}.trajectory_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        if trajectory_content is not None:
+            trajectory = _parse_json_model(
+                RolloutTrajectory,
+                trajectory_content,
+                label=f"{label}.trajectory_ref",
+                mismatches=mismatches,
+            )
+        if trajectory is not None:
+            if trajectory.attempt_id != bundle.run_id:
+                mismatches.append(f"{label}.trajectory_ref: attempt identity drift")
+            if trajectory.manifest_digest != bundle.provenance.manifest_digest:
+                mismatches.append(f"{label}.trajectory_ref: manifest digest drift")
+            if trajectory.terminal_status != bundle.status:
+                mismatches.append(f"{label}.trajectory_ref: terminal status drift")
+            if trajectory.usage != bundle.usage:
+                mismatches.append(f"{label}.trajectory_ref: usage drift")
+            trajectory_refs = (
+                *trajectory.input_refs,
+                *trajectory.output_refs,
+                *trajectory.log_refs,
+                *trajectory.native_trace_refs,
+                *trajectory.evaluator_refs,
+                *(
+                    ref
+                    for event in trajectory.events
+                    for ref in (*event.input_refs, *event.output_refs)
+                ),
+            )
+            for index, ref in enumerate(trajectory_refs):
+                _verify_ref(
+                    ref,
+                    label=f"{label}.trajectory_ref.artifacts[{index}]",
+                    path_map=path_map,
+                    mismatches=mismatches,
+                )
     if bundle.checkpoint_ref is not None:
         refs.append((f"{label}.checkpoint_ref", bundle.checkpoint_ref))
     if bundle.network_observation is not None:
@@ -914,6 +968,106 @@ def _configuration_ownership(
     return result
 
 
+def _verify_manifest_measurement_registry(
+    manifest: ResolvedBmpManifest,
+    *,
+    label: str,
+    path_map: Mapping[str, str],
+    mismatches: list[str],
+) -> None:
+    """Rehash and reparse factor/evaluator/metric TOML declarations."""
+
+    entries = [
+        ("benchmark", manifest.benchmark, manifest.benchmark),
+        ("dataset", manifest.dataset, manifest.dataset),
+        *(
+            ("factor", artifact.factor, artifact)
+            for artifact in manifest.metadata.factor_artifacts
+        ),
+        ("evaluator", manifest.evaluator.evaluator, manifest.evaluator),
+        *(("metric", artifact.metric, artifact) for artifact in manifest.metrics),
+        *(
+            ()
+            if manifest.metadata.evolver is None
+            else (("evolver", manifest.metadata.evolver, manifest.metadata.evolver),)
+        ),
+        *(
+            ()
+            if manifest.metadata.meta_evolver is None
+            else (
+                (
+                    "meta_evolver",
+                    manifest.metadata.meta_evolver,
+                    manifest.metadata.meta_evolver,
+                ),
+            )
+        ),
+    ]
+    validators = {
+        "benchmark": BenchmarkSpecAdapter,
+        "dataset": DatasetSpec,
+        "factor": FactorSpec,
+        "evaluator": EvaluatorSpec,
+        "evolver": EvolutionMethodSpec,
+        "metric": MetricSpec,
+        "meta_evolver": MetaEvolutionMethodSpec,
+    }
+    for index, (section, spec, artifact) in enumerate(entries):
+        artifact_label = f"{label}.{section}[{index}]"
+        if artifact.canonical_digest() != artifact.artifact_digest:
+            mismatches.append(f"{artifact_label}: artifact_digest drift")
+        _, content = _verify_ref(
+            artifact.declaration_ref,
+            label=f"{artifact_label}.declaration_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        if content is None:
+            continue
+        try:
+            document = tomllib.loads(content.decode("utf-8"))
+            if set(document) != {section} or not isinstance(
+                document.get(section), Mapping
+            ):
+                raise ValueError(
+                    f"declaration must contain only [{section}]"
+                )
+            validator = validators[section]
+            observed = (
+                validator.validate_python(document[section])
+                if hasattr(validator, "validate_python")
+                else validator.model_validate(document[section])
+            )
+        except (UnicodeDecodeError, ValueError, ValidationError) as exc:
+            mismatches.append(f"{artifact_label}: invalid declaration: {exc}")
+            continue
+        if section == "benchmark":
+            expected = artifact.model_dump(
+                mode="json",
+                exclude={"artifact_digest", "declaration_ref"},
+            )
+            matches = observed.model_dump(mode="json") == expected
+        elif section == "dataset":
+            expected = artifact.model_dump(
+                mode="json",
+                exclude={
+                    "artifact_digest",
+                    "declaration_ref",
+                    "source_content_digest",
+                },
+            )
+            # Registry source paths remain declaration-relative while artifacts
+            # carry their resolved absolute provenance path.
+            expected["source"] = observed.source
+            matches = observed.model_dump(mode="json") == expected
+        elif section in {"evolver", "meta_evolver"}:
+            matches = observed.model_dump(mode="json") == artifact.spec_data()
+        else:
+            matches = observed == spec
+        if not matches:
+            mismatches.append(f"{artifact_label}: declaration/spec drift")
+
+
 def _verify_manifest_configuration(
     manifest: ResolvedBmpManifest,
     *,
@@ -1518,9 +1672,9 @@ def _verify_bundle_provenance(
                         mismatches.append(
                             f"{label}: evolution adapter digest does not match capability"
                         )
-                    if evidence.evaluator_digest != manifest.benchmark.artifact_digest:
+                    if evidence.evaluator_digest != manifest.evaluator.artifact_digest:
                         mismatches.append(
-                            f"{label}: evolution evaluator digest does not match benchmark"
+                            f"{label}: evolution evaluator digest does not match registered evaluator"
                         )
                     if evidence.budget_digest != canonical_digest(
                         manifest.execution.budget
@@ -1741,6 +1895,8 @@ def _verify_case_set_receipt(
     mismatches: list[str],
     expected_benchmark_id: str | None = None,
     expected_benchmark_digest: str | None = None,
+    expected_dataset_id: str | None = None,
+    expected_dataset_digest: str | None = None,
     expected_loader_adapter: str | None = None,
     expected_loader_digest: str | None = None,
     expected_case_order: str | None = None,
@@ -1799,6 +1955,10 @@ def _verify_case_set_receipt(
         and artifact.benchmark_digest != expected_benchmark_digest
     ):
         mismatches.append(f"{label}: benchmark_digest does not match indexed manifest")
+    if artifact.dataset_id != expected_dataset_id:
+        mismatches.append(f"{label}: dataset_id does not match indexed manifest")
+    if artifact.dataset_digest != expected_dataset_digest:
+        mismatches.append(f"{label}: dataset_digest does not match indexed manifest")
     if (
         expected_loader_adapter is not None
         and artifact.loader_adapter != expected_loader_adapter
@@ -1813,6 +1973,10 @@ def _verify_case_set_receipt(
         mismatches.append(f"{label}: loader_adapter does not match artifact")
     if artifact.loader_digest != receipt.loader_digest:
         mismatches.append(f"{label}: loader_digest does not match artifact")
+    if artifact.dataset_id != receipt.dataset_id:
+        mismatches.append(f"{label}: dataset_id does not match artifact")
+    if artifact.dataset_digest != receipt.dataset_digest:
+        mismatches.append(f"{label}: dataset_digest does not match artifact")
     if artifact.ordered_case_ids != receipt.ordered_case_ids:
         mismatches.append(f"{label}: ordered_case_ids do not match artifact")
     expected_selection_method = (
@@ -1881,7 +2045,7 @@ def _verify_case_set_receipt(
         and artifact.source_content_digest != expected_source_content_digest
     ):
         mismatches.append(
-            f"{label}: source_content_digest does not match indexed benchmark"
+            f"{label}: source_content_digest does not match indexed dataset"
         )
 
     content_refs: list[tuple[str, ArtifactRef]] = [
@@ -1996,7 +2160,7 @@ def _verify_schedule_attempt(
             f"{label}: attempt case_id {attempt.case_id!r} is absent from activated case set"
         )
 
-    metric = manifest.benchmark.authoritative_reward_metric
+    metric = manifest.authoritative_reward_metric
     verifier_evidence = bundle.verifier_evidence
     reward_value = (
         None
@@ -2757,40 +2921,55 @@ def _statistical_factor_values(
     return values
 
 
+def _verification_contrast_binding(
+    manifest: ResolvedBmpManifest,
+) -> tuple[str, bytes, bytes] | None:
+    """Resolve a one-factor contrast only from its registered factor artifact."""
+
+    contrast = manifest.contrast
+    if contrast.mode != "one_factor":
+        return None
+    if (
+        contrast.factor_id is None
+        or contrast.control_level is None
+        or contrast.treatment_level is None
+    ):
+        return None
+    matches = [
+        artifact.factor
+        for artifact in manifest.metadata.factor_artifacts
+        if artifact.factor.id == contrast.factor_id
+    ]
+    if len(matches) != 1:
+        return None
+    factor = matches[0]
+    try:
+        control = factor.level(contrast.control_level).value
+        treatment = factor.level(contrast.treatment_level).value
+    except ValueError:
+        return None
+    return factor.selector_path, _canonical_key(control), _canonical_key(treatment)
+
+
 def _verification_arm_key(
     lineage: Any,
     manifest: ResolvedBmpManifest,
     *,
-    factor_path: str | None,
-) -> str | bytes:
-    if factor_path is None:
-        return manifest.subject.id
+    factor_path: str,
+) -> bytes:
     values = manifest.metadata.factors
     if factor_path not in values:
         return b"__missing_factor__"
     return _canonical_key(values[factor_path])
 
 
-def _verification_expected_arms(
-    contrast: Any,
-) -> tuple[str | bytes, str | bytes]:
-    if contrast.factor_path is None:
-        return contrast.control_id, contrast.treatment_id
-    return (
-        _canonical_key(contrast.control_value),
-        _canonical_key(contrast.treatment_value),
-    )
-
-
 def _counterbalance_for_statistical_plan(
     lineage_entries: list[tuple[Any, EvidenceBundle | None]],
     manifest_by_run: Mapping[str, ResolvedBmpManifest],
     *,
-    control_id: str,
-    treatment_id: str,
-    factor_path: str | None = None,
-    control_value: object | None = None,
-    treatment_value: object | None = None,
+    control_key: bytes,
+    treatment_key: bytes,
+    factor_path: str,
 ) -> bool:
     """Check both treatment/control order directions for every outer unit."""
 
@@ -2798,14 +2977,7 @@ def _counterbalance_for_statistical_plan(
         (lineage.run_id, lineage.case_id): index
         for index, (lineage, _) in enumerate(lineage_entries)
     }
-    control_key: str | bytes
-    treatment_key: str | bytes
-    if factor_path is None:
-        control_key, treatment_key = control_id, treatment_id
-    else:
-        control_key = _canonical_key(control_value)
-        treatment_key = _canonical_key(treatment_value)
-    groups: dict[bytes, dict[str | bytes, tuple[Any, ResolvedBmpManifest]]] = {}
+    groups: dict[bytes, dict[bytes, tuple[Any, ResolvedBmpManifest]]] = {}
     outer_keys: dict[bytes, bytes] = {}
     for lineage, _ in lineage_entries:
         manifest = manifest_by_run.get(lineage.run_id)
@@ -2870,7 +3042,7 @@ def _replay_statistical_plan(
             None,
         )
     resolved_manifests = [manifest for manifest in manifests if manifest is not None]
-    metrics = {manifest.benchmark.authoritative_reward_metric for manifest in resolved_manifests}
+    metrics = {manifest.authoritative_reward_metric for manifest in resolved_manifests}
     metric = next(iter(metrics), None) if len(metrics) == 1 else None
     if metric is None:
         errors.append("authoritative reward metric differs across runs")
@@ -2881,34 +3053,16 @@ def _replay_statistical_plan(
     }
     if len(contrast_keys) != 1:
         errors.append("experiment contrast differs across runs")
-        control_id = treatment_id = None
-        factor_path = None
-        control_value = treatment_value = None
+        binding = None
     else:
-        contrast = resolved_manifests[0].contrast
-        if contrast.mode != "one_factor":
+        binding = _verification_contrast_binding(resolved_manifests[0])
+        if binding is None:
             errors.append("StatisticalAnalysisPlan requires a one_factor contrast")
-            control_id = treatment_id = None
-            factor_path = None
-            control_value = treatment_value = None
-        else:
-            control_id = contrast.control_id
-            treatment_id = contrast.treatment_id
-            factor_path = contrast.factor_path
-            control_value = contrast.control_value
-            treatment_value = contrast.treatment_value
+    factor_path = None if binding is None else binding[0]
+    control_key = None if binding is None else binding[1]
+    treatment_key = None if binding is None else binding[2]
     observations: list[PairedScore] = []
-    # A generic factor contrast may intentionally use JSON ``null`` for one
-    # arm.  The model validator guarantees both arm fields were supplied when
-    # ``factor_path`` is present, so branch on the path—not on value
-    # non-nullness—when deciding whether pairing is available.
-    if metric is not None and (
-        factor_path is not None
-        or (factor_path is None and control_id is not None and treatment_id is not None)
-    ):
-        control_key, treatment_key = _verification_expected_arms(
-            resolved_manifests[0].contrast
-        )
+    if metric is not None and binding is not None:
         grouped: dict[
             bytes, dict[str | bytes, tuple[Any, EvidenceBundle, ResolvedBmpManifest]]
         ] = {}
@@ -2981,7 +3135,7 @@ def _replay_statistical_plan(
         metric=metric or "unbound",
         observations=observations,
         evaluation_splits=tuple(
-            benchmark_evaluation_split(manifest.benchmark)
+            benchmark_evaluation_split(manifest.dataset)
             for manifest in resolved_manifests
         ),
         allow_no_holdout=deterministic,
@@ -2993,18 +3147,16 @@ def _replay_statistical_plan(
     counterbalanced = bool(
         (
             factor_path is not None
-            or (factor_path is None and control_id is not None and treatment_id is not None)
+            or binding is not None
         )
         and resolved_manifests
         and resolved_manifests[0].contrast.counterbalanced
         and _counterbalance_for_statistical_plan(
             lineage_entries,
             manifest_by_run,
-            control_id=control_id or "",
-            treatment_id=treatment_id or "",
-            factor_path=factor_path,
-            control_value=control_value,
-            treatment_value=treatment_value,
+            control_key=control_key or b"",
+            treatment_key=treatment_key or b"",
+            factor_path=factor_path or "",
         )
     )
     return result, counterbalanced, metric
@@ -3037,11 +3189,12 @@ def _statistics_are_substantiated(
     }
     if len(contrast_keys) != 1 or len(protocol_keys) != 1 or None in protocol_keys:
         return False
-    contrast = ordered[0][2].contrast
+    binding = _verification_contrast_binding(ordered[0][2])
+    if binding is None:
+        return False
+    factor_path, control_key, treatment_key = binding
     protocol = ordered[0][2].execution.protocol
     assert protocol is not None
-    control_key, treatment_key = _verification_expected_arms(contrast)
-    factor_path = contrast.factor_path
 
     # Keep the lineage next to its manifest.  A multi-case parent run shares
     # one immutable manifest object across all selected cases, so recovering
@@ -3074,7 +3227,7 @@ def _statistics_are_substantiated(
     ):
         return False
 
-    if not protocol.deterministic_conformance or not contrast.counterbalanced:
+    if not protocol.deterministic_conformance or not ordered[0][2].contrast.counterbalanced:
         return False
     positions = {
         (lineage.run_id, lineage.case_id): index
@@ -3327,6 +3480,47 @@ def _verify_report_semantics(
             "report failure_breakdown does not match verified lineage statuses"
         )
 
+    expected_metric_results = []
+    seen_metric_runs: set[str] = set()
+    for lineage, _ in lineage_entries:
+        if lineage.run_id in seen_metric_runs:
+            continue
+        seen_metric_runs.add(lineage.run_id)
+        manifest = manifest_by_run.get(lineage.run_id)
+        schedule = schedules.get(
+            (lineage.run_id, lineage.attempt_id, lineage.case_id)
+        )
+        if manifest is None or schedule is None:
+            mismatches.append(
+                f"{lineage.run_id}: registered metrics lack manifest or schedule"
+            )
+            continue
+        try:
+            resolved_schedule_path = _resolve_path(
+                lineage.schedule_receipt_ref.path,
+                path_map,
+            )
+            expected_metric_results.extend(
+                compute_metric_results(
+                    manifest,
+                    manifest.canonical_digest(),
+                    schedule,
+                    resolved_schedule_path,
+                    schedule_receipt_ref=lineage.schedule_receipt_ref,
+                    resolve_path=lambda value, mapping=path_map: _resolve_path(
+                        value, mapping
+                    ),
+                )
+            )
+        except (OSError, ValueError) as exc:
+            mismatches.append(
+                f"{lineage.run_id}: registered metric replay failed: {exc}"
+            )
+    if tuple(report.metric_results) != tuple(expected_metric_results):
+        mismatches.append(
+            "report metric_results do not match replayed registered metrics"
+        )
+
     if isinstance(report, ClaimReport):
         analysis_plan, plan_errors = _statistical_plan_for_lineage(
             lineage_entries, manifest_by_run
@@ -3383,10 +3577,10 @@ def _verify_report_semantics(
                 lineage.run_id in manifest_by_run
                 and bundle.verifier_evidence is not None
                 and bundle.verifier_evidence.score is not None
-                and manifest_by_run[lineage.run_id].benchmark.authoritative_reward_metric
+                and manifest_by_run[lineage.run_id].authoritative_reward_metric
                 in bundle.verifier_evidence.metrics
                 and bundle.verifier_evidence.metrics[
-                    manifest_by_run[lineage.run_id].benchmark.authoritative_reward_metric
+                    manifest_by_run[lineage.run_id].authoritative_reward_metric
                 ]
                 == bundle.verifier_evidence.score
                 for lineage, bundle in lineage_entries
@@ -3449,7 +3643,7 @@ def _verify_report_semantics(
         score = bundle.verifier_evidence.score
         if score is None:
             continue
-        metric = manifest.benchmark.authoritative_reward_metric
+        metric = manifest.authoritative_reward_metric
         named_score = bundle.verifier_evidence.metrics.get(metric)
         if named_score is None or named_score != score:
             mismatches.append(
@@ -3556,7 +3750,7 @@ def _verify_report_semantics(
     if not isinstance(report, ClaimReport):
         return
     metric_set = {
-        manifest.benchmark.authoritative_reward_metric
+        manifest.authoritative_reward_metric
         for manifest in manifest_by_run.values()
     }
     authoritative_metric = next(iter(metric_set)) if len(metric_set) == 1 else None
@@ -3587,62 +3781,67 @@ def _verify_report_semantics(
         if contrast is None:
             expected_effect = None
         else:
-            control_key, treatment_key = _verification_expected_arms(contrast)
-            factor_path = contrast.factor_path
+            binding = _verification_contrast_binding(first_manifest) if first_manifest else None
+            if binding is None:
+                expected_effect = None
+                binding = None
+            else:
+                factor_path, control_key, treatment_key = binding
             groups: dict[
                 bytes,
                 dict[str | bytes, tuple[tuple[str, str], float]],
             ] = {}
-            for lineage, _, manifest in (
-                (lineage, bundle, manifest_by_run[lineage.run_id])
-                for lineage, bundle in lineage_entries
-            ):
-                factors = {
-                    key: value
-                    for key, value in manifest.metadata.factors.items()
-                    if key
-                    not in {
-                        "subject",
-                        "experiment.subject",
-                        "order_position",
-                        factor_path,
+            if binding is not None:
+                for lineage, _, manifest in (
+                    (lineage, bundle, manifest_by_run[lineage.run_id])
+                    for lineage, bundle in lineage_entries
+                ):
+                    factors = {
+                        key: value
+                        for key, value in manifest.metadata.factors.items()
+                        if key
+                        not in {
+                            "subject",
+                            "experiment.subject",
+                            "order_position",
+                            factor_path,
+                        }
                     }
-                }
-                factors["__case_id"] = lineage.case_id
-                groups.setdefault(_canonical_key(factors), {})[
-                    _verification_arm_key(
-                        lineage,
-                        manifest,
-                        factor_path=factor_path,
+                    factors["__case_id"] = lineage.case_id
+                    groups.setdefault(_canonical_key(factors), {})[
+                        _verification_arm_key(
+                            lineage,
+                            manifest,
+                            factor_path=factor_path,
+                        )
+                    ] = (
+                        (lineage.run_id, lineage.case_id),
+                        scores_by_lineage.get(
+                            (lineage.run_id, lineage.case_id), float("nan")
+                        ),
                     )
-                ] = (
-                    (lineage.run_id, lineage.case_id),
-                    scores_by_lineage.get(
-                        (lineage.run_id, lineage.case_id), float("nan")
-                    ),
+                differences: list[float] = []
+                for pair in groups.values():
+                    if control_key not in pair or treatment_key not in pair:
+                        differences = []
+                        break
+                    control_score = pair[control_key][1]
+                    treatment_score = pair[treatment_key][1]
+                    if control_score != control_score or treatment_score != treatment_score:
+                        differences = []
+                        break
+                    differences.append(treatment_score - control_score)
+                expected_effect = (
+                    None
+                    if not differences
+                    else {
+                        "metric": authoritative_metric,
+                        "point_estimate": mean(differences),
+                        "confidence_interval": (min(differences), max(differences)),
+                        "n_runs": len(lineage_entries),
+                        "n_pairs": len(differences),
+                    }
                 )
-            differences: list[float] = []
-            for pair in groups.values():
-                if control_key not in pair or treatment_key not in pair:
-                    differences = []
-                    break
-                control_score = pair[control_key][1]
-                treatment_score = pair[treatment_key][1]
-                if control_score != control_score or treatment_score != treatment_score:
-                    differences = []
-                    break
-                differences.append(treatment_score - control_score)
-            expected_effect = (
-                None
-                if not differences
-                else {
-                    "metric": authoritative_metric,
-                    "point_estimate": mean(differences),
-                    "confidence_interval": (min(differences), max(differences)),
-                    "n_runs": len(lineage_entries),
-                    "n_pairs": len(differences),
-                }
-            )
     actual_effect = (
         None
         if report.effect is None
@@ -3746,6 +3945,12 @@ def _verify_report(
             path_map=relocation,
             mismatches=mismatches,
         )
+        _verify_manifest_measurement_registry(
+            manifest,
+            label=f"manifest[{position}].registry_artifacts",
+            path_map=relocation,
+            mismatches=mismatches,
+        )
         _verify_manifest_adapter_capabilities(
             manifest,
             label=f"manifest[{position}].adapter_capabilities",
@@ -3758,12 +3963,24 @@ def _verify_report(
             "report manifest_digest mismatch: "
             f"expected {report.manifest_digest}, observed {observed_experiment_digest}"
         )
-    subject_kinds = {manifest.subject.kind for manifest in manifests}
+    comparison_kinds = {
+        manifest.claim_design.comparison_kind for manifest in manifests
+    }
     if manifests and (
-        len(subject_kinds) != 1 or report.subject_kind.value not in subject_kinds
+        len(comparison_kinds) != 1
+        or report.comparison_kind not in comparison_kinds
     ):
         mismatches.append(
-            "report subject_kind does not match indexed resolved manifests"
+            "report comparison_kind does not match indexed resolved manifests"
+        )
+    subject_kinds = tuple(
+        sorted(
+            {manifest.subject.kind for manifest in manifests},
+        )
+    )
+    if manifests and tuple(kind.value for kind in report.subject_kinds) != subject_kinds:
+        mismatches.append(
+            "report subject_kinds do not match indexed resolved manifests"
         )
 
     lineage_keys: set[tuple[str, str, str]] = set()
@@ -3869,6 +4086,12 @@ def _verify_report(
             expected_benchmark_digest=(
                 None if manifest is None else manifest.benchmark.artifact_digest
             ),
+            expected_dataset_id=(
+                None if manifest is None else manifest.dataset.id
+            ),
+            expected_dataset_digest=(
+                None if manifest is None else manifest.dataset.artifact_digest
+            ),
             expected_loader_adapter=(
                 None if manifest is None else manifest.benchmark.adapter
             ),
@@ -3886,7 +4109,7 @@ def _verify_report(
             expected_source_content_digest=(
                 None
                 if manifest is None
-                else manifest.benchmark.source_content_digest
+                else manifest.dataset.source_content_digest
             ),
         )
         case_set_receipts[key] = case_set_receipt

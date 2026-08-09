@@ -5,11 +5,14 @@ from pathlib import Path
 
 import pytest
 
+from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.evidence import artifact_ref, atomic_write_json, sha256_file
 from MagentaBench.runner.gates import evaluate_run_report
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.schemas import (
+    ComparisonKind,
     ObservationReport,
+    RolloutTrajectory,
     RunPurpose,
     ScheduleActivationReceipt,
     TestOverrideReceipt as OverrideReceipt,
@@ -39,10 +42,23 @@ def _rewrite_metric_evidence(
 ):
     manifest = item.plan.manifest
     if authoritative_metric is not None:
-        benchmark = manifest.benchmark.model_copy(
-            update={"authoritative_reward_metric": authoritative_metric}
+        evaluator_spec = manifest.evaluator.evaluator
+        bindings = tuple(
+            binding.model_copy(
+                update={"source_key": authoritative_metric}
+            )
+            if binding.authoritative
+            else binding
+            for binding in evaluator_spec.metrics
         )
-        manifest = manifest.model_copy(update={"benchmark": benchmark})
+        evaluator_spec = evaluator_spec.model_copy(update={"metrics": bindings})
+        evaluator = manifest.evaluator.model_copy(
+            update={"evaluator": evaluator_spec, "artifact_digest": "0" * 64}
+        )
+        evaluator = evaluator.model_copy(
+            update={"artifact_digest": evaluator.canonical_digest()}
+        )
+        manifest = manifest.model_copy(update={"evaluator": evaluator})
     plan = replace(item.plan, manifest=manifest)
 
     evidence = item.case.bundle.verifier_evidence
@@ -59,6 +75,41 @@ def _rewrite_metric_evidence(
     bundle = item.case.bundle.model_copy(
         update={"verifier_evidence": evidence, "provenance": provenance}
     )
+
+    # A manifest/evaluator mutation changes the trajectory identity too. Keep
+    # the persisted rollout evidence closed so the exploratory gate exercises
+    # the intended evaluator binding rather than reporting unrelated lineage
+    # drift.
+    if bundle.trajectory_ref is not None:
+        trajectory_path = Path(bundle.trajectory_ref.path)
+        trajectory = RolloutTrajectory.model_validate_json(
+            trajectory_path.read_bytes()
+        )
+        events = tuple(
+            event.model_copy(
+                update={
+                    "details": {
+                        **dict(event.details),
+                        "metrics": dict(evidence.metrics),
+                        "score": evidence.score,
+                    }
+                }
+            )
+            if event.kind.value == "evaluator_response"
+            else event
+            for event in trajectory.events
+        )
+        trajectory = trajectory.model_copy(
+            update={
+                "manifest_digest": plan.manifest_digest,
+                "evaluator_digest": plan.manifest.evaluator.artifact_digest,
+                "provenance": provenance,
+                "verifier_evidence": evidence,
+                "events": events,
+            }
+        )
+        atomic_write_json(trajectory_path, trajectory)
+        bundle = bundle.model_copy(update={"trajectory_ref": artifact_ref(trajectory_path)})
     atomic_write_json(item.case.bundle_path, bundle)
     bundle_ref = artifact_ref(item.case.bundle_path)
     case = replace(
@@ -67,7 +118,7 @@ def _rewrite_metric_evidence(
         bundle_digest=sha256_file(item.case.bundle_path),
     )
 
-    metric = plan.manifest.benchmark.authoritative_reward_metric
+    metric = plan.manifest.evaluator.evaluator.authoritative_metric.source_key
     attempts = tuple(
         attempt.model_copy(
             update={
@@ -317,6 +368,7 @@ def test_claim_report_identity_and_contrast_accept_no_caller_overrides(
     tmp_path: Path,
 ) -> None:
     pipeline_result = Pipeline(ROOT, tmp_path).run(EXPERIMENT)
+    registered_subject = Compiler(ROOT)._subject_artifact("fake.nonfake")
     completed = tuple(
         replace(
             item,
@@ -325,8 +377,13 @@ def test_claim_report_identity_and_contrast_accept_no_caller_overrides(
                 manifest=item.plan.manifest.model_copy(
                     update={
                         "claim_design": item.plan.manifest.claim_design.model_copy(
-                            update={"purpose": RunPurpose.claim}
-                        )
+                            update={
+                                "comparison_kind": ComparisonKind.coding_agent,
+                                "purpose": RunPurpose.claim,
+                                "intervention_factor_id": "conformance.fake-subject",
+                            }
+                        ),
+                        "subject": registered_subject,
                     }
                 ),
             ),

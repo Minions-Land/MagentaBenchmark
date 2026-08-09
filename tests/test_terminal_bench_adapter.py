@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from dataclasses import replace
 
 import pytest
@@ -147,6 +146,7 @@ def test_harbor_task_path_and_execution_identity_fail_closed(tmp_path: Path) -> 
 
 
 def test_terminal_bench_network_fields_are_strict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run = _compiled()
     source = tmp_path / "bench"
     task = source / "tasks" / "demo"
     task.mkdir(parents=True)
@@ -161,10 +161,10 @@ def test_terminal_bench_network_fields_are_strict(tmp_path: Path, monkeypatch: p
     )
     monkeypatch.setattr(TerminalBenchLoader, "_source", staticmethod(lambda run: source))
     with pytest.raises(AdapterRegistryError, match="allow_internet must be boolean"):
-        TerminalBenchLoader._tasks(SimpleNamespace())
+        TerminalBenchLoader._tasks(run)
     (task / "task.toml").write_text(
         "[task]\nname='terminal-bench/demo'\n\n[environment]\nnetwork_mode='unknown'\n",
         encoding="utf-8",
     )
     with pytest.raises(AdapterRegistryError, match="unsupported.*network_mode"):
-        TerminalBenchLoader._tasks(SimpleNamespace())
+        TerminalBenchLoader._tasks(run)

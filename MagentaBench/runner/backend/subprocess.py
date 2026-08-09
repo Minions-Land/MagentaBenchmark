@@ -220,7 +220,7 @@ class SubprocessBackend:
                 "allow_test_override=true"
             )
         if has_test_override and (
-            run.manifest.claim_design.scope.value != "conformance"
+            run.manifest.claim_design.comparison_kind is not None
             or run.manifest.claim_design.purpose.value != "exploratory"
         ):
             raise SubprocessConfigurationError(

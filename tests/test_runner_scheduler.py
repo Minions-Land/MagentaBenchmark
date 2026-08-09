@@ -87,6 +87,44 @@ def test_scheduler_retains_three_rollouts_and_ordered_reservations(tmp_path: Pat
     assert len(result.selected) == 1
 
 
+def test_best_of_n_all_failures_keeps_a_reportable_lineage(tmp_path: Path) -> None:
+    run = _scheduled_run(
+        rollouts_per_case=2,
+        parallelism=2,
+        candidate_selection="best_of_n",
+    )
+    manifest = run.manifest.model_copy(
+        update={
+            "subject": run.manifest.subject.model_copy(
+                update={"fault_mode": "infra_error"}
+            )
+        }
+    )
+    run = replace(run, manifest=manifest)
+    backend = FakeBackend(tmp_path / "records")
+    task = backend._load_task(run)
+
+    def attempt_runner(attempt):
+        return backend.execute(
+            run,
+            task,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+        )
+
+    result = _execute(tmp_path, run, [task], attempt_runner, backend)
+
+    assert len(result.receipt.attempts) == 2
+    assert all(item.status.value == "infra_error" for item in result.receipt.attempts)
+    assert sum(item.selected for item in result.receipt.attempts) == 1
+    assert result.receipt.attempts[0].selection_reason == (
+        "best_of_n_unscored_fallback"
+    )
+    assert result.receipt.schedule_valid is False
+    assert "best_of_n requires benchmark reward evidence" in result.receipt.mismatch_reasons
+    assert len(result.selected) == 1
+
+
 def test_observed_concurrency_measures_real_overlap(tmp_path: Path) -> None:
     run = _scheduled_run(
         rollouts_per_case=4,

@@ -1,0 +1,30 @@
+[evolver]
+id = "evolver.deterministic.v1"
+kind = "evolver"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+comparison_kind = "evolution_method"
+subject_adapter = "deterministic-local"
+target = "harness"
+configuration_profile_id = "evolution.deterministic.v1"
+selection_configuration_path = "evolution.selection"
+
+[evolver.selection]
+policy_id = "selection.deterministic-extreme.v1"
+selector = "extreme"
+metric_id = "reward.authoritative.v1"
+direction = "maximize"
+tie_break_rule = "prefer_revised_then_lexicographic"
+child_count_penalty = 0.0
+rng_algorithm = "none"
+
+[evolver.surface]
+editable_paths = ["candidate"]
+protected_paths = [
+  "dataset",
+  "evaluator",
+  "execution",
+  "metrics",
+  "schedule",
+  "sealed_holdout",
+]

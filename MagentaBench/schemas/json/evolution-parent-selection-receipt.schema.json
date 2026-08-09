@@ -1,0 +1,219 @@
+{
+  "$defs": {
+    "EvolutionSelectionCandidate": {
+      "additionalProperties": false,
+      "description": "One member of the complete parent-selection population.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "child_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "eligible": {
+          "title": "Eligible",
+          "type": "boolean"
+        },
+        "probability": {
+          "default": 0.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Probability",
+          "type": "number"
+        },
+        "raw_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Score"
+        },
+        "transformed_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transformed Score"
+        },
+        "weight": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "eligible"
+      ],
+      "title": "EvolutionSelectionCandidate",
+      "type": "object"
+    },
+    "EvolutionSelectionPolicy": {
+      "additionalProperties": false,
+      "description": "Explicit, replayable policy for choosing a parent/candidate.\n\nThe runtime must receive this object from the experiment configuration (or\nuse the documented deterministic default).  Keeping the selector identity,\ndirection, tie break, and RNG state in the receipt prevents a later\nimplementation change from silently changing which candidate was chosen.",
+      "properties": {
+        "child_count_penalty": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Child Count Penalty",
+          "type": "number"
+        },
+        "direction": {
+          "enum": [
+            "maximize",
+            "minimize"
+          ],
+          "title": "Direction",
+          "type": "string"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "policy_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng Algorithm",
+          "type": "string"
+        },
+        "rng_seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Seed"
+        },
+        "rng_state_after": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State After",
+          "type": "string"
+        },
+        "rng_state_before": {
+          "default": "none",
+          "minLength": 1,
+          "title": "Rng State Before",
+          "type": "string"
+        },
+        "selector": {
+          "enum": [
+            "extreme",
+            "weighted"
+          ],
+          "title": "Selector",
+          "type": "string"
+        },
+        "tie_break_rule": {
+          "minLength": 1,
+          "title": "Tie Break Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id",
+        "selector",
+        "metric",
+        "direction",
+        "tie_break_rule"
+      ],
+      "title": "EvolutionSelectionPolicy",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Standalone receipt for the parent/candidate selection decision.",
+  "properties": {
+    "candidate_set": {
+      "items": {
+        "$ref": "#/$defs/EvolutionSelectionCandidate"
+      },
+      "minItems": 1,
+      "title": "Candidate Set",
+      "type": "array"
+    },
+    "candidate_set_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Set Digest",
+      "type": "string"
+    },
+    "fallback_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fallback Reason"
+    },
+    "format": {
+      "const": "bmp-evolution-parent-selection-v1",
+      "default": "bmp-evolution-parent-selection-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "policy": {
+      "$ref": "#/$defs/EvolutionSelectionPolicy"
+    },
+    "selected_candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selected Candidate Id",
+      "type": "string"
+    },
+    "selection_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selection Id",
+      "type": "string"
+    },
+    "transition_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Transition Id",
+      "type": "string"
+    },
+    "transition_sequence": {
+      "minimum": 0,
+      "title": "Transition Sequence",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "selection_id",
+    "transition_id",
+    "transition_sequence",
+    "policy",
+    "candidate_set",
+    "candidate_set_digest",
+    "selected_candidate_id"
+  ],
+  "title": "EvolutionParentSelectionReceipt",
+  "type": "object"
+}

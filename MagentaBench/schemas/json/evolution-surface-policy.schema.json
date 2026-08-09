@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "description": "Explicit mutation boundary for evolution and meta-evolution.\n\nPaths use a semantic namespace rather than host filesystem paths. A change\nis authorized only when it is under an editable root and under no protected\nroot. Evaluation authority is always protected so a method cannot improve\nits own score by rewriting the measurement contract.",
+  "properties": {
+    "editable_paths": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Editable Paths",
+      "type": "array"
+    },
+    "protected_paths": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Protected Paths",
+      "type": "array"
+    }
+  },
+  "required": [
+    "editable_paths",
+    "protected_paths"
+  ],
+  "title": "EvolutionSurfacePolicy",
+  "type": "object"
+}

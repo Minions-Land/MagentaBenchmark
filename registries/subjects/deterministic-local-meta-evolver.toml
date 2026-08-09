@@ -1,6 +1,7 @@
 [subject]
 id = "deterministic-local.meta-evolver"
 kind = "meta_evolver"
+comparison_kind = "meta_evolution_method"
 adapter = "deterministic-local"
 bmp_version = "0.1"
 source = "../../MagentaBench"

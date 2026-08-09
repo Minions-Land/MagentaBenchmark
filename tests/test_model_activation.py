@@ -21,8 +21,12 @@ from MagentaBench.schemas import (
     EvidenceBundle,
     ProviderBinding,
     ProvenanceRecord,
+    RolloutTrajectory,
     RunPurpose,
     RunStatus,
+    TrajectoryCapture,
+    TrajectoryCaptureState,
+    TrajectoryEvent,
     UsageRecord,
     verify_observation_report,
 )
@@ -438,11 +442,61 @@ def test_standalone_verifier_replays_model_binding_source_and_evidence(
         backend_kind="fake",
         model_activation=receipt,
     )
+    usage = UsageRecord()
+    trajectory = RolloutTrajectory(
+        parent_run_id="run-0",
+        attempt_id="attempt-0",
+        case_id="case-0",
+        attempt_index=0,
+        manifest_digest=manifest.canonical_digest(),
+        evaluator_digest=manifest.evaluator.artifact_digest,
+        metric_digests=tuple(
+            metric.artifact_digest for metric in manifest.metrics
+        ),
+        started_at="2026-01-01T00:00:00Z",
+        finished_at="2026-01-01T00:00:00Z",
+        elapsed_seconds=0.0,
+        terminal_status=RunStatus.unsupported,
+        input_refs=(artifact_ref(native),),
+        provenance=provenance,
+        usage=usage,
+        capture=TrajectoryCapture(
+            model_io=TrajectoryCaptureState.not_applicable,
+            tool_io=TrajectoryCaptureState.not_applicable,
+            process_io=TrajectoryCaptureState.not_applicable,
+            evaluator_io=TrajectoryCaptureState.not_applicable,
+            environment=TrajectoryCaptureState.unavailable,
+            resource_usage=TrajectoryCaptureState.unavailable,
+            reasons={
+                "environment": "synthetic verifier fixture",
+                "resource_usage": "native usage was not emitted",
+            },
+        ),
+        events=(
+            TrajectoryEvent(
+                event_id="event-1",
+                sequence=1,
+                kind="rollout_started",
+                occurred_at="2026-01-01T00:00:00Z",
+            ),
+            TrajectoryEvent(
+                event_id="event-2",
+                parent_event_id="event-1",
+                sequence=2,
+                kind="rollout_finished",
+                occurred_at="2026-01-01T00:00:00Z",
+                status=RunStatus.unsupported,
+            ),
+        ),
+    )
+    trajectory_path = tmp_path / "trajectory.json"
+    atomic_write_json(trajectory_path, trajectory)
     bundle = EvidenceBundle(
         run_id="attempt-0",
         status=RunStatus.unsupported,
-        usage=None,
+        usage=usage,
         provenance=provenance,
+        trajectory_ref=artifact_ref(trajectory_path),
     )
     mismatches: list[str] = []
     _verify_bundle_artifacts(
@@ -567,6 +621,9 @@ def test_real_model_reaches_exploratory_pipeline_with_native_receipt(
         "registries/adapters",
         "registries/backends",
         "registries/benchmarks",
+        "registries/datasets",
+        "registries/evaluators",
+        "registries/metrics",
         "registries/protocols",
         "registries/subjects",
         "plugins",
@@ -576,6 +633,18 @@ def test_real_model_reaches_exploratory_pipeline_with_native_receipt(
     shutil.copy2(
         ROOT / "registries/benchmarks/fake-exact.toml",
         project / "registries/benchmarks/fake-exact.toml",
+    )
+    shutil.copy2(
+        ROOT / "registries/datasets/fake-exact.toml",
+        project / "registries/datasets/fake-exact.toml",
+    )
+    shutil.copy2(
+        ROOT / "registries/evaluators/fake-exact-v1.toml",
+        project / "registries/evaluators/fake-exact-v1.toml",
+    )
+    shutil.copy2(
+        ROOT / "registries/metrics/reward-authoritative-v1.toml",
+        project / "registries/metrics/reward-authoritative-v1.toml",
     )
     shutil.copy2(
         ROOT / "registries/subjects/fake-nonfake.toml",
@@ -713,13 +782,15 @@ supported_state_reset_policies = ["per_case"]
         '''[experiment]
 id = "real-model-exploratory"
 benchmark = "fake.exact.v1"
+dataset = "dataset.fake.exact.v1"
+evaluator = "evaluator.fake.exact.v1"
+metrics = ["reward.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "benchmark.evaluation.v1"
 
 [experiment.design]
-scope = "model"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "provider.runtime.v1"

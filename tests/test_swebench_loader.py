@@ -17,32 +17,26 @@ from MagentaBench.runner.compiler import CompilationError, Compiler
 ROOT = Path(__file__).parents[1]
 
 
-def _compiled_loader_run(tmp_path: Path):
-    experiment = tmp_path / "swebench-loader.toml"
-    experiment.write_text(
-        """[experiment]
-id = "swebench-loader-conformance"
-benchmark = "swebench.lite.local.v1"
-subject = "fake.control"
-protocol = "swebench.single.astropy-6938.v1"
-
-[experiment.design]
-scope = "conformance"
-purpose = "exploratory"
-vary = []
-
-[execution]
-backend = "subprocess.echo"
-model = "none/echo"
-
-[execution.budget]
-max_tokens = 0
-max_wall_seconds = 1.0
-max_cost = 0.0
-""",
-        encoding="utf-8",
+def _compiled_loader_run():
+    compiler = Compiler(ROOT)
+    base = compiler.compile(
+        ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
+    )[0]
+    protocol = compiler._resolved_protocol("swebench.single.astropy-6938.v1")
+    manifest = base.manifest.model_copy(
+        update={
+            "benchmark": compiler._benchmark_artifact("swebench.lite.local.v1"),
+            "dataset": compiler._dataset_artifact("dataset.swebench.lite.local.v1"),
+            "evaluator": compiler._evaluator_artifact(
+                "evaluator.swebench.fail-to-pass.v1"
+            ),
+            "metrics": (compiler._metric_artifact("reward.authoritative.v1"),),
+            "execution": base.manifest.execution.model_copy(
+                update={"protocol": protocol}
+            ),
+        }
     )
-    return Compiler(ROOT, allow_test_override=True).compile(experiment)[0]
+    return replace(base, manifest=manifest)
 
 
 def _loader(run):
@@ -73,7 +67,7 @@ def test_swebench_loader_capability_is_source_closed() -> None:
 def test_swebench_loader_activates_one_explicit_case_without_oracle(
     tmp_path: Path,
 ) -> None:
-    run = _compiled_loader_run(tmp_path)
+    run = _compiled_loader_run()
     loader = _loader(run)
     resolved = loader.resolve(run, tmp_path / "case-sets")
     verify_resolved_case_set(
@@ -110,7 +104,7 @@ def test_swebench_loader_activates_one_explicit_case_without_oracle(
 
 
 def test_swebench_contract_byte_drift_is_rejected(tmp_path: Path) -> None:
-    run = _compiled_loader_run(tmp_path)
+    run = _compiled_loader_run()
     loader = _loader(run)
     resolved = loader.resolve(run, tmp_path / "case-sets")
     public_path = Path(resolved.artifact.cases[0].public_input_ref.path)
@@ -128,7 +122,7 @@ def test_swebench_contract_byte_drift_is_rejected(tmp_path: Path) -> None:
 
 
 def test_swebench_loader_rejects_missing_explicit_case(tmp_path: Path) -> None:
-    run = _compiled_loader_run(tmp_path)
+    run = _compiled_loader_run()
     protocol = run.manifest.execution.protocol
     assert protocol is not None
     mutated_protocol = protocol.model_copy(
@@ -150,14 +144,14 @@ def test_swebench_loader_rejects_missing_explicit_case(tmp_path: Path) -> None:
 
 
 def test_swebench_loader_rejects_unpinned_image(tmp_path: Path) -> None:
-    run = _compiled_loader_run(tmp_path)
-    benchmark = run.manifest.benchmark
-    config = dict(benchmark.config)
+    run = _compiled_loader_run()
+    dataset = run.manifest.dataset
+    config = dict(dataset.config)
     config["image_digests"] = {}
-    mutated_benchmark = benchmark.model_copy(update={"config": config})
+    mutated_dataset = dataset.model_copy(update={"config": config})
     mutated = replace(
         run,
-        manifest=run.manifest.model_copy(update={"benchmark": mutated_benchmark}),
+        manifest=run.manifest.model_copy(update={"dataset": mutated_dataset}),
     )
 
     with pytest.raises(AdapterRegistryError, match="lacks an immutable image digest"):
@@ -172,13 +166,15 @@ def test_swebench_production_compile_fails_closed_without_execution_capability(
         """[experiment]
 id = "swebench-production-guard"
 benchmark = "swebench.lite.local.v1"
-subject = "fake.control"
+dataset = "dataset.swebench.lite.local.v1"
+evaluator = "evaluator.swebench.fail-to-pass.v1"
+metrics = ["reward.authoritative.v1"]
+subject = "fake.nonfake"
 protocol = "swebench.single.astropy-6938.v1"
 
 [experiment.design]
-scope = "conformance"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -194,5 +190,8 @@ max_cost = 0.0
 
     compiler = Compiler(ROOT)
     assert compiler._adapter_capability_artifact("swebench", "execution") is None
-    with pytest.raises(CompilationError, match="PipelineAdapterActivationReceipt"):
+    with pytest.raises(
+        CompilationError,
+        match=r"missing required adapter capabilities: .*swebench.*execution",
+    ):
         compiler.compile(experiment)

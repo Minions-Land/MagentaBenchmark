@@ -14,18 +14,25 @@ from typing import Any, Iterable, Mapping, Sequence
 from pydantic import BaseModel
 
 from .models import (
+    ArtifactRef,
     BackendSpec,
     BenchmarkArtifact,
     BenchmarkArtifactAdapter,
     BenchmarkSpec,
     BenchmarkSpecAdapter,
+    DatasetSpec,
+    DatasetArtifact,
     ConfigurationSelection,
     ConfigurationSpec,
     Budget,
     ClaimReport,
     EvidenceBundle,
+    EvolutionMethodSpec,
     EvolutionRunEvidence,
     ExecutionSpec,
+    EvaluatorSpec,
+    MetricSpec,
+    MetaEvolutionMethodSpec,
     ProtocolSpec,
     ResolvedBmpManifest,
     ResolvedExecutionSpec,
@@ -76,22 +83,11 @@ _GIT_COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
 
 
 def _declared_content_patterns(
-    spec: BenchmarkSpec | SubjectSpec,
+    spec: SubjectSpec | DatasetSpec,
 ) -> tuple[str, ...]:
     """Return required globs for the adapter-owned content closure."""
 
-    if spec.kind == "task_suite":
-        return (spec.task_manifest,)
-    if spec.kind == "tool_agent_suite":
-        root = spec.task_root.rstrip("/")
-        return (
-            f"{root}/*/task.toml",
-            f"{root}/*/instruction.md",
-            f"{root}/*/tests/rubric.txt",
-            f"{root}/*/tests/llm_judge.py",
-            f"{root}/*/tests/test.sh",
-        )
-    if spec.kind == "custom":
+    if spec.kind == "dataset":
         return tuple(spec.content_globs)
     # Programmatic subjects are identified by their declared fields and launch
     # argv. No undeclared source-tree walk is permitted.
@@ -203,7 +199,11 @@ def _source_content_digest(
         allow_nan=False,
         separators=(",", ":"),
     )
-    return normalized_commit, hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    # Preserve opaque release labels as part of the resolved identity.  Only
+    # Git-shaped values participate in checkout/dirty-tree validation above;
+    # dropping non-Git labels would let a registry version drift without
+    # changing the artifact digest or surviving declaration replay.
+    return declared_commit, hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _resolve_existing_source(source: str, *, base_dir: Path | None = None) -> str:
@@ -217,12 +217,40 @@ def _resolve_existing_source(source: str, *, base_dir: Path | None = None) -> st
 def _compile_benchmark_artifact(
     spec: BenchmarkSpec,
     *,
-    base_dir: Path | None = None,
+    declaration_path: Path,
 ) -> BenchmarkArtifact:
-    """Normalize and digest a hand-written benchmark declaration."""
+    """Bind a benchmark contract to its TOML declaration bytes.
+
+    Dataset content is intentionally absent here and is resolved only through
+    ``DatasetArtifact``.
+    """
 
     payload = spec.model_dump(mode="json")
-    source = Path(_resolve_existing_source(spec.source, base_dir=base_dir))
+    declaration_path = declaration_path.resolve(strict=True)
+    declaration_bytes = declaration_path.read_bytes()
+    payload["declaration_ref"] = ArtifactRef(
+        path=str(declaration_path),
+        sha256=hashlib.sha256(declaration_bytes).hexdigest(),
+        size_bytes=len(declaration_bytes),
+    )
+    payload["artifact_digest"] = "0" * 64
+    provisional = BenchmarkArtifactAdapter.validate_python(payload)
+    payload["artifact_digest"] = provisional.canonical_digest()
+    return BenchmarkArtifactAdapter.validate_python(payload)
+
+
+def _compile_dataset_artifact(
+    spec: DatasetSpec,
+    *,
+    declaration_path: Path,
+) -> DatasetArtifact:
+    """Normalize and digest a hand-written dataset declaration."""
+
+    payload = spec.model_dump(mode="json")
+    declaration_path = declaration_path.resolve(strict=True)
+    source = Path(
+        _resolve_existing_source(spec.source, base_dir=declaration_path.parent)
+    )
     commit, content_digest = _source_content_digest(
         source,
         patterns=_declared_content_patterns(spec),
@@ -232,13 +260,16 @@ def _compile_benchmark_artifact(
     payload["source"] = str(source)
     payload["commit"] = commit
     payload["source_content_digest"] = content_digest
-    payload["artifact_digest"] = "0" * 64
-    provisional = BenchmarkArtifactAdapter.validate_python(payload)
-    identity = provisional.model_dump(
-        mode="json", exclude={"artifact_digest", "source"}
+    declaration_bytes = declaration_path.read_bytes()
+    payload["declaration_ref"] = ArtifactRef(
+        path=str(declaration_path),
+        sha256=hashlib.sha256(declaration_bytes).hexdigest(),
+        size_bytes=len(declaration_bytes),
     )
-    payload["artifact_digest"] = canonical_digest(identity)
-    return BenchmarkArtifactAdapter.validate_python(payload)
+    payload["artifact_digest"] = "0" * 64
+    provisional = DatasetArtifact.model_validate(payload)
+    payload["artifact_digest"] = provisional.canonical_digest()
+    return DatasetArtifact.model_validate(payload)
 
 
 def _compile_subject_artifact(
@@ -362,6 +393,27 @@ def load_benchmark_spec(path: str | Path) -> BenchmarkSpec:
     return BenchmarkSpecAdapter.validate_python(table)
 
 
+def load_dataset_spec(path: str | Path) -> DatasetSpec:
+    """Load one strict ``[dataset]`` registry declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "dataset")
+    return DatasetSpec.model_validate(table)
+
+
+def load_evaluator_spec(path: str | Path) -> EvaluatorSpec:
+    """Load one strict ``[evaluator]`` registry declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "evaluator")
+    return EvaluatorSpec.model_validate(table)
+
+
+def load_metric_spec(path: str | Path) -> MetricSpec:
+    """Load one strict ``[metric]`` registry declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "metric")
+    return MetricSpec.model_validate(table)
+
+
 def load_configuration_spec(path: str | Path) -> ConfigurationSpec:
     table = _required_table(_load_toml(path), "configuration")
     return ConfigurationSpec.model_validate(table)
@@ -370,6 +422,20 @@ def load_configuration_spec(path: str | Path) -> ConfigurationSpec:
 def load_configuration_selection(path: str | Path) -> ConfigurationSelection:
     table = _required_table(_load_toml(path), "configuration")
     return ConfigurationSelection.model_validate(table)
+
+
+def load_evolution_method_spec(path: str | Path) -> EvolutionMethodSpec:
+    """Load one strict ``[evolver]`` method declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "evolver")
+    return EvolutionMethodSpec.model_validate(table)
+
+
+def load_meta_evolution_method_spec(path: str | Path) -> MetaEvolutionMethodSpec:
+    """Load one strict ``[meta_evolver]`` method declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "meta_evolver")
+    return MetaEvolutionMethodSpec.model_validate(table)
 
 
 def load_subject_spec(path: str | Path) -> SubjectSpec:
@@ -513,12 +579,16 @@ __all__ = [
     "check_allowed_diff",
     "differing_paths",
     "expand_factor_sweep",
+    "_compile_dataset_artifact",
     "load_backend_spec",
     "load_benchmark_spec",
+    "load_dataset_spec",
     "load_claim_report",
     "load_evidence_bundle",
     "load_evolution_run_evidence",
+    "load_evolution_method_spec",
     "load_execution_spec",
+    "load_meta_evolution_method_spec",
     "load_protocol_spec",
     "load_subject_spec",
 ]

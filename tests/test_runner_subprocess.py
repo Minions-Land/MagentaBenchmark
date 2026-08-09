@@ -61,7 +61,11 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
         bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
         statuses.append(bundle["status"])
         assert bundle["provenance"]["executable"] == "/usr/bin/echo"
-        assert bundle["provenance"]["test_override"]["forced_scope"] == "conformance"
+        assert bundle["provenance"]["test_override"] == {
+            "reason": "explicit allow_test_override=true",
+            "forced_purpose": "exploratory",
+            "forced_comparison_kind": None,
+        }
         receipt = json.loads(
             Path(bundle["log_refs"][2]["path"]).read_text(encoding="utf-8")
         )

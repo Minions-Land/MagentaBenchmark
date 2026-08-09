@@ -1,0 +1,12 @@
+[evaluator]
+id = "evaluator.deterministic-evolution.holdout.v1"
+kind = "evaluator"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+implementation = "deterministic-evolution.holdout"
+scoring_kind = "continuous"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "holdout_quality"
+authoritative = true

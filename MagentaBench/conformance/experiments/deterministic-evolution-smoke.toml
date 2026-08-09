@@ -1,13 +1,31 @@
 [experiment]
 id = "deterministic-evolution-smoke"
 benchmark = "deterministic-evolution.v1"
+dataset = "dataset.deterministic.evolution.v1"
+evaluator = "evaluator.deterministic-evolution.holdout.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "tokens.mean-completed.v1",
+  "input-tokens.mean-completed.v1",
+  "output-tokens.mean-completed.v1",
+  "cache-read-tokens.mean-completed.v1",
+  "cache-write-tokens.mean-completed.v1",
+  "cost.mean-completed.v1",
+  "wall-time.mean-completed.v1",
+  "model-calls.mean-completed.v1",
+  "tool-calls.mean-completed.v1",
+  "throughput.completed-per-hour.v1",
+]
 subject = "deterministic-local.evolver"
+evolver = "evolver.deterministic.v1"
 protocol = "deterministic-evolution.v1"
 
 [experiment.design]
-scope = "evolver"
+comparison_kind = "evolution_method"
 purpose = "exploratory"
-vary = []
+
+[experiment.configuration]
+profiles = ["evolution.deterministic.v1"]
 
 [execution]
 backend = "fake.local"

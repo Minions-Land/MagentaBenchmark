@@ -1,0 +1,156 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionArchiveEntry": {
+      "additionalProperties": false,
+      "description": "One candidate's immutable state in an archive snapshot.",
+      "properties": {
+        "candidate_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "candidate_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "child_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Child Count",
+          "type": "integer"
+        },
+        "generation": {
+          "minimum": 0,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lineage_depth": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Lineage Depth",
+          "type": "integer"
+        },
+        "parent_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Parent Ids",
+          "type": "array"
+        },
+        "score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "score_metric": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score Metric"
+        },
+        "status": {
+          "enum": [
+            "ineligible",
+            "eligible",
+            "retained",
+            "promoted",
+            "evicted"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "generation",
+        "candidate_ref",
+        "status"
+      ],
+      "title": "EvolutionArchiveEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A complete archive population at one transition boundary.",
+  "properties": {
+    "entries": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/EvolutionArchiveEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evaluator Digest",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-evolution-archive-snapshot-v1",
+      "default": "bmp-evolution-archive-snapshot-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "metric": {
+      "minLength": 1,
+      "title": "Metric",
+      "type": "string"
+    },
+    "policy_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Policy Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "evaluator_digest",
+    "metric",
+    "policy_digest"
+  ],
+  "title": "EvolutionArchiveSnapshot",
+  "type": "object"
+}

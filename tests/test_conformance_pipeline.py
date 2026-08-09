@@ -413,7 +413,7 @@ def test_fresh_rerun_same_record_root_fails_closed(tmp_path: Path) -> None:
         Pipeline(ROOT, tmp_path).run(experiment)
 
 
-def test_resume_refuses_benchmark_scoring_semantics_drift(tmp_path: Path) -> None:
+def test_resume_refuses_evaluator_scoring_semantics_drift(tmp_path: Path) -> None:
     project = tmp_path / "project"
     shutil.copytree(ROOT / "registries", project / "registries")
     shutil.copytree(
@@ -424,12 +424,14 @@ def test_resume_refuses_benchmark_scoring_semantics_drift(tmp_path: Path) -> Non
         ROOT / "MagentaBench" / "adapters" / "fake",
         project / "MagentaBench" / "adapters" / "fake",
     )
-    benchmark_path = project / "registries" / "benchmarks" / "fake-exact.toml"
-    original_declaration = benchmark_path.read_text(encoding="utf-8")
+    evaluator_path = (
+        project / "registries" / "evaluators" / "fake-exact-v1.toml"
+    )
+    original_declaration = evaluator_path.read_text(encoding="utf-8")
     changed_declaration = _replace_required(
         original_declaration,
-        'reward_pass_value = 1.0',
-        'reward_pass_value = 0.0',
+        "success_threshold = 1.0",
+        "success_threshold = 0.0",
     )
     assert changed_declaration != original_declaration
 
@@ -438,7 +440,7 @@ def test_resume_refuses_benchmark_scoring_semantics_drift(tmp_path: Path) -> Non
     with pytest.raises(InjectedInterruption):
         Pipeline(project, record_root).run(experiment, stop_after=1)
 
-    benchmark_path.write_text(changed_declaration, encoding="utf-8")
+    evaluator_path.write_text(changed_declaration, encoding="utf-8")
     with pytest.raises(ResumeDriftError, match="drift"):
         Pipeline(project, record_root).run(experiment, resume=True)
 

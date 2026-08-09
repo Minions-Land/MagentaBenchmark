@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "description": "Explicit staged-to-full promotion decision.",
+  "properties": {
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "promote",
+        "reject"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-evolution-promotion-gate-v1",
+      "default": "bmp-evolution-promotion-gate-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "full_evaluation_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Full Evaluation Id",
+      "type": "string"
+    },
+    "full_evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Full Evaluator Digest",
+      "type": "string"
+    },
+    "full_metric": {
+      "minLength": 1,
+      "title": "Full Metric",
+      "type": "string"
+    },
+    "full_score": {
+      "title": "Full Score",
+      "type": "number"
+    },
+    "gate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Gate Id",
+      "type": "string"
+    },
+    "reason": {
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "selection_transition_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selection Transition Id",
+      "type": "string"
+    },
+    "staged_evaluation_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Staged Evaluation Id",
+      "type": "string"
+    },
+    "staged_evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Staged Evaluator Digest",
+      "type": "string"
+    },
+    "staged_metric": {
+      "minLength": 1,
+      "title": "Staged Metric",
+      "type": "string"
+    },
+    "staged_score": {
+      "title": "Staged Score",
+      "type": "number"
+    }
+  },
+  "required": [
+    "gate_id",
+    "candidate_id",
+    "selection_transition_id",
+    "staged_evaluation_id",
+    "full_evaluation_id",
+    "staged_evaluator_digest",
+    "full_evaluator_digest",
+    "staged_metric",
+    "full_metric",
+    "staged_score",
+    "full_score",
+    "decision",
+    "reason"
+  ],
+  "title": "EvolutionPromotionGateReceipt",
+  "type": "object"
+}

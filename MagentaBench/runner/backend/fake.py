@@ -125,11 +125,11 @@ class FakeBackend:
 
     @staticmethod
     def _load_task(run: CompiledRun) -> FakeTask:
-        benchmark = run.manifest.benchmark
-        source = getattr(benchmark, "source", None)
-        task_manifest = getattr(benchmark, "task_manifest", None)
+        dataset = run.manifest.dataset
+        source = dataset.source
+        task_manifest = dataset.config.get("task_manifest")
         if not source or not task_manifest:
-            raise ValueError("fake backend requires a task-suite manifest")
+            raise ValueError("fake backend requires a dataset task-suite manifest")
         path = Path(source) / str(task_manifest)
         with path.open("rb") as handle:
             document = tomllib.load(handle)

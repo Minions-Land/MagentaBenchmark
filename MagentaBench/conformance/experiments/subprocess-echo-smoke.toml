@@ -1,24 +1,36 @@
 [experiment]
 id = "subprocess-echo-smoke"
 benchmark = "fake.exact.v1"
+dataset = "dataset.fake.exact.v1"
+evaluator = "evaluator.fake.exact.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+  "tokens.mean-completed.v1",
+  "input-tokens.mean-completed.v1",
+  "output-tokens.mean-completed.v1",
+  "cache-read-tokens.mean-completed.v1",
+  "cache-write-tokens.mean-completed.v1",
+  "cost.mean-completed.v1",
+  "wall-time.mean-completed.v1",
+  "model-calls.mean-completed.v1",
+  "tool-calls.mean-completed.v1",
+  "throughput.completed-per-hour.v1",
+  "successes-per-million-tokens.v1",
+]
 subject = "fake.control"
 protocol = "subprocess.deterministic.v1"
-allowed_diff = [
-  "subject.artifact_digest",
-  "subject.fixed_answer",
-  "subject.id",
-]
+factors = ["conformance.fake-subject", "repetition.two"]
 
 [experiment.contrast]
 mode = "one_factor"
-control_id = "fake.control"
-treatment_id = "fake.treatment"
+factor_id = "conformance.fake-subject"
+control_level = "control"
+treatment_level = "treatment"
 counterbalanced = true
 
 [experiment.design]
-scope = "conformance"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -29,7 +41,3 @@ seed = 41
 max_tokens = 0
 max_wall_seconds = 2.0
 max_cost = 0.0
-
-[factors]
-subject = ["fake.control", "fake.treatment"]
-repetition = [0, 1]

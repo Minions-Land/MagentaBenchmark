@@ -1,0 +1,14 @@
+[metric]
+id = "successes-per-million-tokens.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "efficiency"
+level = "configuration"
+direction = "maximize"
+unit = "successes/million-tokens"
+source = "derived"
+formula = "successes_per_million_tokens_v1"
+population = "observed_rollouts"
+inputs = ["pass-at-1.infra-zero.v1", "tokens.mean-completed.v1"]
+missing_observation = "invalidate"

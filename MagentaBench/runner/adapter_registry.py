@@ -249,6 +249,11 @@ def verify_resolved_case_set(
         raise AdapterRegistryError("case-set benchmark id drift")
     if artifact.benchmark_digest != run.manifest.benchmark.artifact_digest:
         raise AdapterRegistryError("case-set benchmark digest drift")
+    dataset = run.manifest.dataset
+    if artifact.dataset_id != dataset.id:
+        raise AdapterRegistryError("case-set dataset id drift")
+    if artifact.dataset_digest != dataset.artifact_digest:
+        raise AdapterRegistryError("case-set dataset digest drift")
     if artifact.loader_adapter != expected_loader_adapter:
         raise AdapterRegistryError("case-set loader adapter drift")
     if artifact.loader_digest != expected_loader_digest:
@@ -299,9 +304,10 @@ def verify_resolved_case_set(
             raise AdapterRegistryError(
                 f"case-set content reference drift: {ref.path}"
             )
-    source = getattr(run.manifest.benchmark, "source", None)
+    source_artifact = dataset
+    source = getattr(source_artifact, "source", None)
     compiled_source_digest = getattr(
-        run.manifest.benchmark, "source_content_digest", None
+        source_artifact, "source_content_digest", None
     )
     if not source or not compiled_source_digest:
         raise AdapterRegistryError(
@@ -320,7 +326,7 @@ def verify_resolved_case_set(
         or observed_source_digest != compiled_source_digest
     ):
         raise AdapterRegistryError(
-            "case-set source closure differs from compiled benchmark"
+            "case-set source closure differs from compiled dataset"
         )
 
 
@@ -341,9 +347,9 @@ class FakeBenchmarkLoader:
 
     @staticmethod
     def _task_manifest(run: CompiledRun) -> Path:
-        benchmark = run.manifest.benchmark
-        source = getattr(benchmark, "source", None)
-        task_manifest = getattr(benchmark, "task_manifest", None)
+        dataset = run.manifest.dataset
+        source = dataset.source
+        task_manifest = dataset.config.get("task_manifest")
         if not source or not task_manifest:
             raise AdapterRegistryError(
                 "fake benchmark loader requires a task-suite manifest"
@@ -435,12 +441,13 @@ class FakeBenchmarkLoader:
             sha256=hashlib.sha256(source_bytes).hexdigest(),
             size_bytes=len(source_bytes),
         )
-        compiled_source_digest = run.manifest.benchmark.source_content_digest
+        source_artifact = run.manifest.dataset
+        compiled_source_digest = source_artifact.source_content_digest
         if source_closure_digest(
-            Path(run.manifest.benchmark.source), (source_ref,)
+            Path(source_artifact.source), (source_ref,)
         ) != compiled_source_digest:
             raise AdapterRegistryError(
-                "case-set source closure differs from compiled benchmark"
+                "case-set source closure differs from compiled dataset"
             )
         tasks = self._tasks_from_bytes(source_bytes)
         cases = []
@@ -479,6 +486,8 @@ class FakeBenchmarkLoader:
         artifact = CaseSetArtifact(
             benchmark_id=run.manifest.benchmark.id,
             benchmark_digest=run.manifest.benchmark.artifact_digest,
+            dataset_id=run.manifest.dataset.id,
+            dataset_digest=run.manifest.dataset.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
             selection_method={
@@ -502,9 +511,7 @@ class FakeBenchmarkLoader:
                 if run.manifest.execution.protocol.case_order == "custom"
                 else None
             ),
-            source_content_digest=(
-                run.manifest.benchmark.source_content_digest
-            ),
+            source_content_digest=source_artifact.source_content_digest,
             source_content_refs=(source_ref,),
             ordered_case_ids=tuple(case.case_id for case in cases),
             cases=tuple(cases),

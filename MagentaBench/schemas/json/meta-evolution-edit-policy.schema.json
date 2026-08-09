@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "description": "Closed edit/visibility boundary for a meta-evolution method.",
+  "properties": {
+    "editable_paths": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Editable Paths",
+      "type": "array"
+    },
+    "feedback_visibility": {
+      "default": [],
+      "items": {
+        "enum": [
+          "search_scores",
+          "search_feedback",
+          "failure_diagnostics",
+          "candidate_history",
+          "resource_usage"
+        ],
+        "type": "string"
+      },
+      "title": "Feedback Visibility",
+      "type": "array"
+    },
+    "policy_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "protected_paths": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Protected Paths",
+      "type": "array"
+    },
+    "sealed_holdout_visible": {
+      "const": false,
+      "default": false,
+      "title": "Sealed Holdout Visible",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "policy_id",
+    "editable_paths",
+    "protected_paths"
+  ],
+  "title": "MetaEvolutionEditPolicy",
+  "type": "object"
+}

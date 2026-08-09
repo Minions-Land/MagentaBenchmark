@@ -118,10 +118,11 @@ class SweBenchLoader:
         benchmark = run.manifest.benchmark
         if benchmark.kind != "custom" or benchmark.adapter != "swebench":
             raise AdapterRegistryError("SWE-bench loader requires a custom swebench artifact")
-        config = benchmark.config
-        if not isinstance(config, Mapping):
-            raise AdapterRegistryError("SWE-bench benchmark config must be a table")
-        allowed = {
+        dataset = run.manifest.dataset
+        if dataset.adapter != "swebench":
+            raise AdapterRegistryError("SWE-bench dataset adapter mismatch")
+        dataset_config = dataset.config
+        allowed_dataset = {
             "dataset_file",
             "dataset_name",
             "image_template",
@@ -130,16 +131,19 @@ class SweBenchLoader:
             "include_hints",
             "include_version",
         }
-        unknown = sorted(set(config) - allowed)
-        if unknown:
-            raise AdapterRegistryError(f"unsupported SWE-bench config keys: {unknown}")
-        return config
+        unknown_dataset = sorted(set(dataset_config) - allowed_dataset)
+        if unknown_dataset:
+            raise AdapterRegistryError(
+                f"unsupported SWE-bench dataset config keys: {unknown_dataset}"
+            )
+        return dataset_config
 
     @classmethod
     def _dataset_file(cls, run: CompiledRun) -> Path:
         config = cls._config(run)
+        source = run.manifest.dataset
         return _relative_file(
-            Path(run.manifest.benchmark.source),
+            Path(source.source),
             config.get("dataset_file"),
             label="dataset_file",
         )
@@ -303,13 +307,14 @@ class SweBenchLoader:
             sha256=hashlib.sha256(dataset_bytes).hexdigest(),
             size_bytes=len(dataset_bytes),
         )
-        source_root = Path(run.manifest.benchmark.source)
+        source_artifact = run.manifest.dataset
+        source_root = Path(source_artifact.source)
         if (
             source_closure_digest(source_root, (source_ref,))
-            != run.manifest.benchmark.source_content_digest
+            != source_artifact.source_content_digest
         ):
             raise AdapterRegistryError(
-                "SWE-bench dataset closure differs from compiled benchmark"
+                "SWE-bench dataset closure differs from compiled dataset"
             )
         rows = self._ordered_rows(run, self._parse_rows(dataset_bytes))
         cases: list[CaseArtifact] = []
@@ -340,6 +345,8 @@ class SweBenchLoader:
         artifact = CaseSetArtifact(
             benchmark_id=run.manifest.benchmark.id,
             benchmark_digest=run.manifest.benchmark.artifact_digest,
+            dataset_id=run.manifest.dataset.id,
+            dataset_digest=run.manifest.dataset.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
             selection_method={
@@ -363,7 +370,7 @@ class SweBenchLoader:
                 if protocol.case_order == "custom"
                 else None
             ),
-            source_content_digest=run.manifest.benchmark.source_content_digest,
+            source_content_digest=source_artifact.source_content_digest,
             source_content_refs=(source_ref,),
             ordered_case_ids=tuple(case.case_id for case in cases),
             cases=tuple(cases),

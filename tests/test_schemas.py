@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -19,18 +20,23 @@ from MagentaBench.schemas import (
     Budget,
     ClaimDesign,
     ClaimReport,
-    ClaimScope,
+    ComparisonKind,
     ConfigurationArtifact,
     ConfigurationSelection,
     ConfigurationSpec,
     EnvironmentReceipt,
     EnvironmentSpec,
     EvidenceBundle,
+    EvaluatorArtifact,
+    EvaluatorMetricBinding,
+    EvaluatorSpec,
     ExecutionSpec,
     ExperimentContrast,
     GateName,
     LineageRef,
     MountSpec,
+    MetricArtifact,
+    MetricSpec,
     ObservationReport,
     PackageRecord,
     ProtocolSpec,
@@ -40,7 +46,7 @@ from MagentaBench.schemas import (
     ResolvedManifestMetadata,
     RunPurpose,
     RunReportAdapter,
-    SUBJECT_KIND_SCOPE_MATRIX,
+    SUBJECT_KIND_COMPARISON_MATRIX,
     SubjectSpecAdapter,
     VerifierEvidence,
     canonical_digest,
@@ -48,19 +54,18 @@ from MagentaBench.schemas import (
     expand_factor_sweep,
     load_benchmark_spec,
     load_claim_report,
+    load_dataset_spec,
     load_evidence_bundle,
+    load_evaluator_spec,
     load_execution_spec,
+    load_metric_spec,
     load_subject_spec,
     schema_documents,
 )
 from MagentaBench.schemas.models import SubjectKind
 from MagentaBench.schemas.compiler import (
     _compile_benchmark_artifact as compile_benchmark_artifact,
-    _compile_subject_artifact as compile_subject_artifact,
-    _resolve_execution_spec as resolve_execution_spec,
-)
-from MagentaBench.schemas.compiler import (
-    _compile_benchmark_artifact as compile_benchmark_artifact,
+    _compile_dataset_artifact as compile_dataset_artifact,
     _compile_subject_artifact as compile_subject_artifact,
     _resolve_execution_spec as resolve_execution_spec,
     _source_content_digest,
@@ -88,12 +93,18 @@ def _round_trip(
 
 def test_toml_round_trip_for_each_core_contract() -> None:
     benchmark = load_benchmark_spec(EXAMPLES / "benchmark.toml")
+    dataset = load_dataset_spec(EXAMPLES / "dataset.toml")
+    evaluator = load_evaluator_spec(EXAMPLES / "evaluator.toml")
+    metric = load_metric_spec(EXAMPLES / "metric.toml")
     subject = load_subject_spec(EXAMPLES / "subject.toml")
     execution = load_execution_spec(EXAMPLES / "execution.toml")
     evidence = load_evidence_bundle(EXAMPLES / "evidence.toml")
     claim = load_claim_report(EXAMPLES / "claim.toml")
 
     _round_trip(benchmark, BenchmarkSpecAdapter)
+    _round_trip(dataset)
+    _round_trip(evaluator)
+    _round_trip(metric)
     _round_trip(subject, SubjectSpecAdapter)
     _round_trip(execution)
     _round_trip(evidence)
@@ -118,30 +129,31 @@ def test_typed_toml_loaders_reject_unknown_top_level_sections(tmp_path: Path) ->
         load_benchmark_spec(path)
 
 
-def test_custom_benchmark_contract_is_adapter_owned() -> None:
+def test_custom_benchmark_contract_is_adapter_owned_but_orthogonal() -> None:
     benchmark = BenchmarkSpecAdapter.validate_python(
         {
             "id": "custom.demo",
             "kind": "custom",
             "adapter": "external.benchmark",
             "bmp_version": "0.1",
-            "source": "/tmp/custom-benchmark",
-            "content_globs": ("tasks/*.json", "verifier.py"),
-            "verifier": "external.verifier:v1",
-            "scoring_kind": "continuous",
-            "authoritative_reward_metric": "quality",
-            "config": {"dataset": "demo"},
         }
     )
     assert benchmark.kind == "custom"
     assert benchmark.adapter == "external.benchmark"
-    assert benchmark.config["dataset"] == "demo"
+
+    with pytest.raises(ValidationError, match="source"):
+        BenchmarkSpecAdapter.validate_python(
+            benchmark.model_dump(mode="python") | {"source": "/tmp/data"}
+        )
 
 
 def test_json_schema_is_generated_for_public_contracts() -> None:
     documents = schema_documents()
     assert {
         "benchmark-spec",
+        "dataset-spec",
+        "evaluator-spec",
+        "metric-spec",
         "subject-spec",
         "execution-spec",
         "environment-spec",
@@ -205,17 +217,17 @@ def test_claim_design_is_required_and_closed(tmp_path: Path) -> None:
     manifest_payload.pop("claim_design")
     with pytest.raises(ValidationError, match="claim_design"):
         ResolvedBmpManifest.model_validate(manifest_payload)
-    with pytest.raises(ValidationError, match="scope"):
+    with pytest.raises(ValidationError, match="comparison_kind"):
         ClaimDesign.model_validate(
-            {"scope": "invented", "purpose": "exploratory", "vary": []}
+            {"comparison_kind": "invented", "purpose": "exploratory"}
         )
     with pytest.raises(ValidationError, match="purpose"):
         ClaimDesign.model_validate(
-            {"scope": "conformance", "purpose": "invented", "vary": []}
+            {"comparison_kind": "coding_agent", "purpose": "invented"}
         )
-    with pytest.raises(ValidationError, match="vary"):
+    with pytest.raises(ValidationError, match="registered intervention"):
         ClaimDesign.model_validate(
-            {"scope": "conformance", "purpose": "exploratory"}
+            {"comparison_kind": "coding_agent", "purpose": "claim"}
         )
 
 
@@ -225,12 +237,12 @@ def test_experiment_contrast_is_required_closed_and_identity_bearing(tmp_path: P
     del payload["contrast"]
     with pytest.raises(ValidationError, match="contrast"):
         ResolvedBmpManifest.model_validate(payload)
-    with pytest.raises(ValidationError, match="requires control_id and treatment_id"):
+    with pytest.raises(ValidationError, match="requires factor_id"):
         ExperimentContrast(mode="one_factor", counterbalanced=True)
-    with pytest.raises(ValidationError, match="forbids arm filtering"):
+    with pytest.raises(ValidationError, match="forbids control/treatment"):
         ExperimentContrast(
             mode="all_arms",
-            control_id="fake.control",
+            control_level="control",
             counterbalanced=False,
         )
 
@@ -238,8 +250,9 @@ def test_experiment_contrast_is_required_closed_and_identity_bearing(tmp_path: P
         update={
             "contrast": ExperimentContrast(
                 mode="one_factor",
-                control_id="fake.control",
-                treatment_id="fake.treatment",
+                factor_id="agent.subject",
+                control_level="control",
+                treatment_level="treatment",
                 counterbalanced=True,
             )
         }
@@ -247,41 +260,43 @@ def test_experiment_contrast_is_required_closed_and_identity_bearing(tmp_path: P
     assert manifest.canonical_digest() != filtered.canonical_digest()
 
 
-def test_claim_scope_and_purpose_are_identity_bearing(tmp_path: Path) -> None:
+def test_comparison_kind_and_purpose_are_identity_bearing(tmp_path: Path) -> None:
     base = _manifest(tmp_path, created_at="now")
-    different_scope = base.model_copy(
+    different_comparison = base.model_copy(
         update={
             "claim_design": ClaimDesign(
-                scope=ClaimScope.whole_harness,
+                comparison_kind=ComparisonKind.coding_agent,
                 purpose=RunPurpose.exploratory,
-                vary=("subject.artifact_digest",),
             )
         }
     )
     different_purpose = base.model_copy(
         update={
             "claim_design": ClaimDesign(
-                scope=ClaimScope.conformance,
+                comparison_kind=ComparisonKind.coding_agent,
                 purpose=RunPurpose.claim,
-                vary=(),
+                intervention_factor_id="agent.subject",
             )
         }
     )
     assert len(
         {
             base.canonical_digest(),
-            different_scope.canonical_digest(),
+            different_comparison.canonical_digest(),
             different_purpose.canonical_digest(),
         }
     ) == 3
-    assert SUBJECT_KIND_SCOPE_MATRIX["fake"] == frozenset({ClaimScope.conformance})
-    assert ClaimScope.component not in SUBJECT_KIND_SCOPE_MATRIX["opaque_agent"]
+    assert SUBJECT_KIND_COMPARISON_MATRIX["fake"] == frozenset()
+    assert SUBJECT_KIND_COMPARISON_MATRIX["opaque_agent"] == frozenset(
+        {ComparisonKind.agent, ComparisonKind.coding_agent}
+    )
 
 
 def test_observation_report_is_structurally_not_a_claim_report() -> None:
     report = ObservationReport(
         purpose=RunPurpose.exploratory,
-        subject_kind=SubjectKind.fake,
+        comparison_kind=None,
+        subject_kinds=(SubjectKind.fake,),
         experiment_id="exploration",
         manifest_digest="a" * 64,
         isolation_valid=False,
@@ -592,67 +607,137 @@ def test_unknown_discriminated_kinds_are_rejected() -> None:
         )
 
 
-def test_benchmark_scoring_semantics_are_complete_and_identity_bearing(
+def _artifact_ref(path: Path) -> ArtifactRef:
+    content = path.read_bytes()
+    return ArtifactRef(
+        path=str(path.resolve()),
+        sha256=hashlib.sha256(content).hexdigest(),
+        size_bytes=len(content),
+    )
+
+
+def _compile_evaluator_artifact(
+    spec: EvaluatorSpec,
+    declaration_path: Path,
+) -> EvaluatorArtifact:
+    provisional = EvaluatorArtifact(
+        evaluator=spec,
+        declaration_ref=_artifact_ref(declaration_path),
+        artifact_digest="0" * 64,
+    )
+    return provisional.model_copy(
+        update={"artifact_digest": provisional.canonical_digest()}
+    )
+
+
+def _compile_metric_artifact(
+    spec: MetricSpec,
+    declaration_path: Path,
+) -> MetricArtifact:
+    provisional = MetricArtifact(
+        metric=spec,
+        declaration_ref=_artifact_ref(declaration_path),
+        artifact_digest="0" * 64,
+    )
+    return provisional.model_copy(
+        update={"artifact_digest": provisional.canonical_digest()}
+    )
+
+
+def _reward_binding(
+    *,
+    source_key: str = "score",
+    success_threshold: float | None = 1.0,
+) -> EvaluatorMetricBinding:
+    return EvaluatorMetricBinding(
+        metric_id="reward.authoritative.v1",
+        source_key=source_key,
+        authoritative=True,
+        success_operator="eq" if success_threshold is not None else None,
+        success_threshold=success_threshold,
+    )
+
+
+def test_evaluator_scoring_semantics_are_complete_and_identity_bearing(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "tasks.toml").write_text("fake = true\n", encoding="utf-8")
     declaration = {
-        "id": "scored-benchmark",
-        "kind": "task_suite",
+        "id": "evaluator.scored.v1",
+        "kind": "evaluator",
         "adapter": "fake",
-        "source": str(tmp_path),
-        "commit": "content-sha",
-        "task_manifest": "tasks.toml",
-        "verifier": "native",
+        "implementation": "fake.scored.v1",
+        "metrics": (_reward_binding().model_dump(mode="python"),),
     }
     with pytest.raises(ValidationError, match="scoring_kind"):
-        BenchmarkSpecAdapter.validate_python(declaration)
-    with pytest.raises(ValidationError, match="binary scoring requires"):
-        BenchmarkSpecAdapter.validate_python(
+        EvaluatorSpec.model_validate(declaration)
+    with pytest.raises(ValidationError, match="requires success operator and threshold"):
+        EvaluatorSpec.model_validate(
             declaration
             | {
                 "scoring_kind": "binary",
-                "authoritative_reward_metric": "score",
+                "metrics": (
+                    _reward_binding(success_threshold=None).model_dump(mode="python"),
+                ),
             }
         )
-    with pytest.raises(ValidationError, match="continuous scoring forbids"):
-        BenchmarkSpecAdapter.validate_python(
-            declaration
-            | {
-                "scoring_kind": "continuous",
-                "authoritative_reward_metric": "overall",
-                "reward_pass_value": 0.5,
-            }
-        )
+    with pytest.raises(ValidationError, match="continuous.*forbids success rules"):
+        EvaluatorSpec.model_validate(declaration | {"scoring_kind": "continuous"})
 
-    binary = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(
-            declaration
-            | {
-                "scoring_kind": "binary",
-                "authoritative_reward_metric": "score",
-                "reward_pass_value": 1.0,
-            }
-        )
+    declaration_path = tmp_path / "evaluator-binary.toml"
+    declaration_path.write_text(
+        '''[evaluator]
+id = "evaluator.scored.v1"
+kind = "evaluator"
+adapter = "fake"
+bmp_version = "0.1"
+implementation = "fake.scored.v1"
+scoring_kind = "binary"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "score"
+authoritative = true
+success_operator = "eq"
+success_threshold = 1.0
+''',
+        encoding="utf-8",
     )
-    changed_threshold = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(
-            declaration
-            | {
-                "scoring_kind": "binary",
-                "authoritative_reward_metric": "score",
-                "reward_pass_value": 0.5,
-            }
-        )
+    binary = _compile_evaluator_artifact(
+        load_evaluator_spec(declaration_path),
+        declaration_path,
     )
-    continuous = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(
-            declaration
-            | {
-                "scoring_kind": "continuous",
-                "authoritative_reward_metric": "overall",
-            }
-        )
+    threshold_path = tmp_path / "evaluator-threshold.toml"
+    threshold_path.write_text(
+        declaration_path.read_text(encoding="utf-8").replace(
+            "success_threshold = 1.0",
+            "success_threshold = 0.5",
+        ),
+        encoding="utf-8",
+    )
+    changed_threshold = _compile_evaluator_artifact(
+        load_evaluator_spec(threshold_path),
+        threshold_path,
+    )
+    continuous_path = tmp_path / "evaluator-continuous.toml"
+    continuous_path.write_text(
+        '''[evaluator]
+id = "evaluator.scored.v1"
+kind = "evaluator"
+adapter = "fake"
+bmp_version = "0.1"
+implementation = "fake.scored.v1"
+scoring_kind = "continuous"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "overall"
+authoritative = true
+''',
+        encoding="utf-8",
+    )
+    continuous = _compile_evaluator_artifact(
+        load_evaluator_spec(continuous_path),
+        continuous_path,
     )
     assert len(
         {
@@ -663,67 +748,78 @@ def test_benchmark_scoring_semantics_are_complete_and_identity_bearing(
     ) == 3
 
     base_manifest = _manifest(tmp_path, created_at="now")
-    binary_manifest = base_manifest.model_copy(update={"benchmark": binary})
-    continuous_manifest = base_manifest.model_copy(update={"benchmark": continuous})
+    threshold_manifest = base_manifest.model_copy(
+        update={"evaluator": changed_threshold}
+    )
+    continuous_manifest = base_manifest.model_copy(update={"evaluator": continuous})
     assert len(
         {
             base_manifest.canonical_digest(),
-            binary_manifest.canonical_digest(),
+            threshold_manifest.canonical_digest(),
             continuous_manifest.canonical_digest(),
         }
     ) == 3
 
 
-def test_artifact_compile_normalizes_source_and_digest(tmp_path: Path) -> None:
+def test_dataset_artifact_compile_normalizes_source_and_digest(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "tasks.toml").write_text("fake = true\n", encoding="utf-8")
-    benchmark_spec = BenchmarkSpecAdapter.validate_python(
-        {
-            "id": "fake-benchmark",
-            "kind": "task_suite",
-            "adapter": "fake",
-            "source": ".",
-            "commit": "content-sha",
-            "task_manifest": "tasks.toml",
-            "verifier": "fake",
-            "scoring_kind": "binary",
-            "authoritative_reward_metric": "score",
-            "reward_pass_value": 1.0,
-        }
+    declaration_path = tmp_path / "dataset.toml"
+    declaration_path.write_text(
+        '''[dataset]
+id = "dataset.fake.v1"
+kind = "dataset"
+adapter = "fake"
+bmp_version = "0.1"
+source = "."
+commit = "content-sha"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+''',
+        encoding="utf-8",
     )
-    artifact = compile_benchmark_artifact(benchmark_spec, base_dir=tmp_path)
+    artifact = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
+    )
     assert Path(artifact.source).is_absolute()
     assert artifact.source == str(tmp_path.resolve())
     assert len(artifact.artifact_digest) == 64
-    assert artifact.artifact_digest == canonical_digest(
-        artifact.model_dump(mode="json", exclude={"artifact_digest", "source"})
-    )
+    assert artifact.artifact_digest == artifact.canonical_digest()
 
 
 def test_source_paths_are_provenance_only_but_declared_content_is_identity(
     tmp_path: Path,
 ) -> None:
-    first_root = tmp_path / "first"
-    second_root = tmp_path / "second"
-    first_root.mkdir()
-    second_root.mkdir()
+    first_package = tmp_path / "first"
+    second_package = tmp_path / "second"
+    first_root = first_package / "data"
+    second_root = second_package / "data"
+    first_root.mkdir(parents=True)
+    second_root.mkdir(parents=True)
     for root in (first_root, second_root):
         (root / "tasks.toml").write_text("task = 'same'\n", encoding="utf-8")
-    declaration = {
-        "id": "cross-root",
-        "kind": "task_suite",
-        "adapter": "fake",
-        "commit": None,
-        "task_manifest": "tasks.toml",
-        "verifier": "fake",
-        "scoring_kind": "binary",
-        "authoritative_reward_metric": "score",
-        "reward_pass_value": 1.0,
-    }
-    first = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration | {"source": str(first_root)})
+    dataset_toml = '''[dataset]
+id = "dataset.cross-root.v1"
+kind = "dataset"
+adapter = "fake"
+bmp_version = "0.1"
+source = "data"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+'''
+    first_declaration = first_package / "dataset.toml"
+    second_declaration = second_package / "dataset.toml"
+    first_declaration.write_text(dataset_toml, encoding="utf-8")
+    second_declaration.write_text(dataset_toml, encoding="utf-8")
+    first = compile_dataset_artifact(
+        load_dataset_spec(first_declaration),
+        declaration_path=first_declaration,
     )
-    second = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration | {"source": str(second_root)})
+    second = compile_dataset_artifact(
+        load_dataset_spec(second_declaration),
+        declaration_path=second_declaration,
     )
     assert first.source != second.source
     assert first.source_content_digest == second.source_content_digest
@@ -734,8 +830,9 @@ def test_source_paths_are_provenance_only_but_declared_content_is_identity(
     assert first_manifest.canonical_digest() == second_manifest.canonical_digest()
 
     (second_root / "tasks.toml").write_text("task = 'changed'\n", encoding="utf-8")
-    changed = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration | {"source": str(second_root)})
+    changed = compile_dataset_artifact(
+        load_dataset_spec(second_declaration),
+        declaration_path=second_declaration,
     )
     assert changed.source_content_digest != first.source_content_digest
     assert changed.artifact_digest != first.artifact_digest
@@ -743,6 +840,7 @@ def test_source_paths_are_provenance_only_but_declared_content_is_identity(
     subject_declaration = {
         "id": "opaque-cross-root",
         "kind": "opaque_agent",
+        "comparison_kind": "coding_agent",
         "adapter": "cli-agent",
         "entrypoint": "/usr/bin/python3",
         "launch_argv": ("/usr/bin/python3", "-c", "print('same')"),
@@ -799,47 +897,63 @@ def _git_source(root: Path) -> str:
     ).stdout.strip()
 
 
-def test_source_profile_rejects_mismatch_dirty_untracked_and_symlink(tmp_path: Path) -> None:
+def test_dataset_source_rejects_mismatch_dirty_untracked_and_symlink(
+    tmp_path: Path,
+) -> None:
     git_root = tmp_path / "git"
     git_root.mkdir()
     (git_root / "tasks.toml").write_text("task = true\n", encoding="utf-8")
     head = _git_source(git_root)
-    declaration = {
-        "id": "git-source",
-        "kind": "task_suite",
-        "adapter": "fake",
-        "source": str(git_root),
-        "commit": head,
-        "task_manifest": "tasks.toml",
-        "verifier": "fake",
-        "scoring_kind": "binary",
-        "authoritative_reward_metric": "score",
-        "reward_pass_value": 1.0,
-    }
-    artifact = compile_benchmark_artifact(BenchmarkSpecAdapter.validate_python(declaration))
+    declaration_path = tmp_path / "dataset.toml"
+    declaration = f'''[dataset]
+id = "dataset.git-source.v1"
+kind = "dataset"
+adapter = "fake"
+bmp_version = "0.1"
+source = "{git_root.as_posix()}"
+commit = "{head}"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+'''
+    declaration_path.write_text(declaration, encoding="utf-8")
+    artifact = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
+    )
     assert artifact.commit == head
+    declaration_path.write_text(
+        declaration.replace(head, "0" * 40),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="does not match checkout HEAD"):
-        compile_benchmark_artifact(
-            BenchmarkSpecAdapter.validate_python(declaration | {"commit": "0" * 40})
+        compile_dataset_artifact(
+            load_dataset_spec(declaration_path),
+            declaration_path=declaration_path,
         )
+    declaration_path.write_text(declaration, encoding="utf-8")
 
     (git_root / "tasks.toml").write_text("task = false\n", encoding="utf-8")
     with pytest.raises(ValueError, match="dirty or untracked"):
-        compile_benchmark_artifact(BenchmarkSpecAdapter.validate_python(declaration))
+        compile_dataset_artifact(
+            load_dataset_spec(declaration_path),
+            declaration_path=declaration_path,
+        )
 
     symlink_root = tmp_path / "symlink"
     symlink_root.mkdir()
     (symlink_root / "real.toml").write_text("task = true\n", encoding="utf-8")
     (symlink_root / "tasks.toml").symlink_to("real.toml")
+    declaration_path.write_text(
+        declaration.replace(git_root.as_posix(), symlink_root.as_posix()).replace(
+            f'commit = "{head}"\n',
+            "",
+        ),
+        encoding="utf-8",
+    )
     with pytest.raises(ValueError, match="symlink"):
-        compile_benchmark_artifact(
-            BenchmarkSpecAdapter.validate_python(
-                declaration
-                | {
-                    "source": str(symlink_root),
-                    "commit": None,
-                }
-            )
+        compile_dataset_artifact(
+            load_dataset_spec(declaration_path),
+            declaration_path=declaration_path,
         )
 
 
@@ -859,7 +973,9 @@ def test_required_content_pattern_failure_is_not_masked(tmp_path: Path) -> None:
         )
 
 
-def test_nested_declared_dependency_mutation_changes_content_digest(tmp_path: Path) -> None:
+def test_nested_dataset_dependency_mutation_changes_content_digest(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "tool-suite"
     nested = root / "benchmark" / "tasks" / "case-1"
     nested.mkdir(parents=True)
@@ -875,64 +991,147 @@ def test_nested_declared_dependency_mutation_changes_content_digest(tmp_path: Pa
     rubric.write_text("Score the task.\n", encoding="utf-8")
     judge.write_text("SCORE = 1\n", encoding="utf-8")
     test_sh.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    declaration = {
-        "id": "tool-source",
-        "kind": "tool_agent_suite",
-        "adapter": "aosebench",
-        "source": str(root),
-        "commit": None,
-        "task_root": "benchmark/tasks",
-        "input_contract": "input",
-        "output_contract": ("output",),
-        "evaluator": "evaluator",
-        "scoring_kind": "continuous",
-        "authoritative_reward_metric": "overall",
-    }
-    first = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration)
+    declaration_path = tmp_path / "dataset.toml"
+    declaration_path.write_text(
+        f'''[dataset]
+id = "dataset.tool-source.v1"
+kind = "dataset"
+adapter = "aosebench"
+bmp_version = "0.1"
+source = "{root.as_posix()}"
+content_globs = [
+  "benchmark/tasks/*/task.toml",
+  "benchmark/tasks/*/instruction.md",
+  "benchmark/tasks/*/tests/rubric.txt",
+  "benchmark/tasks/*/tests/llm_judge.py",
+  "benchmark/tasks/*/tests/test.sh",
+]
+format = "aosebench-task-suite"
+
+[dataset.config]
+task_root = "benchmark/tasks"
+''',
+        encoding="utf-8",
+    )
+    first = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
     )
     task.write_text("name = 'two'\n", encoding="utf-8")
-    second = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration)
+    second = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
     )
     assert first.source_content_digest != second.source_content_digest
     assert first.artifact_digest != second.artifact_digest
     task.write_text("name = 'one'\n", encoding="utf-8")
     judge.write_text("SCORE = 2\n", encoding="utf-8")
-    judge_changed = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration)
+    judge_changed = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
     )
     assert judge_changed.source_content_digest != first.source_content_digest
     assert judge_changed.artifact_digest != first.artifact_digest
     judge.write_text("SCORE = 1\n", encoding="utf-8")
     test_sh.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
-    test_changed = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(declaration)
+    test_changed = compile_dataset_artifact(
+        load_dataset_spec(declaration_path),
+        declaration_path=declaration_path,
     )
     assert test_changed.source_content_digest != first.source_content_digest
     assert test_changed.artifact_digest != first.artifact_digest
     test_sh.unlink()
     with pytest.raises(ValueError, match=r"tests/test\.sh"):
-        compile_benchmark_artifact(BenchmarkSpecAdapter.validate_python(declaration))
+        compile_dataset_artifact(
+            load_dataset_spec(declaration_path),
+            declaration_path=declaration_path,
+        )
 
 
 def _manifest(tmp_path: Path, *, created_at: str, seed: int = 7):
     (tmp_path / "tasks.toml").write_text("fake = true\n", encoding="utf-8")
+    benchmark_path = tmp_path / "benchmark.toml"
+    benchmark_path.write_text(
+        '''[benchmark]
+id = "fake-benchmark"
+kind = "task_suite"
+adapter = "fake"
+bmp_version = "0.1"
+''',
+        encoding="utf-8",
+    )
     benchmark = compile_benchmark_artifact(
-        BenchmarkSpecAdapter.validate_python(
-            {
-                "id": "fake-benchmark",
-                "kind": "task_suite",
-                "adapter": "fake",
-                "source": str(tmp_path),
-                "commit": "content-sha",
-                "task_manifest": "tasks.toml",
-                "verifier": "fake",
-                "scoring_kind": "binary",
-                "authoritative_reward_metric": "score",
-                "reward_pass_value": 1.0,
-            }
-        )
+        load_benchmark_spec(benchmark_path),
+        declaration_path=benchmark_path,
+    )
+    dataset_path = tmp_path / "dataset.toml"
+    dataset_path.write_text(
+        '''[dataset]
+id = "dataset.fake.v1"
+kind = "dataset"
+adapter = "fake"
+bmp_version = "0.1"
+source = "."
+commit = "content-sha"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+split = "test"
+
+[dataset.config]
+task_manifest = "tasks.toml"
+''',
+        encoding="utf-8",
+    )
+    dataset = compile_dataset_artifact(
+        load_dataset_spec(dataset_path),
+        declaration_path=dataset_path,
+    )
+    evaluator_path = tmp_path / "evaluator.toml"
+    evaluator_path.write_text(
+        '''[evaluator]
+id = "evaluator.fake.v1"
+kind = "evaluator"
+adapter = "fake"
+bmp_version = "0.1"
+implementation = "fake.exact.v1"
+scoring_kind = "binary"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "score"
+authoritative = true
+success_operator = "eq"
+success_threshold = 1.0
+absolute_tolerance = 0.0
+''',
+        encoding="utf-8",
+    )
+    evaluator = _compile_evaluator_artifact(
+        load_evaluator_spec(evaluator_path),
+        evaluator_path,
+    )
+    metric_path = tmp_path / "metric.toml"
+    metric_path.write_text(
+        '''[metric]
+id = "reward.authoritative.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "continuous"
+level = "rollout"
+direction = "maximize"
+unit = "reward"
+source = "evaluator"
+source_field = "evaluator_binding"
+formula = "direct_v1"
+population = "evaluator_observations"
+missing_observation = "invalidate"
+''',
+        encoding="utf-8",
+    )
+    metric = _compile_metric_artifact(
+        load_metric_spec(metric_path),
+        metric_path,
     )
     subject = compile_subject_artifact(
         SubjectSpecAdapter.validate_python(
@@ -960,12 +1159,14 @@ def _manifest(tmp_path: Path, *, created_at: str, seed: int = 7):
     )
     return ResolvedBmpManifest(
         benchmark=benchmark,
+        dataset=dataset,
+        evaluator=evaluator,
+        metrics=(metric,),
         subject=subject,
         execution=execution,
         claim_design=ClaimDesign(
-            scope=ClaimScope.conformance,
+            comparison_kind=None,
             purpose=RunPurpose.exploratory,
-            vary=(),
         ),
         contrast=ExperimentContrast(
             mode="all_arms",

@@ -59,6 +59,10 @@ def test_native_harbor_shapes_cover_current_runtime_statuses(tmp_path: Path) -> 
             reward_pass_value=1.0,
         )
         assert case.bundle.provenance.test_override is not None
-        assert case.bundle.provenance.test_override.forced_scope == "conformance"
+        assert (
+            case.bundle.provenance.test_override.forced_purpose
+            == "exploratory"
+        )
+        assert case.bundle.provenance.test_override.forced_comparison_kind is None
         observed.add(case.bundle.status.value)
     assert observed == {status.value for status in RunStatus if status != RunStatus.scored}

@@ -3,21 +3,3 @@ id = "deterministic-evolution.v1"
 kind = "custom"
 adapter = "deterministic_evolution"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/deterministic_evolution"
-commit = "deterministic-evolution-v1"
-content_globs = [
-  "public-input.json",
-  "search-evaluator.json",
-  "search-split.json",
-  "holdout-split.json",
-]
-verifier = "deterministic-evolution.holdout"
-scoring_kind = "continuous"
-authoritative_reward_metric = "holdout_quality"
-
-[benchmark.config]
-public_input = "public-input.json"
-search_evaluator = "search-evaluator.json"
-search_split = "search-split.json"
-holdout_split = "holdout-split.json"
-generation_step = 2

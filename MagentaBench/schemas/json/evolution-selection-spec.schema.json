@@ -1,0 +1,70 @@
+{
+  "additionalProperties": false,
+  "description": "Registered parent-selection semantics for an evolution method.\n\nThe registry owns the selector and every parameter that can change its\nrealized choice. Runtime receipts add the concrete candidate population\nand RNG state; they must not invent a selector that is absent here.",
+  "properties": {
+    "child_count_penalty": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Child Count Penalty",
+      "type": "number"
+    },
+    "direction": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "metric_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "policy_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "rng_algorithm": {
+      "default": "none",
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Rng Algorithm",
+      "type": "string"
+    },
+    "rng_seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rng Seed"
+    },
+    "selector": {
+      "enum": [
+        "extreme",
+        "weighted"
+      ],
+      "title": "Selector",
+      "type": "string"
+    },
+    "tie_break_rule": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Tie Break Rule",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id",
+    "selector",
+    "metric_id",
+    "direction",
+    "tie_break_rule"
+  ],
+  "title": "EvolutionSelectionSpec",
+  "type": "object"
+}

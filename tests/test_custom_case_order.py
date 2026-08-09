@@ -18,6 +18,7 @@ from MagentaBench.runner.gates import _receipt_binding_errors, evaluate_run_repo
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.runner.scheduler import Scheduler, SchedulerError
 from MagentaBench.schemas import (
+    ComparisonKind,
     CustomCaseOrderSpec,
     GateName,
     ProtocolSpec,
@@ -279,12 +280,21 @@ def test_pipeline_and_gate_bind_explicit_case_order(tmp_path: Path) -> None:
 def test_multicase_claim_evidence_refs_are_unique(tmp_path: Path) -> None:
     project, experiment = _custom_project(tmp_path, ("case-002", "case-001"))
     result = Pipeline(project, tmp_path / "records").run(experiment)
+    registered_subject = Compiler(ROOT)._subject_artifact("fake.nonfake")
     claim_runs = []
     for item in result.runs:
         design = item.plan.manifest.claim_design.model_copy(
-            update={"purpose": RunPurpose.claim}
+            update={
+                "purpose": RunPurpose.claim,
+                "comparison_kind": ComparisonKind.coding_agent,
+            }
         )
-        manifest = item.plan.manifest.model_copy(update={"claim_design": design})
+        manifest = item.plan.manifest.model_copy(
+            update={
+                "claim_design": design,
+                "subject": registered_subject,
+            }
+        )
         claim_runs.append(replace(item, plan=replace(item.plan, manifest=manifest)))
     expected = tuple(
         f"{item.plan.manifest.metadata.run_id}::{item.case.case_id}"

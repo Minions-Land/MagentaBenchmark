@@ -1,0 +1,23 @@
+[configuration]
+id = "evolution.deterministic.v1"
+kind = "configuration"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+
+[configuration.values.evolution]
+generation_step = 2
+
+[configuration.values.evolution.parent_budget]
+tokens = 6
+
+[configuration.values.evolution.root_minimum]
+tokens = 12
+
+[configuration.values.evolution.selection]
+policy_id = "selection.deterministic-extreme.v1"
+selector = "extreme"
+metric_id = "reward.authoritative.v1"
+direction = "maximize"
+tie_break_rule = "prefer_revised_then_lexicographic"
+child_count_penalty = 0.0
+rng_algorithm = "none"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import traceback
 from dataclasses import dataclass, replace
 from math import isclose
 from pathlib import Path
@@ -14,10 +15,14 @@ from MagentaBench.schemas import (
     CheckpointLoadReceipt,
     CheckpointSaveReceipt,
     ClaimReport,
+    EvidenceBundle,
+    ProvenanceRecord,
     RecordIndex,
     RunPurpose,
     RunReport,
+    RunStatus,
     ScheduleActivationReceipt,
+    UsageRecord,
     canonical_digest,
 )
 
@@ -104,6 +109,86 @@ class Pipeline:
                         f"{artifact.capability.adapter!r}"
                     )
 
+    def _record_attempt_exception(
+        self,
+        run: CompiledRun,
+        case_id: str,
+        attempt_id: str,
+        exc: Exception,
+    ) -> CaseExecution:
+        """Turn an uncaught worker failure into retained rollout evidence."""
+
+        if isinstance(exc, TimeoutError):
+            status = RunStatus.timeout
+        elif isinstance(exc, (ConnectionError, OSError)):
+            status = RunStatus.infra_error
+        else:
+            status = RunStatus.harness_fault
+        directory = (
+            self.backend.run_directory(run)
+            / "attempt_failures"
+            / attempt_id
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        exception_path = directory / "exception.txt"
+        atomic_write_bytes(
+            exception_path,
+            "".join(traceback.format_exception(exc)).encode("utf-8", errors="replace"),
+        )
+        runner_digest = self.backend.runner_digest
+        provenance = ProvenanceRecord(
+            manifest_digest=run.manifest_digest,
+            runner_digest=runner_digest,
+            benchmark_digest=run.manifest.benchmark.artifact_digest,
+            subject_digest=run.manifest.subject.artifact_digest,
+            backend_digest=(
+                run.manifest.execution.backend.digest or runner_digest
+            ),
+            trace_emission_claimed=False,
+            backend_kind=run.manifest.execution.backend.kind,
+            network_mode=str(
+                run.manifest.execution.backend.defaults.get(
+                    "network_mode",
+                    run.manifest.execution.backend.defaults.get("network", "unobserved"),
+                )
+            ),
+        )
+        bundle = EvidenceBundle(
+            run_id=attempt_id,
+            status=status,
+            log_refs=(artifact_ref(exception_path),),
+            usage=UsageRecord(total_tokens=None, cost=None),
+            provenance=provenance,
+        )
+        bundle_path = directory / "evidence_bundle.json"
+        atomic_write_json(bundle_path, bundle)
+        return CaseExecution(
+            case_id=case_id,
+            bundle=bundle,
+            bundle_path=bundle_path,
+            bundle_digest=sha256_file(bundle_path),
+        )
+
+    def _execute_attempt(
+        self,
+        run: CompiledRun,
+        adapter: Any,
+        case: Any,
+        attempt: Any,
+    ) -> CaseExecution:
+        try:
+            return ensure_model_activation_receipt(
+                run,
+                adapter.execute(self.backend, run, case, attempt),
+            )
+        except Exception as exc:
+            return self._record_attempt_exception(
+                run,
+                attempt.case_id,
+                attempt.attempt_id,
+                exc,
+            )
+
     @staticmethod
     def _read_json(path: Path) -> Any:
         with path.open(encoding="utf-8") as handle:
@@ -130,6 +215,7 @@ class Pipeline:
                     "run_id": run.manifest.metadata.run_id,
                     "manifest_digest": run.manifest_digest,
                     "benchmark_digest": run.manifest.benchmark.artifact_digest,
+                    "dataset_digest": run.manifest.dataset.artifact_digest,
                     "subject_digest": run.manifest.subject.artifact_digest,
                     "backend_digest": run.manifest.execution.backend.digest,
                     "benchmark_loader_digest": (
@@ -185,6 +271,8 @@ class Pipeline:
             case_set_digest=loaded.artifact.canonical_digest(),
             loader_adapter=loader.adapter,
             loader_digest=loader.digest,
+            dataset_id=loaded.artifact.dataset_id,
+            dataset_digest=loaded.artifact.dataset_digest,
             ordered_case_ids=loaded.artifact.ordered_case_ids,
         )
         receipt_path = (
@@ -202,39 +290,51 @@ class Pipeline:
     def _counterbalanced_order(
         runs: list[CompiledRun],
         *,
-        control_id: str,
-        treatment_id: str,
+        control_value: Any,
+        treatment_value: Any,
+        factor_path: str | None = None,
         enabled: bool,
     ) -> list[CompiledRun]:
-        if not enabled or control_id == treatment_id:
+        control_key = canonical_json_bytes(control_value)
+        treatment_key = canonical_json_bytes(treatment_value)
+        if not enabled or control_key == treatment_key:
             return list(runs)
-        grouped: dict[bytes, dict[str, CompiledRun]] = {}
+        grouped: dict[bytes, dict[bytes, CompiledRun]] = {}
         group_order: list[bytes] = []
         for run in runs:
             factors = {
                 key: value
                 for key, value in run.factor_values.items()
-                if key not in {"subject", "experiment.subject"}
+                if key not in {"subject", "experiment.subject", factor_path}
             }
             key = canonical_json_bytes(factors)
             if key not in grouped:
                 grouped[key] = {}
                 group_order.append(key)
-            grouped[key][run.manifest.subject.id] = run
+            if factor_path is not None and factor_path not in run.factor_values:
+                raise RuntimeError(
+                    f"counterbalance factor {factor_path!r} is absent from a run"
+                )
+            arm = canonical_json_bytes(
+                run.manifest.subject.id
+                if factor_path is None
+                else run.factor_values[factor_path]
+            )
+            grouped[key][arm] = run
         ordered: list[CompiledRun] = []
         for key in group_order:
             pair = grouped[key]
-            if set(pair) != {control_id, treatment_id}:
+            if set(pair) != {control_key, treatment_key}:
                 ordered.extend(pair.values())
                 continue
-            repetition = pair[control_id].factor_values.get("repetition", 0)
+            repetition = pair[control_key].factor_values.get("repetition", 0)
             treatment_first = int(repetition) % 2 == 1
-            ids = (
-                (treatment_id, control_id)
+            arms = (
+                (treatment_key, control_key)
                 if treatment_first
-                else (control_id, treatment_id)
+                else (control_key, treatment_key)
             )
-            ordered.extend(pair[subject_id] for subject_id in ids)
+            ordered.extend(pair[arm] for arm in arms)
         return ordered
 
     @staticmethod
@@ -639,13 +739,33 @@ class Pipeline:
                 f"{sorted(factories)}"
             )
         contrast = compiled[0].manifest.contrast
-        control_id = contrast.control_id or compiled[0].manifest.subject.id
-        treatment_id = contrast.treatment_id or compiled[-1].manifest.subject.id
+        if contrast.mode == "one_factor":
+            factor_path = next(
+                artifact.factor.selector_path
+                for artifact in compiled[0].manifest.metadata.factor_artifacts
+                if artifact.factor.id == contrast.factor_id
+            )
+            control_value = next(
+                artifact.factor.level(contrast.control_level).value
+                for artifact in compiled[0].manifest.metadata.factor_artifacts
+                if artifact.factor.id == contrast.factor_id
+            )
+            treatment_value = next(
+                artifact.factor.level(contrast.treatment_level).value
+                for artifact in compiled[0].manifest.metadata.factor_artifacts
+                if artifact.factor.id == contrast.factor_id
+            )
+            arm_path = factor_path
+        else:
+            control_value = compiled[0].manifest.subject.id
+            treatment_value = compiled[-1].manifest.subject.id
+            arm_path = None
         counterbalanced = contrast.counterbalanced
         compiled = self._counterbalanced_order(
             compiled,
-            control_id=control_id,
-            treatment_id=treatment_id,
+            control_value=control_value,
+            treatment_value=treatment_value,
+            factor_path=arm_path,
             enabled=counterbalanced,
         )
         experiment_id = compiled[0].manifest.metadata.experiment_id
@@ -872,18 +992,19 @@ class Pipeline:
                 schedule = self.scheduler.execute(
                     run,
                     loaded_case_set.cases,
+                    case_artifacts={
+                        case.case_id: case
+                        for case in loaded_case_set.artifact.cases
+                    },
                     attempt_runner=(
                         lambda attempt,
                         run=run,
                         adapter=execution_adapter,
-                        cases=runtime_cases: ensure_model_activation_receipt(
+                        cases=runtime_cases: self._execute_attempt(
                             run,
-                            adapter.execute(
-                                self.backend,
-                                run,
-                                cases[attempt.case_id],
-                                attempt,
-                            ),
+                            adapter,
+                            cases[attempt.case_id],
+                            attempt,
                         )
                     ),
                     reset_state=(

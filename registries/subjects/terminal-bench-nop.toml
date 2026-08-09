@@ -1,6 +1,7 @@
 [subject]
 id = "terminal-bench.nop"
 kind = "opaque_agent"
+comparison_kind = "coding_agent"
 adapter = "harbor-nop"
 bmp_version = "0.1"
 source = "../../MagentaBench"

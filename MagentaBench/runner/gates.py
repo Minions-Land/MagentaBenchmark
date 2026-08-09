@@ -23,16 +23,18 @@ from MagentaBench.schemas import (
     GateName,
     GateResult,
     LineageRef,
+    MetricResult,
     NetworkBoundary,
     NetworkPolicySource,
     RunPurpose,
     RunReport,
     RunStatus,
+    RolloutTrajectory,
     ScheduleActivationReceipt,
     StatisticalAnalysisReceipt,
     canonical_digest,
 )
-from MagentaBench.schemas.models import SubjectKind
+from MagentaBench.schemas.models import ComparisonKind, SubjectKind
 from MagentaBench.schemas.model_activation import replay_model_activation_receipt
 from MagentaBench.schemas.statistics import (
     PairedScore,
@@ -48,6 +50,7 @@ from .case_order import (
     selected_case_ids as resolve_selected_case_ids,
 )
 from .evidence import artifact_ref, sha256_file, source_closure_digest
+from MagentaBench.schemas.metrics import compute_metric_results
 
 
 @dataclass(frozen=True)
@@ -232,29 +235,31 @@ def _score(item: CompletedRun) -> float | None:
     return None if evidence is None else evidence.score
 
 
-def _report_subject_kind(items: Iterable[CompletedRun]) -> SubjectKind:
-    """Derive the report subject kind from the resolved manifests.
-
-    A report must describe the subject that actually entered the execution
-    path. Keeping this derived from the compiled manifests prevents a caller
-    from relabeling an opaque/fake run as a harness claim at report time.
-    """
+def _report_subject_identity(
+    items: Iterable[CompletedRun],
+) -> tuple[ComparisonKind | None, tuple[SubjectKind, ...]]:
+    """Derive semantic comparison kind and all observed packaging kinds."""
 
     runs = tuple(items)
-    kinds = {item.plan.manifest.subject.kind for item in runs}
-    if len(kinds) != 1:
+    comparison_kinds = {
+        item.plan.manifest.claim_design.comparison_kind for item in runs
+    }
+    if len(comparison_kinds) != 1:
         raise ValueError(
-            "subject kind must be invariant across an experiment: "
-            + ", ".join(sorted(kinds))
+            "comparison kind must be invariant across an experiment"
         )
-    raw_kind = next(iter(kinds))
-    try:
-        return SubjectKind(raw_kind)
-    except ValueError as exc:
-        raise ValueError(f"unsupported resolved subject kind: {raw_kind!r}") from exc
+    raw_kinds = tuple(
+        sorted(
+            {SubjectKind(item.plan.manifest.subject.kind) for item in runs},
+            key=lambda value: value.value,
+        )
+    )
+    return next(iter(comparison_kinds)), raw_kinds
 
 
-def _report_identity(items: Iterable[CompletedRun]) -> tuple[str, str, SubjectKind]:
+def _report_identity(
+    items: Iterable[CompletedRun],
+) -> tuple[str, str, ComparisonKind | None, tuple[SubjectKind, ...]]:
     """Derive experiment identity fields from the completed run manifests."""
 
     runs = tuple(items)
@@ -270,7 +275,13 @@ def _report_identity(items: Iterable[CompletedRun]) -> tuple[str, str, SubjectKi
     # here so multi-case reports remain byte-bound to that index.
     manifest_digests = list(dict.fromkeys(item.plan.manifest_digest for item in runs))
     experiment_digest = sha256_bytes(canonical_json_bytes(manifest_digests))
-    return next(iter(experiment_ids)), experiment_digest, _report_subject_kind(runs)
+    comparison_kind, subject_kinds = _report_subject_identity(runs)
+    return (
+        next(iter(experiment_ids)),
+        experiment_digest,
+        comparison_kind,
+        subject_kinds,
+    )
 
 
 def _report_contrast(
@@ -283,8 +294,23 @@ def _report_contrast(
     if len(contrasts) != 1:
         raise ValueError("experiment contrast must be invariant across runs")
     contrast = runs[0].plan.manifest.contrast
-    control_id = contrast.control_id or "__factor_control__"
-    treatment_id = contrast.treatment_id or "__factor_treatment__"
+    if (
+        contrast.mode != "one_factor"
+        or contrast.factor_id is None
+        or contrast.control_level is None
+        or contrast.treatment_level is None
+    ):
+        raise ValueError("claim report requires a registered one-factor contrast")
+    factor_artifacts = {
+        artifact.factor.id: artifact
+        for artifact in runs[0].plan.manifest.metadata.factor_artifacts
+    }
+    try:
+        factor = factor_artifacts[contrast.factor_id].factor
+        control_value = factor.level(contrast.control_level).value
+        treatment_value = factor.level(contrast.treatment_level).value
+    except (KeyError, ValueError) as exc:
+        raise ValueError("claim contrast factor registry cannot be replayed") from exc
     protocols = [item.plan.manifest.execution.protocol for item in runs]
     protocol_digests = {
         None if protocol is None else canonical_digest(protocol)
@@ -297,13 +323,13 @@ def _report_contrast(
         protocol is not None and getattr(protocol, "deterministic_conformance", False)
     )
     return (
-        control_id,
-        treatment_id,
+        contrast.control_level,
+        contrast.treatment_level,
         deterministic,
         contrast.counterbalanced,
-        contrast.factor_path,
-        contrast.control_value,
-        contrast.treatment_value,
+        factor.selector_path,
+        control_value,
+        treatment_value,
     )
 
 
@@ -348,7 +374,7 @@ def _exploratory_metric_scores(
 ) -> tuple[str, tuple[float, ...]]:
     runs = tuple(items)
     metrics = {
-        item.plan.manifest.benchmark.authoritative_reward_metric for item in runs
+        item.plan.manifest.authoritative_reward_metric for item in runs
     }
     if len(metrics) != 1:
         raise ValueError(
@@ -586,7 +612,7 @@ def _receipt_binding_errors(
         )
         if attempt.status != expected_status:
             errors.append(f"{attempt.attempt_id}: attempt status drift")
-        reward_metric = manifest.benchmark.authoritative_reward_metric
+        reward_metric = manifest.authoritative_reward_metric
         score = (
             None
             if bundle.verifier_evidence is None
@@ -604,20 +630,28 @@ def _receipt_binding_errors(
             continue
         if effective_selection == "best_of_n":
             scored = [item for item in candidates if item.reward_value is not None]
-            expected_winner = (
-                None
-                if not scored
-                else max(
-                    scored,
-                    key=lambda item: (item.reward_value, -item.attempt_index),
+            if not scored:
+                expected_winner = min(
+                    candidates, key=lambda item: item.attempt_index
                 ).attempt_id
-            )
+            else:
+                direction = manifest.authoritative_metric_artifact.metric.direction
+                selector = max if direction.value == "maximize" else min
+                expected_winner = selector(
+                    scored,
+                    key=lambda attempt: (
+                        attempt.reward_value,
+                        -attempt.attempt_index
+                        if direction.value == "maximize"
+                        else attempt.attempt_index,
+                    ),
+                ).attempt_id
         else:
             expected_winner = min(
                 candidates, key=lambda item: item.attempt_index
             ).attempt_id
         selected_ids = [item.attempt_id for item in candidates if item.selected]
-        if selected_ids != ([expected_winner] if expected_winner is not None else []):
+        if selected_ids != [expected_winner]:
             errors.append(f"{case_id}: candidate selection lineage drift")
 
     if item.schedule_receipt_path is None:
@@ -687,6 +721,7 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("case-set artifact is malformed")
         return errors
     benchmark = item.plan.manifest.benchmark
+    dataset = item.plan.manifest.dataset
     if (
         artifact.benchmark_id != benchmark.id
         or artifact.benchmark_digest != benchmark.artifact_digest
@@ -694,6 +729,11 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("case-set benchmark identity drift")
     if artifact.loader_adapter != benchmark.adapter:
         errors.append("case-set loader adapter does not match benchmark")
+    if (
+        artifact.dataset_id != dataset.id
+        or artifact.dataset_digest != dataset.artifact_digest
+    ):
+        errors.append("case-set dataset identity drift")
     if artifact.canonical_digest() != receipt.case_set_digest:
         errors.append("case-set identity digest drift")
     if item.case_set_digest != receipt.case_set_digest:
@@ -742,10 +782,8 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
                 errors.append("case-set custom order adapter drift")
             if artifact.order_strategy_ref != expected_ref:
                 errors.append("case-set custom order content reference drift")
-    source = getattr(benchmark, "source", None)
-    compiled_source_digest = getattr(
-        benchmark, "source_content_digest", None
-    )
+    source = dataset.source
+    compiled_source_digest = dataset.source_content_digest
     try:
         observed_source_digest = (
             source_closure_digest(
@@ -761,7 +799,7 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         or artifact.source_content_digest != compiled_source_digest
         or observed_source_digest != compiled_source_digest
     ):
-        errors.append("case-set source closure differs from compiled benchmark")
+        errors.append("case-set source closure differs from compiled dataset")
     selected_case_ids = tuple(
         attempt.case_id
         for attempt in item.schedule_receipt.attempts
@@ -848,6 +886,45 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     ]
     if bundle.trace_ref is not None:
         refs.append(bundle.trace_ref)
+    if bundle.trajectory_ref is None:
+        errors.append("RolloutTrajectory missing")
+    else:
+        refs.append(bundle.trajectory_ref)
+        trajectory_path = Path(bundle.trajectory_ref.path)
+        try:
+            trajectory = RolloutTrajectory.model_validate_json(
+                trajectory_path.read_bytes()
+            )
+        except (OSError, ValueError):
+            errors.append("RolloutTrajectory is missing or malformed")
+        else:
+            if trajectory.attempt_id != bundle.run_id:
+                errors.append("RolloutTrajectory attempt identity drift")
+            if trajectory.manifest_digest != item.plan.manifest_digest:
+                errors.append("RolloutTrajectory manifest digest drift")
+            if trajectory.terminal_status != bundle.status:
+                errors.append("RolloutTrajectory terminal status drift")
+            if trajectory.usage != bundle.usage:
+                errors.append("RolloutTrajectory usage drift")
+            if (
+                manifest.claim_design.purpose == RunPurpose.claim
+                and not trajectory.capture.claim_complete
+            ):
+                errors.append("claim rollout trajectory capture is incomplete")
+            refs.extend(
+                (
+                    *trajectory.input_refs,
+                    *trajectory.output_refs,
+                    *trajectory.log_refs,
+                    *trajectory.native_trace_refs,
+                    *trajectory.evaluator_refs,
+                    *(
+                        ref
+                        for event in trajectory.events
+                        for ref in (*event.input_refs, *event.output_refs)
+                    ),
+                )
+            )
     if bundle.checkpoint_ref is not None:
         refs.append(bundle.checkpoint_ref)
     network_observation = bundle.network_observation
@@ -965,8 +1042,8 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
                     errors.append("evolution execution capability binding is ambiguous")
                 elif evolution.adapter_digest != execution_capabilities[0].digest:
                     errors.append("evolution adapter digest drift")
-                if evolution.evaluator_digest != manifest.benchmark.artifact_digest:
-                    errors.append("evolution evaluator digest drift")
+                if evolution.evaluator_digest != manifest.evaluator.artifact_digest:
+                    errors.append("evolution registered evaluator digest drift")
                 if evolution.budget_digest != canonical_digest(
                     manifest.execution.budget
                 ):
@@ -1137,6 +1214,7 @@ def _evaluate_claim(
     deterministic_conformance: bool,
     counterbalanced: bool,
     record_index_ref: ArtifactRef | None,
+    metric_results: tuple[MetricResult, ...] | None = None,
     contrast_factor_path: str | None = None,
     contrast_control_value: object | None = None,
     contrast_treatment_value: object | None = None,
@@ -1144,9 +1222,41 @@ def _evaluate_claim(
     """Evaluate independent gates and derive claim eligibility."""
 
     items = list(completed)
-    report_experiment_id, report_manifest_digest, subject_kind = _report_identity(items)
+    if metric_results is None:
+        # Derive the registered metric results from the schedule when this
+        # lower-level helper is called directly.  Callers cannot inject a
+        # hand-written score; the same replay path as ``evaluate_run_report``
+        # remains authoritative.
+        derived_results: list[MetricResult] = []
+        seen_parents: set[str] = set()
+        for item in items:
+            parent_run_id = item.plan.manifest.metadata.run_id
+            if parent_run_id in seen_parents:
+                continue
+            seen_parents.add(parent_run_id)
+            if item.schedule_receipt is None or item.schedule_receipt_path is None:
+                raise ValueError(
+                    f"registered metrics require ScheduleActivationReceipt: {parent_run_id}"
+                )
+            derived_results.extend(
+                compute_metric_results(
+                    item.plan.manifest,
+                    item.plan.manifest_digest,
+                    item.schedule_receipt,
+                    item.schedule_receipt_path,
+                )
+            )
+        metric_results = tuple(derived_results)
+    (
+        report_experiment_id,
+        report_manifest_digest,
+        comparison_kind,
+        subject_kinds,
+    ) = _report_identity(items)
+    if comparison_kind is None:
+        raise ValueError("claim report requires a comparison kind")
     authoritative_metrics = {
-        item.plan.manifest.benchmark.authoritative_reward_metric for item in items
+        item.plan.manifest.authoritative_reward_metric for item in items
     }
     authoritative_metric = (
         next(iter(authoritative_metrics)) if len(authoritative_metrics) == 1 else None
@@ -1410,7 +1520,7 @@ def _evaluate_claim(
             metric=authoritative_metric or "unbound",
             observations=observations,
             evaluation_splits=tuple(
-                benchmark_evaluation_split(item.plan.manifest.benchmark)
+                benchmark_evaluation_split(item.plan.manifest.dataset)
                 for item in items
             ),
             allow_no_holdout=deterministic_conformance,
@@ -1520,12 +1630,14 @@ def _evaluate_claim(
     lineage = tuple(_lineage_ref(item) for item in items)
     return ClaimReport(
         purpose=RunPurpose.claim,
-        subject_kind=subject_kind,
+        comparison_kind=comparison_kind,
+        subject_kinds=subject_kinds,
         experiment_id=report_experiment_id,
         manifest_digest=report_manifest_digest,
         gates=gates,
         effect=effect,
         statistics_receipt=statistics_receipt,
+        metric_results=metric_results,
         failure_breakdown=dict(counts),
         lineage=lineage,
         record_index_ref=record_index_ref,
@@ -1543,7 +1655,12 @@ def evaluate_run_report(
     items = list(completed)
     if not items:
         raise ValueError("cannot report an experiment with no completed runs")
-    derived_experiment_id, derived_manifest_digest, subject_kind = _report_identity(items)
+    (
+        derived_experiment_id,
+        derived_manifest_digest,
+        comparison_kind,
+        subject_kinds,
+    ) = _report_identity(items)
     expected_duplicates = sorted(
         run_id for run_id, count in Counter(expected_run_ids).items() if count > 1
     )
@@ -1585,6 +1702,26 @@ def evaluate_run_report(
     if len(purposes) != 1:
         raise ValueError("run purpose must be invariant across an experiment")
     purpose = next(iter(purposes))
+    metric_results_list: list[MetricResult] = []
+    seen_metric_parents: set[str] = set()
+    for item in items:
+        parent_run_id = item.plan.manifest.metadata.run_id
+        if parent_run_id in seen_metric_parents:
+            continue
+        seen_metric_parents.add(parent_run_id)
+        if item.schedule_receipt is None or item.schedule_receipt_path is None:
+            raise ValueError(
+                f"registered metrics require ScheduleActivationReceipt: {parent_run_id}"
+            )
+        metric_results_list.extend(
+            compute_metric_results(
+                item.plan.manifest,
+                item.plan.manifest_digest,
+                item.schedule_receipt,
+                item.schedule_receipt_path,
+            )
+        )
+    metric_results = tuple(metric_results_list)
     if purpose == RunPurpose.claim:
         (
             derived_control_id,
@@ -1605,6 +1742,7 @@ def evaluate_run_report(
             deterministic_conformance=derived_deterministic,
             counterbalanced=derived_counterbalanced,
             record_index_ref=record_index_ref,
+            metric_results=metric_results,
             contrast_factor_path=derived_factor_path,
             contrast_control_value=derived_control_value,
             contrast_treatment_value=derived_treatment_value,
@@ -1667,7 +1805,8 @@ def evaluate_run_report(
     )
     return ObservationReport(
         purpose=RunPurpose.exploratory,
-        subject_kind=subject_kind,
+        comparison_kind=comparison_kind,
+        subject_kinds=subject_kinds,
         experiment_id=derived_experiment_id,
         manifest_digest=derived_manifest_digest,
         protocol_valid=not protocol_reasons,
@@ -1675,6 +1814,7 @@ def evaluate_run_report(
         isolation_valid=not isolation_reasons,
         isolation_reasons=isolation_reasons,
         observations=observations,
+        metric_results=metric_results,
         failure_breakdown=dict(Counter(statuses)),
         lineage=lineage,
         record_index_ref=record_index_ref,

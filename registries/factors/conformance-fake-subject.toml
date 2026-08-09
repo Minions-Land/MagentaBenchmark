@@ -1,0 +1,24 @@
+[factor]
+id = "conformance.fake-subject"
+kind = "factor"
+adapter = "magentabench.factor"
+bmp_version = "0.1"
+category = "conformance_fixture"
+selector_path = "subject"
+applies_to = []
+resolved_diff_paths = [
+  "subject.artifact_digest",
+  "subject.fixed_answer",
+  "subject.id",
+]
+activation_evidence = "none"
+value_registry = "subject"
+metadata_only = false
+
+[[factor.levels]]
+id = "control"
+value = "fake.control"
+
+[[factor.levels]]
+id = "treatment"
+value = "fake.treatment"

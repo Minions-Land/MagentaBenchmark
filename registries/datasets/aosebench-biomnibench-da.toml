@@ -1,0 +1,13 @@
+[dataset]
+id = "dataset.aosebench.biomnibench-da.v1"
+kind = "dataset"
+adapter = "aosebench"
+bmp_version = "0.1"
+source = "../../../../BioAgent/AOSEBench"
+commit = "46d437f2f7a8ef505b8fac95ade12c2d6458a623"
+content_globs = ["benchmark/tasks/**/*"]
+format = "aosebench-task-suite"
+split = "test"
+
+[dataset.config]
+task_root = "benchmark/tasks"

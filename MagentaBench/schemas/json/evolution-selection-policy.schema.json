@@ -1,0 +1,82 @@
+{
+  "additionalProperties": false,
+  "description": "Explicit, replayable policy for choosing a parent/candidate.\n\nThe runtime must receive this object from the experiment configuration (or\nuse the documented deterministic default).  Keeping the selector identity,\ndirection, tie break, and RNG state in the receipt prevents a later\nimplementation change from silently changing which candidate was chosen.",
+  "properties": {
+    "child_count_penalty": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Child Count Penalty",
+      "type": "number"
+    },
+    "direction": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "Direction",
+      "type": "string"
+    },
+    "metric": {
+      "minLength": 1,
+      "title": "Metric",
+      "type": "string"
+    },
+    "policy_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "rng_algorithm": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng Algorithm",
+      "type": "string"
+    },
+    "rng_seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rng Seed"
+    },
+    "rng_state_after": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng State After",
+      "type": "string"
+    },
+    "rng_state_before": {
+      "default": "none",
+      "minLength": 1,
+      "title": "Rng State Before",
+      "type": "string"
+    },
+    "selector": {
+      "enum": [
+        "extreme",
+        "weighted"
+      ],
+      "title": "Selector",
+      "type": "string"
+    },
+    "tie_break_rule": {
+      "minLength": 1,
+      "title": "Tie Break Rule",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id",
+    "selector",
+    "metric",
+    "direction",
+    "tie_break_rule"
+  ],
+  "title": "EvolutionSelectionPolicy",
+  "type": "object"
+}

@@ -1,0 +1,31 @@
+[meta_evolver]
+id = "meta-evolver.deterministic.v1"
+kind = "meta_evolver"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+comparison_kind = "meta_evolution_method"
+subject_adapter = "deterministic-local"
+target = "evolver"
+parent_evolver_id = "evolver.deterministic.v1"
+configuration_profile_id = "evolution.deterministic.v1"
+selection_configuration_path = "evolution.selection"
+
+[meta_evolver.selection]
+policy_id = "selection.deterministic-extreme.v1"
+selector = "extreme"
+metric_id = "reward.authoritative.v1"
+direction = "maximize"
+tie_break_rule = "prefer_revised_then_lexicographic"
+child_count_penalty = 0.0
+rng_algorithm = "none"
+
+[meta_evolver.surface]
+editable_paths = ["parent_evolver"]
+protected_paths = [
+  "dataset",
+  "evaluator",
+  "execution",
+  "metrics",
+  "schedule",
+  "sealed_holdout",
+]

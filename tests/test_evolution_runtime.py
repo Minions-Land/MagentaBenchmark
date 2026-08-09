@@ -394,7 +394,7 @@ def test_registered_evolution_adapter_runs_through_bmp_pipeline(
     verified = verify_observation_report(result.report_path)
 
     assert verified.report.experiment_id == experiment_id
-    assert verified.report.subject_kind.value == kind
+    assert tuple(item.value for item in verified.report.subject_kinds) == (kind,)
     assert verified.report.protocol_valid is True
     assert verified.report.isolation_valid is False
     assert len(result.runs) == 1

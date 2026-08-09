@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from MagentaBench.runner.compiler import CompilationError, Compiler, canonical_json_bytes
-from MagentaBench.runner.configuration import ConfigurationRegistry
 from MagentaBench.runner.adapter_registry import AdapterRegistry
 from MagentaBench.runner.pipeline import Pipeline, ResumeDriftError
 from MagentaBench.schemas.verification import (
@@ -26,11 +25,72 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
     shutil.copytree(
         ROOT / "MagentaBench/conformance", project / "MagentaBench/conformance"
     )
+    subject_path = project / "registries/subjects/fake-nonfake.toml"
+    subject_text = subject_path.read_text(encoding="utf-8")
+    if "comparison_kind" not in subject_text:
+        subject_path.write_text(
+            subject_text.replace(
+                'kind = "opaque_agent"\n',
+                'kind = "opaque_agent"\ncomparison_kind = "coding_agent"\n',
+            ),
+            encoding="utf-8",
+        )
     (project / "registries/protocols/custom-eval.toml").write_text(
         (ROOT / "registries/protocols/benchmark-evaluation.v1.toml")
         .read_text(encoding="utf-8")
         .replace('id = "benchmark.evaluation.v1"', 'id = "custom.evaluation.v1"')
         .replace('state_reset = "per_case"', 'state_reset = "per_rollout"'),
+        encoding="utf-8",
+    )
+    (project / "registries/datasets/external-fake.toml").write_text(
+        '''[dataset]
+id = "dataset.external.fake.v1"
+kind = "dataset"
+adapter = "external.benchmark"
+bmp_version = "0.1"
+source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
+commit = "external-fixture-v1"
+content_globs = ["tasks.toml"]
+format = "toml-task-suite"
+split = "test"
+
+[dataset.config]
+task_manifest = "tasks.toml"
+''',
+        encoding="utf-8",
+    )
+    (project / "registries/metrics/external-quality.toml").write_text(
+        '''[metric]
+id = "quality.authoritative.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "continuous"
+level = "rollout"
+direction = "maximize"
+unit = "reward"
+source = "evaluator"
+source_field = "evaluator_binding"
+formula = "direct_v1"
+population = "evaluator_observations"
+missing_observation = "invalidate"
+''',
+        encoding="utf-8",
+    )
+    (project / "registries/evaluators/external-quality.toml").write_text(
+        '''[evaluator]
+id = "evaluator.external.quality.v1"
+kind = "evaluator"
+adapter = "external.benchmark"
+bmp_version = "0.1"
+implementation = "external.verifier:v1"
+scoring_kind = "continuous"
+
+[[evaluator.metrics]]
+metric_id = "quality.authoritative.v1"
+source_key = "quality"
+authoritative = true
+''',
         encoding="utf-8",
     )
     plugin_root = project / "plugins/external-benchmark"
@@ -115,19 +175,27 @@ max_model_turns = 300
 
 def test_configuration_profile_is_resolved_into_manifest_identity(tmp_path: Path) -> None:
     project, experiment = _project(tmp_path)
-    registry = ConfigurationRegistry(project / "registries/configurations")
-    registry.upsert(
-        "agent.base",
-        {
-            "agent": {
-                "model": "claude-opus-4.6",
-                "reasoning_effort": "high",
-                "max_context_tokens": 200_000,
-                "max_generation_tokens": 128_000,
-            },
-            "debugger": {"max_model_turns": 25},
-            "meta_agent": {"max_model_turns": 500},
-        },
+    profile = project / "registries/configurations/agent-base.toml"
+    profile.write_text(
+        '''[configuration]
+id = "agent.base"
+kind = "configuration"
+adapter = "generic"
+bmp_version = "0.1"
+
+[configuration.values.agent]
+model = "claude-opus-4.6"
+reasoning_effort = "high"
+max_context_tokens = 200000
+max_generation_tokens = 128000
+
+[configuration.values.debugger]
+max_model_turns = 25
+
+[configuration.values.meta_agent]
+max_model_turns = 500
+''',
+        encoding="utf-8",
     )
 
     first = Compiler(project).compile(experiment)
@@ -139,16 +207,20 @@ def test_configuration_profile_is_resolved_into_manifest_identity(tmp_path: Path
     assert config.artifact_digest == config.canonical_digest()
     assert config.source_refs
 
-    registry.upsert(
-        "agent.base",
-        {
-            "agent": {
-                "model": "gpt-5.4",
-                "reasoning_effort": "high",
-                "max_context_tokens": 200_000,
-                "max_generation_tokens": 128_000,
-            }
-        },
+    profile.write_text(
+        '''[configuration]
+id = "agent.base"
+kind = "configuration"
+adapter = "generic"
+bmp_version = "0.1"
+
+[configuration.values.agent]
+model = "gpt-5.4"
+reasoning_effort = "high"
+max_context_tokens = 200000
+max_generation_tokens = 128000
+''',
+        encoding="utf-8",
     )
     second = Compiler(project).compile(experiment)
     assert first[0].manifest_digest != second[0].manifest_digest
@@ -192,36 +264,42 @@ def test_configuration_profiles_can_compose_multiple_adapter_namespaces(
     tmp_path: Path,
 ) -> None:
     project, experiment = _project(tmp_path)
-    registry = ConfigurationRegistry(project / "registries/configurations")
-    registry.upsert(
-        "agent.layer",
-        {
-            "configuration": {
-                "id": "agent.layer",
-                "kind": "configuration",
-                "adapter": "agent",
-                "values": {"agent": {"model": "gpt-5.4"}},
-                "schema": {
-                    "type": "object",
-                    "properties": {"agent": {"type": "object"}},
-                },
-            }
-        },
+    registry = project / "registries/configurations"
+    (registry / "agent-layer.toml").write_text(
+        '''[configuration]
+id = "agent.layer"
+kind = "configuration"
+adapter = "agent"
+bmp_version = "0.1"
+
+[configuration.values.agent]
+model = "gpt-5.4"
+
+[configuration.schema]
+type = "object"
+
+[configuration.schema.properties.agent]
+type = "object"
+''',
+        encoding="utf-8",
     )
-    registry.upsert(
-        "harness.layer",
-        {
-            "configuration": {
-                "id": "harness.layer",
-                "kind": "configuration",
-                "adapter": "harness",
-                "values": {"harness": {"max_turns": 25}},
-                "schema": {
-                    "type": "object",
-                    "properties": {"harness": {"type": "object"}},
-                },
-            }
-        },
+    (registry / "harness-layer.toml").write_text(
+        '''[configuration]
+id = "harness.layer"
+kind = "configuration"
+adapter = "harness"
+bmp_version = "0.1"
+
+[configuration.values.harness]
+max_turns = 25
+
+[configuration.schema]
+type = "object"
+
+[configuration.schema.properties.harness]
+type = "object"
+''',
+        encoding="utf-8",
     )
     text = experiment.read_text(encoding="utf-8")
     text = text.replace(
@@ -297,28 +375,28 @@ def test_raw_external_configuration_requires_explicit_mode(tmp_path: Path) -> No
 
 def test_configuration_json_schema_is_checked_and_replayed(tmp_path: Path) -> None:
     project, experiment = _project(tmp_path)
-    registry = ConfigurationRegistry(project / "registries/configurations")
-    registry.upsert(
-        "agent.schema",
-        {
-            "configuration": {
-                "id": "agent.schema",
-                "kind": "configuration",
-                "adapter": "generic",
-                "values": {"agent": {"model": "gpt-5.4"}},
-                "schema": {
-                    "type": "object",
-                    "required": ["agent"],
-                    "properties": {
-                        "agent": {
-                            "type": "object",
-                            "required": ["model"],
-                            "properties": {"model": {"type": "string"}},
-                        }
-                    },
-                },
-            }
-        },
+    (project / "registries/configurations/agent-schema.toml").write_text(
+        '''[configuration]
+id = "agent.schema"
+kind = "configuration"
+adapter = "generic"
+bmp_version = "0.1"
+
+[configuration.values.agent]
+model = "gpt-5.4"
+
+[configuration.schema]
+type = "object"
+required = ["agent"]
+
+[configuration.schema.properties.agent]
+type = "object"
+required = ["model"]
+
+[configuration.schema.properties.agent.properties.model]
+type = "string"
+''',
+        encoding="utf-8",
     )
     text = experiment.read_text(encoding="utf-8").replace(
         'profiles = ["agent.base"]',
@@ -343,10 +421,21 @@ def test_configuration_json_schema_is_checked_and_replayed(tmp_path: Path) -> No
 
 def test_standalone_verifier_rejects_configuration_source_drift(tmp_path: Path) -> None:
     project, experiment = _project(tmp_path)
-    registry = ConfigurationRegistry(project / "registries/configurations")
-    record = registry.upsert("agent.base", {"agent": {"model": "gpt-5.4-mini"}})
+    profile = project / "registries/configurations/agent-base.toml"
+    profile.write_text(
+        '''[configuration]
+id = "agent.base"
+kind = "configuration"
+adapter = "generic"
+bmp_version = "0.1"
+
+[configuration.values.agent]
+model = "gpt-5.4-mini"
+''',
+        encoding="utf-8",
+    )
     run = Compiler(project).compile(experiment)[0]
-    record.path.write_bytes(record.toml_bytes + b"\n")
+    profile.write_bytes(profile.read_bytes() + b"\n")
     mismatches: list[str] = []
     _verify_manifest_configuration(
         run.manifest,
@@ -370,14 +459,6 @@ id = "custom.demo"
 kind = "custom"
 adapter = "external.benchmark"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
-content_globs = ["tasks.toml"]
-verifier = "external.verifier:v1"
-scoring_kind = "continuous"
-authoritative_reward_metric = "quality"
-
-[benchmark.config]
-split = "test"
 """,
         encoding="utf-8",
     )
@@ -393,13 +474,15 @@ split = "test"
         """[experiment]
 id = "custom-exploratory"
 benchmark = "custom.demo"
+dataset = "dataset.external.fake.v1"
+evaluator = "evaluator.external.quality.v1"
+metrics = ["quality.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "custom.evaluation.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -481,11 +564,6 @@ id = "custom.drift"
 kind = "custom"
 adapter = "external.benchmark"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
-content_globs = ["tasks.toml"]
-verifier = "external.verifier:v1"
-scoring_kind = "continuous"
-authoritative_reward_metric = "quality"
 """,
         encoding="utf-8",
     )
@@ -494,13 +572,15 @@ authoritative_reward_metric = "quality"
         """[experiment]
 id = "custom-drift"
 benchmark = "custom.drift"
+dataset = "dataset.external.fake.v1"
+evaluator = "evaluator.external.quality.v1"
+metrics = ["quality.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "custom.evaluation.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -566,11 +646,6 @@ id = "custom.standalone"
 kind = "custom"
 adapter = "external.benchmark"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
-content_globs = ["tasks.toml"]
-verifier = "external.verifier:v1"
-scoring_kind = "continuous"
-authoritative_reward_metric = "quality"
 """,
         encoding="utf-8",
     )
@@ -579,13 +654,15 @@ authoritative_reward_metric = "quality"
         """[experiment]
 id = "custom-standalone"
 benchmark = "custom.standalone"
+dataset = "dataset.external.fake.v1"
+evaluator = "evaluator.external.quality.v1"
+metrics = ["quality.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "custom.evaluation.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -624,11 +701,6 @@ id = "custom.demo"
 kind = "custom"
 adapter = "external.benchmark"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
-content_globs = ["tasks.toml"]
-verifier = "external.verifier:v1"
-scoring_kind = "continuous"
-authoritative_reward_metric = "quality"
 """,
         encoding="utf-8",
     )
@@ -640,13 +712,15 @@ authoritative_reward_metric = "quality"
         """[experiment]
 id = "custom-missing-capabilities"
 benchmark = "custom.demo"
+dataset = "dataset.external.fake.v1"
+evaluator = "evaluator.external.quality.v1"
+metrics = ["quality.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "custom.evaluation.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [execution]
 backend = "subprocess.echo"
@@ -677,11 +751,6 @@ id = "custom.demo"
 kind = "custom"
 adapter = "external.benchmark"
 bmp_version = "0.1"
-source = "../../MagentaBench/conformance/fixtures/fake_benchmark"
-content_globs = ["tasks.toml"]
-verifier = "external.verifier:v1"
-scoring_kind = "continuous"
-authoritative_reward_metric = "quality"
 """,
         encoding="utf-8",
     )
@@ -690,13 +759,15 @@ authoritative_reward_metric = "quality"
         """[experiment]
 id = "custom-missing-config-path"
 benchmark = "custom.demo"
+dataset = "dataset.external.fake.v1"
+evaluator = "evaluator.external.quality.v1"
+metrics = ["quality.authoritative.v1"]
 subject = "fake.nonfake"
 protocol = "custom.evaluation.v1"
 
 [experiment.design]
-scope = "whole_harness"
+comparison_kind = "coding_agent"
 purpose = "exploratory"
-vary = []
 
 [experiment.configuration.values.debugger]
 model = "gpt-5.4-mini"
