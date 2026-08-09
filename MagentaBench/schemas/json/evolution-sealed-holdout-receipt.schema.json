@@ -1,0 +1,99 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Evidence that the authoritative split opened only after selection.",
+  "properties": {
+    "access_count": {
+      "const": 1,
+      "default": 1,
+      "title": "Access Count",
+      "type": "integer"
+    },
+    "format": {
+      "const": "bmp-evolution-sealed-holdout-v1",
+      "default": "bmp-evolution-sealed-holdout-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "holdout_evaluation_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Holdout Evaluation Id",
+      "type": "string"
+    },
+    "holdout_evaluation_sequence": {
+      "minimum": 0,
+      "title": "Holdout Evaluation Sequence",
+      "type": "integer"
+    },
+    "holdout_evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Holdout Evaluator Digest",
+      "type": "string"
+    },
+    "search_evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Search Evaluator Digest",
+      "type": "string"
+    },
+    "selected_candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selected Candidate Id",
+      "type": "string"
+    },
+    "selection_transition_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selection Transition Id",
+      "type": "string"
+    },
+    "selection_transition_sequence": {
+      "minimum": 0,
+      "title": "Selection Transition Sequence",
+      "type": "integer"
+    },
+    "split_manifest_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    }
+  },
+  "required": [
+    "split_manifest_ref",
+    "search_evaluator_digest",
+    "holdout_evaluator_digest",
+    "selected_candidate_id",
+    "selection_transition_id",
+    "selection_transition_sequence",
+    "holdout_evaluation_id",
+    "holdout_evaluation_sequence"
+  ],
+  "title": "EvolutionSealedHoldoutReceipt",
+  "type": "object"
+}

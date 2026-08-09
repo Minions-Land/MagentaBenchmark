@@ -25,6 +25,7 @@ from MagentaBench.schemas import (
 
 from ..compiler import CompiledRun
 from ..evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
+from ..model_activation import is_none_model, make_model_activation_receipt
 from .fake import CaseExecution
 
 DEFAULT_HARBOR_EXECUTABLE = "/root/.local/share/uv/tools/harbor/bin/harbor"
@@ -48,6 +49,8 @@ def harbor_agent_name(subject: Any) -> str:
         "codex": "codex",
         "pi": "pi",
         "antigravity-cli": "antigravity-cli",
+        "harbor-nop": "nop",
+        "harbor-oracle": "oracle",
     }
     if adapter in aliases:
         return aliases[adapter]
@@ -61,6 +64,7 @@ def build_job_config(
     *,
     agent_name: str | None = None,
     dataset_name: str | None = None,
+    task_path: str | Path | None = None,
     attempts: int | None = None,
     max_retries: int = 0,
     environment_type: str | None = None,
@@ -103,22 +107,17 @@ def build_job_config(
     kwargs = defaults.get("agent_kwargs", {})
     if not isinstance(kwargs, Mapping):
         raise HarborConfigurationError("backend.defaults.agent_kwargs must be a table")
+    agent_config: dict[str, Any] = {
+        "name": selected_agent,
+        "model_name": run.manifest.execution.model,
+    }
+    if kwargs:
+        agent_config["kwargs"] = dict(kwargs)
     config: dict[str, Any] = {
         "job_name": run.manifest.metadata.run_id,
         "n_concurrent_trials": protocol.parallelism,
-        "n_attempts": attempts,
         "quiet": quiet,
-        "retry": {"max_retries": max_retries},
-        "environment": {
-            "type": environment_type or str(defaults.get("environment_type", "docker")),
-        },
-        "agents": [
-            {
-                "name": selected_agent,
-                "model_name": run.manifest.execution.model,
-                "kwargs": dict(kwargs),
-            }
-        ],
+        "agents": [agent_config],
         "datasets": [
             {
                 "name": (
@@ -130,6 +129,26 @@ def build_job_config(
             }
         ],
     }
+    if attempts != 1:
+        config["n_attempts"] = attempts
+    resolved_environment_type = environment_type or str(
+        defaults.get("environment_type", "docker")
+    )
+    if resolved_environment_type != "docker":
+        config["environment"] = {"type": resolved_environment_type}
+    if max_retries:
+        config["retry"] = {"max_retries": max_retries}
+    if task_path is not None:
+        path = Path(task_path).expanduser().resolve(strict=True)
+        if not path.is_dir() or path.is_symlink():
+            raise HarborConfigurationError(
+                f"Harbor task path must be a real directory: {path}"
+            )
+        # A local task projection is an adapter-owned activation.  Keep it
+        # explicit in the native config instead of silently turning a source
+        # checkout into a remote dataset lookup.
+        config.pop("datasets", None)
+        config["tasks"] = [{"path": str(path)}]
     # A benchmark adapter may resolve its native timeout baseline into this
     # backend default. Never derive a generic multiplier from a hard-coded
     # 3600-second assumption.
@@ -522,6 +541,13 @@ def parse_harbor_results(
         backend = run.manifest.execution.backend
         agent_result = result.get("agent_result")
         usage_source = agent_result if isinstance(agent_result, Mapping) else {}
+        model_activation = None
+        if not is_none_model(run.manifest.execution.model):
+            model_activation = make_model_activation_receipt(
+                run,
+                evidence_refs=(() if result_ref is None else (result_ref,)),
+                activation_source="native_result",
+            )
         bundle = EvidenceBundle(
             run_id=f"{run.manifest.metadata.run_id}__{safe_trial}",
             status=status,
@@ -554,6 +580,7 @@ def parse_harbor_results(
                 network_mode=str(backend.defaults.get("network_mode", "none")),
                 workspace_namespace=str(result_root.parent),
                 environment_receipt=environment_receipt,
+                model_activation=model_activation,
                 test_override=run.manifest.metadata.test_override,
             ),
         )
@@ -636,6 +663,80 @@ class HarborBackend:
         self.allow_test_shim = allow_test_shim
         self.runner_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
+    def run_directory(self, run: CompiledRun) -> Path:
+        """Return the immutable parent directory used by Pipeline receipts."""
+
+        return self.record_root / run.manifest.metadata.experiment_id / run.manifest_digest
+
+    @staticmethod
+    def reset_state(case_id: str, policy: str) -> dict[str, str]:
+        """Record the isolation boundary used by one native Harbor launch."""
+
+        return {
+            "case_id": str(case_id),
+            "policy": str(policy),
+            "mechanism": "fresh_harbor_job",
+        }
+
+    @staticmethod
+    def load_completed(
+        run: CompiledRun, bundle_path: Path, *, expected_runner_digest: str
+    ) -> CaseExecution | None:
+        """Validate a previously materialized bundle for checkpoint reuse.
+
+        Native Harbor artifacts remain opaque after ingestion; resume only
+        reuses a complete BMP bundle whose content references and provenance
+        still match the resolved manifest.
+        """
+
+        try:
+            bundle = EvidenceBundle.model_validate_json(bundle_path.read_bytes())
+        except (OSError, ValueError):
+            return None
+        provenance = bundle.provenance
+        expected = {
+            "manifest_digest": run.manifest_digest,
+            "runner_digest": expected_runner_digest,
+            "benchmark_digest": run.manifest.benchmark.artifact_digest,
+            "subject_digest": run.manifest.subject.artifact_digest,
+            "backend_digest": run.manifest.execution.backend.digest,
+        }
+        for field, value in expected.items():
+            if getattr(provenance, field) != value:
+                raise HarborConfigurationError(
+                    f"resume evidence provenance drift: {field}"
+                )
+        if bundle.status == RunStatus.pass_ and (
+            bundle.verifier_evidence is None or not bundle.verifier_evidence.passed
+        ):
+            return None
+        if bundle.status == RunStatus.verified_fail and (
+            bundle.verifier_evidence is None or bundle.verifier_evidence.passed
+        ):
+            return None
+        refs = [*bundle.output_refs, *bundle.log_refs]
+        if bundle.trace_ref is not None:
+            refs.append(bundle.trace_ref)
+        if bundle.checkpoint_ref is not None:
+            refs.append(bundle.checkpoint_ref)
+        if bundle.verifier_evidence is not None:
+            refs.extend(bundle.verifier_evidence.artifact_refs)
+        for ref in refs:
+            path = Path(ref.path)
+            if (
+                not path.is_file()
+                or path.stat().st_size != ref.size_bytes
+                or sha256_file(path) != ref.sha256
+            ):
+                return None
+        return CaseExecution(
+            case_id=bundle_path.parent.name,
+            bundle=bundle,
+            bundle_path=bundle_path,
+            bundle_digest=sha256_file(bundle_path),
+            reused=True,
+        )
+
     def _validate_generated_config(self, config_path: Path) -> None:
         """Use Harbor's own parser while enforcing a stricter no-extra projection."""
 
@@ -699,6 +800,46 @@ class HarborBackend:
                     )
 
             assert_projection(config, resolved, "JobConfig")
+
+    @staticmethod
+    def _reject_symlink_components(path: Path) -> None:
+        """Reject symlinks anywhere in an absolute path before resolution."""
+
+        absolute = path if path.is_absolute() else path.absolute()
+        current = Path(absolute.anchor or "/")
+        for component in absolute.parts[1:]:
+            current = current / component
+            if current.is_symlink():
+                raise HarborConfigurationError(
+                    f"Harbor task path contains symlink: {current}"
+                )
+
+    def _validate_task_path(self, run: CompiledRun, task_path: str | Path) -> Path:
+        """Bind a local task projection to the benchmark or staged task root."""
+
+        raw = Path(task_path).expanduser()
+        if not raw.is_absolute():
+            raise HarborConfigurationError("Harbor task path must be absolute")
+        self._reject_symlink_components(raw)
+        try:
+            resolved = raw.resolve(strict=True)
+        except OSError as exc:
+            raise HarborConfigurationError(f"Harbor task path is missing: {raw}") from exc
+        if not resolved.is_dir():
+            raise HarborConfigurationError(f"Harbor task path is not a directory: {resolved}")
+        allowed_roots: list[Path] = []
+        benchmark_source = getattr(run.manifest.benchmark, "source", None)
+        if benchmark_source:
+            allowed_roots.append(Path(benchmark_source).resolve(strict=True) / "tasks")
+        allowed_roots.append(self.run_directory(run) / "staged_tasks")
+        if not any(
+            resolved == root or root in resolved.parents
+            for root in (item.resolve() for item in allowed_roots)
+        ):
+            raise HarborConfigurationError(
+                "Harbor task path escapes benchmark/staged task roots"
+            )
+        return resolved
 
     @staticmethod
     def _inspect_executable(executable: str) -> tuple[str, str]:
@@ -776,7 +917,11 @@ class HarborBackend:
         *,
         agent_name: str | None = None,
         dataset_name: str | None = None,
+        task_path: str | Path | None = None,
         case_id: str = "case-001",
+        execution_id: str | None = None,
+        attempts: int | None = None,
+        timeout_seconds: float | None = None,
     ) -> HarborExecution:
         backend = run.manifest.execution.backend
         if backend.adapter == "harbor-shim" and not self.allow_test_shim:
@@ -791,6 +936,10 @@ class HarborBackend:
             raise HarborConfigurationError(
                 f"unsupported Harbor backend adapter: {backend.adapter!r}"
             )
+        if not _CASE_ID.fullmatch(case_id):
+            raise HarborConfigurationError(f"invalid case id: {case_id!r}")
+        if execution_id is not None and not _CASE_ID.fullmatch(execution_id):
+            raise HarborConfigurationError(f"invalid execution id: {execution_id!r}")
         if backend.executable != self.harbor_executable:
             raise HarborConfigurationError(
                 "Harbor executable does not match the manifest's pinned backend executable"
@@ -804,9 +953,23 @@ class HarborBackend:
             raise HarborConfigurationError(
                 f"Harbor executable digest drift: manifest {backend.digest}, observed {observed_digest}"
             )
-        evidence_root = self.record_root / run.manifest.metadata.experiment_id / run.manifest_digest
+        evidence_root = self.run_directory(run)
+        if execution_id is not None:
+            evidence_root = evidence_root / "harbor_runs" / execution_id
+            if evidence_root.exists():
+                raise HarborConfigurationError(
+                    f"Harbor execution evidence directory already exists: {evidence_root}"
+                )
+        if task_path is not None:
+            task_path = self._validate_task_path(run, task_path)
         evidence_root.mkdir(parents=True, exist_ok=True)
-        config = build_job_config(run, agent_name=agent_name, dataset_name=dataset_name)
+        config = build_job_config(
+            run,
+            agent_name=agent_name,
+            dataset_name=dataset_name,
+            task_path=task_path,
+            attempts=attempts,
+        )
         config_path = evidence_root / "job.yaml"
         atomic_write_bytes(config_path, render_job_yaml(config).encode("utf-8"))
         self._validate_generated_config(config_path)
@@ -829,7 +992,11 @@ class HarborBackend:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=self.timeout_seconds,
+                timeout=(
+                    self.timeout_seconds
+                    if timeout_seconds is None
+                    else max(0.001, min(self.timeout_seconds, float(timeout_seconds)))
+                ),
                 check=False,
             )
             atomic_write_bytes(stdout_path, completed.stdout.encode("utf-8"))
@@ -849,7 +1016,10 @@ class HarborBackend:
                 executable=self.harbor_executable,
                 version=observed_version,
                 digest=observed_digest,
-                message=f"Harbor timed out after {self.timeout_seconds:.1f}s",
+                message=(
+                    f"Harbor timed out after "
+                    f"{self.timeout_seconds if timeout_seconds is None else timeout_seconds:.1f}s"
+                ),
             )
         except OSError as exc:
             atomic_write_bytes(stdout_path, b"")

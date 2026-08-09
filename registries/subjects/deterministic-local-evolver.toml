@@ -1,0 +1,8 @@
+[subject]
+id = "deterministic-local.evolver"
+kind = "evolver"
+adapter = "deterministic-local"
+bmp_version = "0.1"
+source = "../../MagentaBench"
+target = "harness"
+emits_trace = false

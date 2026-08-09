@@ -1,0 +1,10 @@
+[subject]
+id = "terminal-bench.nop"
+kind = "opaque_agent"
+adapter = "harbor-nop"
+bmp_version = "0.1"
+source = "../../MagentaBench"
+entrypoint = "/bin/true"
+launch_argv = ["/bin/true"]
+interface = "terminal-bench-harbor-v1"
+emits_trace = false

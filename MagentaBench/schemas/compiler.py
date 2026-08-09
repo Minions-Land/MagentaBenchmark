@@ -333,6 +333,7 @@ def _resolve_execution_spec(
     return ResolvedExecutionSpec(
         backend=resolved_backend,
         model=spec.model,
+        provider_binding=spec.provider_binding,
         seed=spec.seed,
         budget=resolved_budget,
         protocol=resolved_protocol,

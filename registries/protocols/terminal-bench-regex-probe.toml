@@ -1,0 +1,19 @@
+[protocol]
+id = "terminal-bench.regex-probe.v1"
+kind = "benchmark_evaluation"
+adapter = "magentabench.scheduler"
+bmp_version = "0.1"
+rollouts_per_case = 1
+parallelism = 1
+case_order = "explicit"
+explicit_case_ids = ["regex-log"]
+adaptive_budget = false
+candidate_selection = "single"
+state_reset = "never"
+checkpoint_policy = "disabled"
+deterministic_conformance = false
+
+[protocol.budget]
+max_tokens = 0
+max_wall_seconds = 300.0
+max_cost = 0.0

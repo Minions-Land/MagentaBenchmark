@@ -28,6 +28,7 @@ from MagentaBench.schemas import (
 )
 
 from .compiler import CompiledRun
+from .case_order import CaseOrderError, selected_case_ids
 
 if TYPE_CHECKING:
     from .backend.fake import CaseExecution
@@ -141,7 +142,7 @@ class Scheduler:
     @staticmethod
     def _ordered_cases(
         cases: Sequence[Any], order: str, seed: int | None,
-        explicit_case_ids: Sequence[str] = (),
+        selected_ids: Sequence[str] = (),
     ) -> list[Any]:
         ordered = list(cases)
         if order == "fixed":
@@ -152,13 +153,13 @@ class Scheduler:
             random.Random(seed).shuffle(ordered)
             return ordered
         if order in {"custom", "explicit"}:
-            requested = tuple(explicit_case_ids)
+            requested = tuple(selected_ids)
             if not requested:
                 raise SchedulerError(
-                    "explicit scheduling requires non-empty explicit_case_ids"
+                    "selected scheduling requires non-empty case ids"
                 )
             if len(set(requested)) != len(requested):
-                raise SchedulerError("explicit_case_ids must be unique")
+                raise SchedulerError("selected case ids must be unique")
             by_id: dict[str, Any] = {}
             for case in ordered:
                 case_id = Scheduler._case_id(case)
@@ -169,12 +170,12 @@ class Scheduler:
             unknown = [case_id for case_id in by_id if case_id not in requested]
             if missing:
                 raise SchedulerError(
-                    "explicit case ids are missing from scheduled cases: "
+                    "selected case ids are missing from scheduled cases: "
                     + ", ".join(missing)
                 )
             if unknown:
                 raise SchedulerError(
-                    "scheduled cases contain ids outside explicit_case_ids: "
+                    "scheduled cases contain ids outside selected case ids: "
                     + ", ".join(unknown)
                 )
             return [by_id[case_id] for case_id in requested]
@@ -210,11 +211,15 @@ class Scheduler:
         protocol = run.manifest.execution.protocol
         if protocol is None:
             raise SchedulerError("resolved protocol is required for scheduling")
+        try:
+            declared_case_ids = selected_case_ids(protocol)
+        except CaseOrderError as exc:
+            raise SchedulerError(str(exc)) from exc
         ordered_cases = self._ordered_cases(
             list(cases),
             protocol.case_order,
             run.manifest.execution.seed,
-            protocol.explicit_case_ids,
+            declared_case_ids or (),
         )
         if not ordered_cases:
             raise SchedulerError("scheduler requires at least one case")
@@ -456,13 +461,29 @@ class Scheduler:
         for attempt_id in launched_ids_in_plan_order:
             execution, elapsed, allocation = launched_records[attempt_id]
             usage = _usage(execution.bundle, elapsed)
+            usage_observable = all(
+                cap is None or observed is not None
+                for cap, observed in (
+                    (allocation.allocated.max_tokens, usage.total_tokens),
+                    (allocation.allocated.max_cost, usage.cost),
+                )
+            )
             over = (
                 (allocation.allocated.max_tokens is not None and usage.total_tokens is not None and usage.total_tokens > allocation.allocated.max_tokens)
                 or (allocation.allocated.max_cost is not None and usage.cost is not None and usage.cost > allocation.allocated.max_cost)
             )
             released = BudgetAllocation(
-                max_tokens=(None if allocation.allocated.max_tokens is None or usage.total_tokens is None else max(0, allocation.allocated.max_tokens - usage.total_tokens)),
-                max_cost=(None if allocation.allocated.max_cost is None or usage.cost is None else max(0.0, allocation.allocated.max_cost - usage.cost)),
+                max_tokens=(
+                    None
+                    if allocation.allocated.max_tokens is None
+                    or usage.total_tokens is None
+                    else max(0, allocation.allocated.max_tokens - usage.total_tokens)
+                ),
+                max_cost=(
+                    None
+                    if allocation.allocated.max_cost is None or usage.cost is None
+                    else max(0.0, allocation.allocated.max_cost - usage.cost)
+                ),
             )
             debit = BudgetDebit(
                 attempt_id=attempt_id,
@@ -471,6 +492,7 @@ class Scheduler:
                 spent=usage,
                 released=released,
                 budget_exceeded=over,
+                usage_observable=usage_observable,
             )
             reward_metric_name = (
                 run.manifest.benchmark.authoritative_reward_metric
@@ -547,6 +569,11 @@ class Scheduler:
             mismatch_reasons.append("best_of_n requires benchmark reward evidence")
         if not selected:
             mismatch_reasons.append("no selected candidate")
+        if any(
+            attempt.debit is not None and not attempt.debit.usage_observable
+            for attempt in attempts
+        ):
+            mismatch_reasons.append("budget usage is unobservable")
         if protocol.checkpoint_policy in {"save", "save_and_resume"}:
             mismatch_reasons.append("checkpoint receipt finalization pending")
         schedule_valid = (

@@ -4,8 +4,14 @@ Date: 2026-08-08 (Asia/Shanghai)
 
 This is an exploratory integration probe, not a BMP claim-ready report. It
 checks the local dataset/image/evaluator tuple, activates one case through the
-SWE-bench loader, and makes one real Codex API-backed attempt. No credential,
-container filesystem, or repository checkout is retained here.
+SWE-bench loader, and makes one real Codex API-backed attempt. `probe.json`
+conforms to the public `bmp-integration-probe-v1` schema and passes
+`bmp-verify-probe`. The verifier rehashes the retained dataset, public input,
+candidate patch, and Docker executable. The exact historical loader bytes,
+container-image receipt, native agent transcript, and evaluator output were
+not retained. Runtime and scoring details below are historical narrative, not
+machine-verified probe fields. No credential, container filesystem, or
+repository checkout is retained here.
 
 ## Frozen inputs
 
@@ -14,7 +20,7 @@ container filesystem, or repository checkout is retained here.
 - Dataset source commit: `bf5f199ee65034d55db0c536e582f1e7c8abf669`
 - Instance: `astropy__astropy-6938`
 - Image tag: `sweb.eval.x86_64.astropy__astropy-6938:latest`
-- Image ID: `sha256:a64e48c6ff94271d86498cf991b41d40f0e3bf33537f7adc6c740c0f26e641e9`
+- Observed image ID (no retained receipt): `sha256:a64e48c6ff94271d86498cf991b41d40f0e3bf33537f7adc6c740c0f26e641e9`
 - Candidate patch SHA-256: `89421ea1cce0281f27942094468a8c9677ab87b1987915eb8e1ee2517d3fb25e`
 
 The candidate patch is retained as `candidate.patch`. The gold patch is not
@@ -31,7 +37,7 @@ python -m pytest -q \
   astropy/io/fits/tests/test_table.py::TestTableFunctions::test_ascii_table
 ```
 
-Results on fresh containers:
+The unretained evaluator output was reported as follows:
 
 | Candidate state | Result |
 | --- | --- |

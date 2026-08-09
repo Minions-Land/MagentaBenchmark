@@ -19,6 +19,7 @@ from MagentaBench.schemas import (
     ResolvedNetworkPolicy,
     RunPurpose,
     ScheduleActivationReceipt,
+    StatisticalAnalysisPlan,
     VerifiedObservationReport,
     canonical_digest,
     verify_claim_report,
@@ -98,7 +99,11 @@ def rewrite_schedule_lineage(result: object, index: int, schedule_path: Path) ->
     rewrite_report_and_aggregate(result.report_path, payload)
 
 
-def write_verified_claim(root: Path) -> tuple[Path, tuple[object, ...]]:
+def write_verified_claim(
+    root: Path,
+    *,
+    statistical_analysis: StatisticalAnalysisPlan | None = None,
+) -> tuple[Path, tuple[object, ...]]:
     experiment = ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
     result = Pipeline(ROOT, root).run(experiment)
     completed = []
@@ -106,7 +111,10 @@ def write_verified_claim(root: Path) -> tuple[Path, tuple[object, ...]]:
     manifest_dir = result.report_path.parent / "manifests"
     for item in result.runs:
         claim_design = item.plan.manifest.claim_design.model_copy(
-            update={"purpose": RunPurpose.claim}
+            update={
+                "purpose": RunPurpose.claim,
+                "statistical_analysis": statistical_analysis,
+            }
         )
         manifest = item.plan.manifest.model_copy(
             update={"claim_design": claim_design}
@@ -696,6 +704,48 @@ def test_claim_statistics_gate_is_recomputed_from_observed_order(
         verify_claim_report(report_path)
     assert any(
         "claim statistics_valid does not match verified pairing and scores" in mismatch
+        for mismatch in captured.value.mismatches
+    )
+
+
+def test_statistical_analysis_receipt_is_replayed_by_standalone_verifier(
+    tmp_path: Path,
+) -> None:
+    plan = StatisticalAnalysisPlan(
+        holdout_required=False,
+        holdout_split=None,
+    )
+    report_path, _ = write_verified_claim(
+        tmp_path / "records",
+        statistical_analysis=plan,
+    )
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    receipt = report["statistics_receipt"]
+    assert receipt["plan_digest"] == plan.canonical_digest()
+    assert receipt["observed_pair_count"] == 4
+    assert receipt["observed_min_repetitions"] == 4
+    assert receipt["confidence_interval"] is not None
+    verify_claim_report(report_path)
+
+
+def test_statistical_analysis_receipt_tampering_is_rejected(
+    tmp_path: Path,
+) -> None:
+    report_path, _ = write_verified_claim(
+        tmp_path / "records",
+        statistical_analysis=StatisticalAnalysisPlan(
+            holdout_required=False,
+            holdout_split=None,
+        ),
+    )
+    payload = json.loads(report_path.read_text(encoding="utf-8"))
+    payload["statistics_receipt"]["point_estimate"] += 0.125
+    rewrite_report_and_aggregate(report_path, payload)
+
+    with pytest.raises(ReportVerificationError) as captured:
+        verify_claim_report(report_path)
+    assert any(
+        "statistics_receipt does not match the replayed" in mismatch
         for mismatch in captured.value.mismatches
     )
 

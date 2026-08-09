@@ -1,0 +1,17 @@
+[adapter]
+id = "terminal-bench.harbor.execution"
+kind = "adapter"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+adapter_kind = "execution"
+source = "."
+entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchHarborExecutionAdapter"
+digest = "6c87328261c8787bf691cb129acef2cce7792b48ca9516321883332eec98c73d"
+supported_benchmark_kinds = ["custom"]
+supported_subject_kinds = ["opaque_agent"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["harbor"]
+supported_subject_adapters = ["harbor-nop"]
+supported_subject_interfaces = ["terminal-bench-harbor-v1"]
+none_model_sentinels = ["none/echo"]
+supported_state_reset_policies = ["never"]

@@ -24,6 +24,7 @@ def test_compile_cli_emits_resolved_identity(capsys) -> None:
     assert payload[0]["manifest"]["claim_design"] == {
         "purpose": "exploratory",
         "scope": "conformance",
+        "statistical_analysis": None,
         "vary": [],
     }
 

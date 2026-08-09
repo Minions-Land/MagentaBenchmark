@@ -91,6 +91,9 @@ digest = "{execution_digest}"
 supported_benchmark_kinds = ["custom"]
 supported_subject_kinds = ["opaque_agent"]
 supported_backend_adapters = ["subprocess"]
+supported_subject_adapters = ["fake"]
+none_model_sentinels = ["none/echo"]
+supported_state_reset_policies = ["per_rollout"]
 ''',
         encoding="utf-8",
     )

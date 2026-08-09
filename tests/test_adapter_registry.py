@@ -357,6 +357,77 @@ digest = "{unused_digest}"
         AdapterRegistry.from_project(project)
 
 
+def test_unselected_malformed_adapter_declaration_is_inert(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    declarations = project / "registries/adapters"
+    declarations.mkdir(parents=True)
+    (declarations / "unselected.toml").write_text(
+        '''[adapter]
+id = "broken.unselected"
+kind = "adapter"
+adapter = "broken"
+bmp_version = "0.1"
+adapter_kind = "backend_factory"
+entrypoint = "missing.py:Factory"
+digest = "not-a-sha256"
+
+[unrelated]
+value = ["malformed plugin metadata is inert"]
+''',
+        encoding="utf-8",
+    )
+
+    registry = AdapterRegistry.from_project(
+        project,
+        required_capabilities={("wanted", "benchmark_loader")},
+    )
+
+    assert registry.capabilities == ()
+
+
+def test_unselected_non_table_adapter_declaration_is_inert(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    declarations = project / "registries/adapters"
+    declarations.mkdir(parents=True)
+    (declarations / "unselected.toml").write_text(
+        '''[unrelated]
+adapter = ["not", "a", "table"]
+''',
+        encoding="utf-8",
+    )
+
+    registry = AdapterRegistry.from_project(
+        project,
+        required_capabilities={("wanted", "benchmark_loader")},
+    )
+
+    assert registry.capabilities == ()
+
+
+def test_selected_malformed_adapter_declaration_fails_closed(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    declarations = project / "registries/adapters"
+    declarations.mkdir(parents=True)
+    (declarations / "selected.toml").write_text(
+        '''[adapter]
+id = "broken.selected"
+kind = "adapter"
+adapter = "broken"
+bmp_version = "0.1"
+adapter_kind = "backend_factory"
+entrypoint = "missing.py:Factory"
+digest = "not-a-sha256"
+''',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AdapterRegistryError, match="invalid adapter declaration"):
+        AdapterRegistry.from_project(
+            project,
+            required_capabilities={("broken", "backend_factory")},
+        )
+
+
 def test_adapter_source_closure_binds_local_helpers(tmp_path: Path) -> None:
     project = tmp_path / "project"
     source = project / "plugins/demo"

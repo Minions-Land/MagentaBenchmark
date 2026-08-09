@@ -1,10 +1,9 @@
 # MagentaBench 交接文档
 
-> 状态修订（2026-08-08）：本目录最初记录的是 `db9a171` 的 Planner 基线，其中的
-> 171-test 数字和“subject_kind 未实现”等内容是历史快照，不是当前树的结论。当前
-> BMP 代码加固已提交到 `73f4706`；本目录只记录交接状态，请以根目录 `EVIDENCE.md`、
-> 实际 `git status` 和最后一次
-> 测试命令为准。
+> 状态修订（2026-08-09）：本目录最初记录的是 `db9a171` 的 Planner 基线，其中的
+> 旧测试数字、旧 HEAD 和“subject_kind 未实现”等内容是历史快照，不是当前树的结论。
+> 本目录只记录交接状态，请以根目录 `EVIDENCE.md`、内容寻址产物和最后一次实际验证
+> 命令为准。
 > BMP 是 MagentaBench 的 Benchmark-side Protocol；HCP 是 Magenta 智能体的 Harness
 > Component Protocol。
 
@@ -29,11 +28,11 @@ MagentaBench 是一个 benchmark 测量协议（BMP）实现：让真实 agent�
 
 它的核心不是"跑得动"，而是"跑出来的数字指向它声称的那个东西"。项目里绝大部分代码是在防止一类特定失败：**产出一份看起来完全正确、通过所有检查、但证明了错误性质的报告。**
 
-当前代码状态（HEAD `73f4706`，289 测试通过）：
+当前代码状态：
 - 契约层、编译期归因门、三个真实 backend、内容寻址证据链 —— 已建立
 - **从未有任何真实 benchmark 证据走通过整条链路**。所有门都只由构造与变异测试证明，未由执行证明
-- `evolver` / `meta_evolver` 已有中性、递归可验证的 `EvolutionRunEvidence`；其它未实现 scope 仍在编译期拒绝
-- `_ACTIVE_SCOPES` 包含 `conformance`、`evolver`、`meta_evolver`，后两者还要求外部 execution capability 与 claim-ready provenance
+- `evolver` / `meta_evolver` 已有中性、递归可验证的 `EvolutionRunEvidence` 与 deterministic conformance runtime；真实演化系统仍需自己的 execution adapter
+- `_ACTIVE_SCOPES` 包含 `conformance`、`model`、`evolver`、`meta_evolver`；`model` 要求 provider binding 与运行时 activation receipt，后两者还要求外部 execution capability 与 claim-ready provenance
 
 最后一条不是缺陷，是当前唯一诚实的状态。
 
@@ -43,9 +42,9 @@ MagentaBench 是一个 benchmark 测量协议（BMP）实现：让真实 agent�
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-git log --oneline -- MagentaBench | head   # 当前代码历史以 73f4706 结尾
-git status --porcelain | wc -l              # 应为 0
-uv run pytest -q                           # 应为 289 passed
+git log --oneline -- MagentaBench | head
+git status --porcelain
+uv run --extra test pytest -q
 uv run python -m compileall -q MagentaBench tests
 bash scripts/audit_hcp_boundary.sh         # 应为 0 violation(s), 0 scan error(s)
 ```

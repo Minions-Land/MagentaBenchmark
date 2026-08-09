@@ -24,6 +24,7 @@ from MagentaBench.schemas import (
 from .backend.fake import CaseExecution, FakeBackend
 from .backend.subprocess import SubprocessBackend
 from .compiler import CompiledRun
+from .case_order import CaseOrderError, custom_order_binding, selected_case_ids
 from .adapter_source import (
     AdapterSourceError,
     closure_digest,
@@ -158,15 +159,43 @@ def _capability_supports_run(
 ) -> bool:
     subject = run.manifest.subject
     backend = run.manifest.execution.backend
-    return capability.supports(
+    selectors_match = capability.supports(
         benchmark_kind=run.manifest.benchmark.kind,
         subject_kind=subject.kind,
+        subject_adapter=subject.adapter,
         backend_kind=backend.kind,
         backend_adapter=backend.adapter,
         subject_interface=(
             None if subject.kind == "fake" else getattr(subject, "interface", None)
         ),
     )
+    if not selectors_match:
+        return False
+    if capability.adapter_kind == "backend_factory":
+        read_set = capability.backend_default_read_set
+        return read_set is not None and set(backend.defaults).issubset(read_set)
+    if capability.adapter_kind == "execution":
+        protocol = run.manifest.execution.protocol
+        real_model = run.manifest.execution.model not in {
+            "none",
+            "none/deterministic",
+            "none/echo",
+        }
+        return bool(
+            capability.supported_subject_adapters
+            and (
+                (
+                    capability.none_model_sentinels
+                    and run.manifest.execution.model in capability.none_model_sentinels
+                )
+                or (real_model and capability.model_activation_source is not None)
+            )
+            and capability.supported_state_reset_policies
+            and protocol is not None
+            and protocol.state_reset
+            in capability.supported_state_reset_policies
+        )
+    return True
 
 
 def _closure_digest(paths: tuple[Path, ...], package_root: Path) -> str:
@@ -181,6 +210,8 @@ def _closure_digest(paths: tuple[Path, ...], package_root: Path) -> str:
 
 def case_set_refs(artifact: CaseSetArtifact) -> tuple[Any, ...]:
     refs = list(artifact.source_content_refs)
+    if artifact.order_strategy_ref is not None:
+        refs.append(artifact.order_strategy_ref)
     for case in artifact.cases:
         refs.extend(
             (
@@ -225,18 +256,32 @@ def verify_resolved_case_set(
     protocol = run.manifest.execution.protocol
     if protocol is None or artifact.case_order != protocol.case_order:
         raise AdapterRegistryError("case-set order policy drift")
-    expected_selection_method = (
-        "explicit_case_ids"
-        if protocol.case_order in {"custom", "explicit"}
-        else "all_cases"
-    )
+    expected_selection_method = {
+        "custom": "custom_order_artifact",
+        "explicit": "explicit_case_ids",
+    }.get(protocol.case_order, "all_cases")
     if artifact.selection_method != expected_selection_method:
         raise AdapterRegistryError("case-set selection method drift")
-    if protocol.case_order in {"custom", "explicit"}:
+    if protocol.case_order == "explicit":
         if artifact.ordered_case_ids != protocol.explicit_case_ids:
             raise AdapterRegistryError(
                 "case-set explicit case order does not match resolved protocol"
             )
+        if artifact.order_strategy_adapter is not None or artifact.order_strategy_ref is not None:
+            raise AdapterRegistryError("explicit case set unexpectedly binds an order strategy")
+    elif protocol.case_order == "custom":
+        try:
+            expected_ids, expected_adapter, expected_ref = custom_order_binding(protocol)
+        except CaseOrderError as exc:
+            raise AdapterRegistryError(str(exc)) from exc
+        if artifact.ordered_case_ids != expected_ids:
+            raise AdapterRegistryError(
+                "case-set custom order does not match the strategy artifact"
+            )
+        if artifact.order_strategy_adapter != expected_adapter:
+            raise AdapterRegistryError("case-set custom order adapter drift")
+        if artifact.order_strategy_ref != expected_ref:
+            raise AdapterRegistryError("case-set custom order content reference drift")
     expected_order_seed = (
         run.manifest.execution.seed
         if protocol.case_order == "seeded_random"
@@ -357,10 +402,14 @@ class FakeBenchmarkLoader:
             # downstream verifier can still bind the run to what was used.
             random.SystemRandom().shuffle(tasks)
         elif protocol.case_order in {"custom", "explicit"}:
-            requested = tuple(protocol.explicit_case_ids)
+            try:
+                requested = selected_case_ids(protocol)
+            except CaseOrderError as exc:
+                raise AdapterRegistryError(str(exc)) from exc
+            assert requested is not None
             if not requested:
                 raise AdapterRegistryError(
-                    "explicit case-set resolution requires explicit_case_ids"
+                    "selected case-set resolution requires non-empty case ids"
                 )
             if len(set(requested)) != len(requested):
                 raise AdapterRegistryError("explicit case ids must be unique")
@@ -432,15 +481,25 @@ class FakeBenchmarkLoader:
             benchmark_digest=run.manifest.benchmark.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
-            selection_method=(
-                "explicit_case_ids"
-                if run.manifest.execution.protocol.case_order in {"custom", "explicit"}
-                else "all_cases"
-            ),
+            selection_method={
+                "custom": "custom_order_artifact",
+                "explicit": "explicit_case_ids",
+            }.get(run.manifest.execution.protocol.case_order, "all_cases"),
             case_order=run.manifest.execution.protocol.case_order,
             order_seed=(
                 run.manifest.execution.seed
                 if run.manifest.execution.protocol.case_order == "seeded_random"
+                else None
+            ),
+            order_strategy_adapter=(
+                run.manifest.execution.protocol.custom_order.adapter
+                if run.manifest.execution.protocol.case_order == "custom"
+                and run.manifest.execution.protocol.custom_order is not None
+                else None
+            ),
+            order_strategy_ref=(
+                custom_order_binding(run.manifest.execution.protocol)[2]
+                if run.manifest.execution.protocol.case_order == "custom"
                 else None
             ),
             source_content_digest=(
@@ -760,14 +819,21 @@ class AdapterRegistry:
                 required.add((benchmark.adapter, "benchmark_loader"))
             if backend.adapter not in {"fake", "subprocess"}:
                 required.add((backend.adapter, "backend_factory"))
-            if benchmark.kind == "custom" or (
-                benchmark.adapter,
-                backend.adapter,
-                interface,
-            ) not in {
-                ("fake", "fake", None),
-                ("fake", "subprocess", None),
-            } or subject.kind in {"evolver", "meta_evolver"}:
+            if (
+                benchmark.kind == "custom"
+                or (
+                    benchmark.adapter,
+                    backend.adapter,
+                    interface,
+                )
+                not in {
+                    ("fake", "fake", None),
+                    ("fake", "subprocess", None),
+                }
+                or subject.kind in {"evolver", "meta_evolver"}
+                or run.manifest.execution.model
+                not in {"none", "none/deterministic", "none/echo"}
+            ):
                 required.add((benchmark.adapter, "execution"))
         return required
 
@@ -802,24 +868,39 @@ class AdapterRegistry:
                 )
             try:
                 document = tomllib.loads(declaration_path.read_text(encoding="utf-8"))
+                declaration = document.get("adapter")
+                # An unselected plugin is inert. Filter its declaration before
+                # full validation so it cannot deny service to an unrelated
+                # benchmark; selected declarations still fail closed below.
+                if (
+                    required_capabilities is not None
+                    and (
+                        not isinstance(declaration, Mapping)
+                        or not isinstance(declaration.get("adapter"), str)
+                        or not isinstance(declaration.get("adapter_kind"), str)
+                        or (
+                            declaration.get("adapter"),
+                            declaration.get("adapter_kind"),
+                        )
+                        not in required_capabilities
+                    )
+                ):
+                    continue
                 if set(document) != {"adapter"}:
                     raise AdapterRegistryError(
                         f"adapter declaration requires only [adapter]: {declaration_path}"
                     )
-                capability = AdapterCapability.model_validate(document["adapter"])
+                if not isinstance(declaration, Mapping):
+                    raise AdapterRegistryError(
+                        f"adapter declaration must be a table: {declaration_path}"
+                    )
+                capability = AdapterCapability.model_validate(declaration)
             except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError, ValueError) as exc:
                 if isinstance(exc, AdapterRegistryError):
                     raise
                 raise AdapterRegistryError(
                     f"invalid adapter declaration {declaration_path}: {exc}"
                 ) from exc
-
-            if (
-                required_capabilities is not None
-                and (capability.adapter, capability.adapter_kind)
-                not in required_capabilities
-            ):
-                continue
 
             # Adapter source paths are project-root relative. This avoids a
             # registry declaration escaping its project through ``..``.

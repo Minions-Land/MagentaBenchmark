@@ -15,6 +15,7 @@ from MagentaBench.schemas import (
     EnvironmentBindingRef,
     EvidenceBundle,
     JournalRecord,
+    ModelActivationReceipt,
     NetworkEndpointRecord,
     NetworkObservation,
     NetworkObservationMode,
@@ -165,6 +166,44 @@ def test_provider_binding_is_optional_but_identity_bearing_when_resolved() -> No
     bound = base.model_copy(update={"provider_binding": binding})
     assert base.provider_binding is None
     assert base.model_dump_json() != bound.model_dump_json()
+
+
+def test_model_activation_receipt_requires_native_evidence_and_exact_binding() -> None:
+    binding = ProviderBinding(
+        provider_id="openai",
+        base_url="https://api.openai.com/v1",
+        wire_api="responses",
+        model_id="gpt-5",
+        credential_ref=CredentialRef(
+            name="openai-primary",
+            value_sha256=SHA,
+            secret=True,
+            source_file="credentials/providers.toml",
+        ),
+    )
+    receipt = ModelActivationReceipt(
+        requested_model="gpt-5",
+        requested_provider_id="openai",
+        requested_model_id="gpt-5",
+        activated_provider_id="openai",
+        activated_model_id="gpt-5",
+        binding_digest=binding.canonical_digest(),
+        activated_binding_digest=binding.canonical_digest(),
+        activation_source="native_result",
+        status="matched",
+        evidence_refs=(artifact("native-result.json"),),
+    )
+    assert receipt.status == "matched"
+    assert "source_file" not in binding.identity_data()["credential_ref"]
+    with pytest.raises(ValidationError, match="requires evidence refs"):
+        ModelActivationReceipt.model_validate(
+            receipt.model_dump(mode="python") | {"evidence_refs": ()}
+        )
+    with pytest.raises(ValidationError, match="requested provider/model"):
+        ModelActivationReceipt.model_validate(
+            receipt.model_dump(mode="python")
+            | {"activated_model_id": "gpt-5-mini"}
+        )
 
 
 def test_network_observation_proves_claim_isolation_without_recording_urls() -> None:

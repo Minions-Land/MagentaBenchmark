@@ -221,6 +221,197 @@
       "title": "RunStatus",
       "type": "string"
     },
+    "StatisticalAnalysisReceipt": {
+      "additionalProperties": false,
+      "description": "Derived analysis values independently replayable from report lineage.",
+      "properties": {
+        "ci_method": {
+          "const": "normal_approximation_v1",
+          "title": "Ci Method",
+          "type": "string"
+        },
+        "confidence_interval": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Interval"
+        },
+        "confidence_level": {
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "effective_alpha": {
+          "exclusiveMaximum": 0.5,
+          "exclusiveMinimum": 0,
+          "title": "Effective Alpha",
+          "type": "number"
+        },
+        "family_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family Id"
+        },
+        "family_size": {
+          "minimum": 1,
+          "title": "Family Size",
+          "type": "integer"
+        },
+        "format": {
+          "const": "bmp-statistical-analysis-receipt-v1",
+          "default": "bmp-statistical-analysis-receipt-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "holdout_split": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holdout Split"
+        },
+        "holdout_verified": {
+          "title": "Holdout Verified",
+          "type": "boolean"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "multiple_comparison_method": {
+          "enum": [
+            "none",
+            "bonferroni"
+          ],
+          "title": "Multiple Comparison Method",
+          "type": "string"
+        },
+        "observed_min_repetitions": {
+          "minimum": 1,
+          "title": "Observed Min Repetitions",
+          "type": "integer"
+        },
+        "observed_pair_count": {
+          "minimum": 1,
+          "title": "Observed Pair Count",
+          "type": "integer"
+        },
+        "observed_unit_count": {
+          "minimum": 1,
+          "title": "Observed Unit Count",
+          "type": "integer"
+        },
+        "paired_unit": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Paired Unit",
+          "type": "array"
+        },
+        "pairing_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Pairing Digest",
+          "type": "string"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "point_estimate": {
+          "title": "Point Estimate",
+          "type": "number"
+        },
+        "repetition_field": {
+          "const": "repetition",
+          "title": "Repetition Field",
+          "type": "string"
+        },
+        "sample_variance": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample Variance"
+        },
+        "standard_error": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Standard Error"
+        },
+        "variance_method": {
+          "const": "sample_variance_v1",
+          "title": "Variance Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_digest",
+        "metric",
+        "paired_unit",
+        "repetition_field",
+        "observed_pair_count",
+        "observed_unit_count",
+        "observed_min_repetitions",
+        "pairing_digest",
+        "variance_method",
+        "ci_method",
+        "confidence_level",
+        "effective_alpha",
+        "point_estimate",
+        "holdout_verified",
+        "multiple_comparison_method",
+        "family_size"
+      ],
+      "title": "StatisticalAnalysisReceipt",
+      "type": "object"
+    },
     "SubjectKind": {
       "description": "Resolved kind of the subject that actually entered an execution path.",
       "enum": [
@@ -430,6 +621,17 @@
       "anyOf": [
         {
           "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "statistics_receipt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StatisticalAnalysisReceipt"
         },
         {
           "type": "null"

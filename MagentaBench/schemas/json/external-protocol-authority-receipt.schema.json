@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "AuthorityDocumentRef": {
+      "additionalProperties": false,
+      "description": "One stable, tracked authority document from an external protocol.",
+      "properties": {
+        "artifact_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "relative_path": {
+          "minLength": 1,
+          "title": "Relative Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "relative_path",
+        "artifact_ref"
+      ],
+      "title": "AuthorityDocumentRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Read-only binding to an external protocol's tracked authority bytes.",
+  "properties": {
+    "audit_rules_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "authority_documents": {
+      "items": {
+        "$ref": "#/$defs/AuthorityDocumentRef"
+      },
+      "title": "Authority Documents",
+      "type": "array"
+    },
+    "contract_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "contract_relative_path": {
+      "minLength": 1,
+      "title": "Contract Relative Path",
+      "type": "string"
+    },
+    "contract_version": {
+      "minLength": 1,
+      "title": "Contract Version",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-external-protocol-authority-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "protocol_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Protocol Id",
+      "type": "string"
+    },
+    "source_commit": {
+      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "source_root": {
+      "minLength": 1,
+      "pattern": "^/",
+      "title": "Source Root",
+      "type": "string"
+    }
+  },
+  "required": [
+    "format",
+    "protocol_id",
+    "source_commit",
+    "source_root",
+    "authority_documents",
+    "contract_version",
+    "contract_relative_path",
+    "contract_ref",
+    "audit_rules_ref"
+  ],
+  "title": "ExternalProtocolAuthorityReceipt",
+  "type": "object"
+}

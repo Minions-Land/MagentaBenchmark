@@ -58,23 +58,32 @@ claim scope 'whole_harness' requires missing evidence class
 <...>; runtime support is not active
 ```
 
-当前 `_ACTIVE_SCOPES` 包含 `conformance`、`evolver`、`meta_evolver`（`runner/compiler.py`）。
-演化 scope 只有在 external execution capability、完整 `EvolutionRunEvidence`
-和 claim-ready provenance 都存在时才可形成正向证据；其它研究 scope 仍在编译期拒绝。
+当前 `_ACTIVE_SCOPES` 包含 `conformance`、`model`、`evolver`、`meta_evolver`
+（`runner/compiler.py`）。`model` 仍要求 digest-bound execution capability、明确的
+provider binding 和运行时 `ModelActivationReceipt`；演化 scope 只有在 external
+execution capability、完整 `EvolutionRunEvidence` 和 claim-ready provenance 都存在时
+才可形成正向证据。其它研究 scope 仍在编译期拒绝。
+比较轴本身不再限定为 subject：`ExperimentContrast` 还支持哈希绑定的
+`factor_path/control_value/treatment_value`，可表达模型、backend、配置、调度和
+adapter-owned factor 的双臂比较。
 
-**为什么真实 benchmark claim 仍未开放**：见 [`05-current-state.md`](05-current-state.md)。现有真实产物仍只有一次 AOSE 零成本 dry-run，其 subject entrypoint 是 `/usr/bin/true`，证据包里 `status=no_output`、`verifier_evidence=null`、`output_refs=[]`。演化证据契约已具备，但尚无真实 evolver 运行产物。这是基于产物证据的判定，不是推测。
+**为什么真实 benchmark claim 仍未开放**：见 [`05-current-state.md`](05-current-state.md)。
+现在已有 SWE-bench 和 Terminal-Bench 的真实 exploratory probe，但前者没有进入
+完整 BMP Pipeline，后者的官方 verifier 因容器内 `uv/uvx` 依赖下载失败而不能评分。
+两者都已被标准化记录，不能被误读为 claim 或 leaderboard 结果。
 
 ## 目标状态
 
 按优先级：
 
-1. **单个真实元组走通全链路。** Terminal-Bench 2.1 + Harbor + CLI agent，产出一份能通过全部 exploratory 门的 `ObservationReport`。这是当前最大的空缺 —— 迄今为止没有任何真实证据包走过这条链。
+1. **单个真实元组走通全链路。** Terminal-Bench 2.1 + Harbor + CLI agent，产出一份能通过全部 exploratory 门的 `ObservationReport`。当前已经进入 Docker 和官方 verifier，下一步是固定 verifier 依赖并重新跑一例。
 2. **gold 隔离可验证。** TB2.1 的 task 目录里 `solution/` 与 `tests/` 和公开题面并列。必须做到 workspace **按构造只含公开内容**，而不是挂载后过滤；并以运行后重新哈希证明没有 verifier-only 内容出现过。
 3. **归因对比。** 双臂实验：只变模型（`model` scope）与整体替换（`whole_harness` scope），两者的门标准不同且都必须诚实。
-4. **`claim` purpose 可达。** 现在结构性不可达 —— `gates.py` 的统计分支在非确定性 conformance 下必然关门，因为真实实验统计尚未实现。这是正确的关门行为，且位于其他所有 claim 工作的上游。
-5. **evolver / meta_evolver。** `EvolutionRunEvidence`、候选/transition
-   ledger、内容寻址 refs 和递归 parent verifier 已实现；真正的 claim 仍要求
-   external execution capability、完整 digest binding 与 claim-ready provenance。
+4. **`claim` purpose 可达。** 统计计划/收据已经实现（配对单位、样本方差、CI、holdout、Bonferroni），并由 standalone verifier 重算；真实模型/provider activation 和完整隔离证据仍是开放 claim 的前置条件。
+5. **evolver / meta_evolver。** `EvolutionRunEvidence`、候选/transition ledger、
+   sealed holdout query receipt、预算 lineage 和递归 parent verifier 已实现；
+   deterministic external execution capability 已走通 exploratory Pipeline。真正的
+   claim 仍要求生产 adapter 的隔离证据、正式 evaluator 和统计设计全部通过。
 
 ## 明确不做的事
 

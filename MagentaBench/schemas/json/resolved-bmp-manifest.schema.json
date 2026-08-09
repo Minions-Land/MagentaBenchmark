@@ -18,6 +18,21 @@
           "title": "Adapter Kind",
           "type": "string"
         },
+        "backend_default_read_set": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Default Read Set"
+        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
@@ -52,6 +67,37 @@
           "title": "Kind",
           "type": "string"
         },
+        "model_activation_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "provider_response",
+                "runtime_manifest",
+                "native_result",
+                "adapter_receipt"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Activation Source"
+        },
+        "none_model_sentinels": {
+          "default": [],
+          "items": {
+            "enum": [
+              "none",
+              "none/deterministic",
+              "none/echo"
+            ],
+            "type": "string"
+          },
+          "title": "None Model Sentinels",
+          "type": "array"
+        },
         "source": {
           "default": ".",
           "title": "Source",
@@ -79,6 +125,27 @@
             "type": "string"
           },
           "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_state_reset_policies": {
+          "default": [],
+          "items": {
+            "enum": [
+              "per_case",
+              "per_rollout",
+              "never"
+            ],
+            "type": "string"
+          },
+          "title": "Supported State Reset Policies",
+          "type": "array"
+        },
+        "supported_subject_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Adapters",
           "type": "array"
         },
         "supported_subject_interfaces": {
@@ -475,6 +542,17 @@
         "scope": {
           "$ref": "#/$defs/ClaimScope"
         },
+        "statistical_analysis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatisticalAnalysisPlan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "vary": {
           "items": {
             "type": "string"
@@ -811,6 +889,40 @@
       "title": "CustomBenchmarkArtifact",
       "type": "object"
     },
+    "CustomCaseOrderSpec": {
+      "additionalProperties": false,
+      "description": "Content-addressed external strategy input for ``case_order=custom``.",
+      "properties": {
+        "adapter": {
+          "default": "magentabench.case-order.json.v1",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "CustomCaseOrderSpec",
+      "type": "object"
+    },
     "EnvironmentSpec": {
       "additionalProperties": false,
       "description": "Reproducible environment requirements; interpreter pin is mandatory.",
@@ -946,6 +1058,88 @@
     },
     "ExperimentContrast": {
       "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "control_id": {
+              "type": "null"
+            },
+            "control_value": {
+              "type": "null"
+            },
+            "counterbalanced": {
+              "const": false
+            },
+            "factor_path": {
+              "type": "null"
+            },
+            "mode": {
+              "const": "all_arms"
+            },
+            "treatment_id": {
+              "type": "null"
+            },
+            "treatment_value": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "mode",
+            "counterbalanced"
+          ]
+        },
+        {
+          "properties": {
+            "control_id": {
+              "type": "string"
+            },
+            "control_value": {
+              "type": "null"
+            },
+            "factor_path": {
+              "type": "null"
+            },
+            "mode": {
+              "const": "one_factor"
+            },
+            "treatment_id": {
+              "type": "string"
+            },
+            "treatment_value": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "mode",
+            "counterbalanced",
+            "control_id",
+            "treatment_id"
+          ]
+        },
+        {
+          "properties": {
+            "control_id": {
+              "type": "null"
+            },
+            "factor_path": {
+              "type": "string"
+            },
+            "mode": {
+              "const": "one_factor"
+            },
+            "treatment_id": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "mode",
+            "counterbalanced",
+            "factor_path",
+            "control_value",
+            "treatment_value"
+          ]
+        }
+      ],
       "properties": {
         "control_id": {
           "anyOf": [
@@ -960,9 +1154,31 @@
           "default": null,
           "title": "Control Id"
         },
+        "control_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Control Value"
+        },
         "counterbalanced": {
           "title": "Counterbalanced",
           "type": "boolean"
+        },
+        "factor_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Factor Path"
         },
         "mode": {
           "enum": [
@@ -984,6 +1200,16 @@
           ],
           "default": null,
           "title": "Treatment Id"
+        },
+        "treatment_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Treatment Value"
         }
       },
       "required": [
@@ -1333,6 +1559,17 @@
           "title": "Checkpoint Policy",
           "type": "string"
         },
+        "custom_order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomCaseOrderSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "deterministic_conformance": {
           "default": false,
           "title": "Deterministic Conformance",
@@ -1432,7 +1669,7 @@
     },
     "ResolvedExecutionSpec": {
       "additionalProperties": false,
-      "description": "Execution contract with registry references inlined.\n\nprovider_binding is optional only until the CLI-agent adapter resolves it;\na model-scope claim MUST compile-reject when provider_binding is None.",
+      "description": "Execution contract with registry references inlined.\n\n``provider_binding`` is absent for the closed ``none/*`` execution modes.\nIt is optional for an exploratory real-model run so missing provider\nidentity can be recorded explicitly, but a positive runtime result requires\nit plus a matching :class:`ModelActivationReceipt`.",
       "properties": {
         "backend": {
           "$ref": "#/$defs/BackendSpec"
@@ -1568,6 +1805,108 @@
       ],
       "title": "ScoringKind",
       "type": "string"
+    },
+    "StatisticalAnalysisPlan": {
+      "additionalProperties": false,
+      "description": "Pre-registered paired analysis contract carried by every arm.\n\n``paired_unit`` names the complete factor key used to match one control\nobservation with one treatment observation. ``case_id`` is the runtime\ncase identity; all other names refer to ``ResolvedManifestMetadata.factors``.\nThe implementation is intentionally small and versioned so a standalone\nverifier can reproduce the exact variance and interval calculation.",
+      "properties": {
+        "ci_method": {
+          "const": "normal_approximation_v1",
+          "default": "normal_approximation_v1",
+          "title": "Ci Method",
+          "type": "string"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "family_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Family Id"
+        },
+        "family_size": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Family Size",
+          "type": "integer"
+        },
+        "format": {
+          "const": "bmp-statistical-analysis-plan-v1",
+          "default": "bmp-statistical-analysis-plan-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "holdout_required": {
+          "default": true,
+          "title": "Holdout Required",
+          "type": "boolean"
+        },
+        "holdout_split": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Holdout Split"
+        },
+        "minimum_repetitions": {
+          "default": 2,
+          "minimum": 2,
+          "title": "Minimum Repetitions",
+          "type": "integer"
+        },
+        "multiple_comparison_method": {
+          "default": "none",
+          "enum": [
+            "none",
+            "bonferroni"
+          ],
+          "title": "Multiple Comparison Method",
+          "type": "string"
+        },
+        "paired_unit": {
+          "default": [
+            "case_id",
+            "repetition"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "title": "Paired Unit",
+          "type": "array"
+        },
+        "repetition_field": {
+          "const": "repetition",
+          "default": "repetition",
+          "title": "Repetition Field",
+          "type": "string"
+        },
+        "variance_method": {
+          "const": "sample_variance_v1",
+          "default": "sample_variance_v1",
+          "title": "Variance Method",
+          "type": "string"
+        }
+      },
+      "title": "StatisticalAnalysisPlan",
+      "type": "object"
     },
     "TaskSuiteBenchmarkArtifact": {
       "additionalProperties": false,

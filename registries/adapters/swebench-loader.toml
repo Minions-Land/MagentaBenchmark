@@ -6,5 +6,5 @@ bmp_version = "0.1"
 adapter_kind = "benchmark_loader"
 source = "."
 entrypoint = "MagentaBench/adapters/benchmarks/swebench.py:SweBenchLoader"
-digest = "859c4a6173a97540bf71b5eb0d3924e7b2e2fd96c5bbc484483cdd1edbd892b3"
+digest = "72c71de70c60d90ce07c6109c17c1081f4ca3f99758a6c407056be3ec3530e27"
 supported_benchmark_kinds = ["custom"]

@@ -1,0 +1,284 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "IntegrationProbeIdentityRef": {
+      "additionalProperties": false,
+      "description": "A probe identity role bound directly to retained, rehashable bytes.",
+      "properties": {
+        "artifact_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "role": {
+          "$ref": "#/$defs/IntegrationProbeIdentityRole"
+        }
+      },
+      "required": [
+        "role",
+        "artifact_ref"
+      ],
+      "title": "IntegrationProbeIdentityRef",
+      "type": "object"
+    },
+    "IntegrationProbeIdentityRole": {
+      "description": "Closed roles for probe identity bytes retained outside a manifest.",
+      "enum": [
+        "benchmark_source",
+        "loader_implementation",
+        "execution_adapter_implementation",
+        "subject_implementation",
+        "backend_executable",
+        "verifier_contract",
+        "container_image_receipt"
+      ],
+      "title": "IntegrationProbeIdentityRole",
+      "type": "string"
+    },
+    "IntegrationProbeOutcome": {
+      "enum": [
+        "completed",
+        "subject_failure",
+        "verifier_failure",
+        "infrastructure_failure",
+        "blocked"
+      ],
+      "title": "IntegrationProbeOutcome",
+      "type": "string"
+    },
+    "IntegrationProbePhase": {
+      "enum": [
+        "compile",
+        "activation",
+        "subject",
+        "verifier",
+        "cleanup",
+        "complete"
+      ],
+      "title": "IntegrationProbePhase",
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "manifest_ref": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "manifest_ref"
+          ]
+        },
+        {
+          "properties": {
+            "identity_refs": {
+              "minItems": 1
+            }
+          },
+          "required": [
+            "identity_refs"
+          ]
+        }
+      ]
+    },
+    {
+      "if": {
+        "properties": {
+          "manifest_ref": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "manifest_ref"
+        ]
+      },
+      "then": {
+        "properties": {
+          "manifest_digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "manifest_digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_digest"
+        ]
+      },
+      "then": {
+        "properties": {
+          "manifest_ref": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "manifest_ref"
+        ]
+      }
+    }
+  ],
+  "description": "Content-addressed evidence for a real but non-claim integration probe.\n\nProbe records are intentionally weaker than ``ObservationReport``: they\ncan retain evidence from a partial integration contact that never reached\nthe full Pipeline.  They are always exploratory and always carry explicit\nclaim blockers, so a successful case cannot be mistaken for a benchmark\nresult.",
+  "properties": {
+    "benchmark_adapter": {
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Benchmark Adapter",
+      "type": "string"
+    },
+    "case_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Case Id",
+      "type": "string"
+    },
+    "claim_blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Claim Blockers",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "format": {
+      "const": "bmp-integration-probe-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "identity_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/IntegrationProbeIdentityRef"
+      },
+      "title": "Identity Refs",
+      "type": "array"
+    },
+    "manifest_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manifest Digest"
+    },
+    "manifest_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "outcome": {
+      "$ref": "#/$defs/IntegrationProbeOutcome"
+    },
+    "phase": {
+      "$ref": "#/$defs/IntegrationProbePhase"
+    },
+    "probe_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Probe Id",
+      "type": "string"
+    },
+    "public_input_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "purpose": {
+      "const": "exploratory",
+      "title": "Purpose",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    }
+  },
+  "required": [
+    "format",
+    "purpose",
+    "probe_id",
+    "benchmark_adapter",
+    "case_id",
+    "phase",
+    "outcome",
+    "status",
+    "evidence_refs",
+    "claim_blockers"
+  ],
+  "title": "IntegrationProbeRecord",
+  "type": "object"
+}

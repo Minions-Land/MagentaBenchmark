@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "Content-addressed external strategy input for ``case_order=custom``.",
+  "properties": {
+    "adapter": {
+      "default": "magentabench.case-order.json.v1",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "size_bytes": {
+      "minimum": 0,
+      "title": "Size Bytes",
+      "type": "integer"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "sha256",
+    "size_bytes"
+  ],
+  "title": "CustomCaseOrderSpec",
+  "type": "object"
+}

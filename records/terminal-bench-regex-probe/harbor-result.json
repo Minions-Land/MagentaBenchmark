@@ -1,0 +1,63 @@
+{
+  "id": "387c9aa9-4cc3-411a-ad08-5681a3ff9fb9",
+  "task_name": "terminal-bench/regex-log",
+  "trial_name": "terminal-bench-regex-smoke__run0__ZUhWGad",
+  "task_checksum": "9de3bdc688084534ba29f69dc289ed3eb231c792af0449821461059de97e9dd3",
+  "config": {
+    "agent": {
+      "name": "nop",
+      "model_name": null,
+      "kwargs": {},
+      "mcp_servers": []
+    },
+    "environment": {
+      "type": "docker",
+      "force_build": false,
+      "delete": true,
+      "extra_allowed_hosts": []
+    },
+    "verifier": {
+      "disable": false
+    },
+    "job_id": "294685b4-6e85-4dc0-aa57-dfbae72e8e66"
+  },
+  "agent_info": {
+    "name": "nop",
+    "version": "1.0.0",
+    "model_info": null
+  },
+  "agent_result": {
+    "n_input_tokens": null,
+    "n_cache_tokens": null,
+    "n_output_tokens": null,
+    "cost_usd": null,
+    "rollout_details": null,
+    "metadata": null
+  },
+  "verifier_result": {
+    "rewards": {
+      "reward": 0.0
+    }
+  },
+  "exception_info": null,
+  "started_at": "2026-08-08T16:22:45.478500Z",
+  "finished_at": "2026-08-08T16:26:15.984189Z",
+  "environment_setup": {
+    "started_at": "2026-08-08T16:22:45.545267Z",
+    "finished_at": "2026-08-08T16:22:46.799450Z"
+  },
+  "agent_setup": {
+    "started_at": "2026-08-08T16:22:46.799499Z",
+    "finished_at": "2026-08-08T16:22:46.799559Z"
+  },
+  "agent_execution": {
+    "started_at": "2026-08-08T16:22:46.799636Z",
+    "finished_at": "2026-08-08T16:22:46.799713Z"
+  },
+  "verifier": {
+    "started_at": "2026-08-08T16:22:47.086322Z",
+    "finished_at": "2026-08-08T16:26:05.194002Z"
+  },
+  "step_results": null,
+  "retention_note": "Path-bearing Harbor config fields were removed from this tracked projection; the original raw result has SHA-256 640db551bfdb1455438a19e58bc1e5c9cbd76646cbcadecd317e742a39f1de5c."
+}

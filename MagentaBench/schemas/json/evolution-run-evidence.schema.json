@@ -332,6 +332,17 @@
       "title": "Run Id",
       "type": "string"
     },
+    "runtime_receipt_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "search_state_refs": {
       "default": [],
       "items": {

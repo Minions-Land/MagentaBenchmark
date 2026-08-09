@@ -605,6 +605,7 @@ class EvolutionRunEvidence(StrictModel):
             "parent_evidence_ref", "nested_parent_evidence_ref"
         ),
     )
+    runtime_receipt_ref: ArtifactRef | None = None
     candidate_ledger_complete: bool = True
     transition_ledger_complete: bool = True
     attributes: Mapping[str, Any] = Field(default_factory=dict)
@@ -772,6 +773,7 @@ class EvolutionRunEvidence(StrictModel):
             self.adapter_ref is None
             or self.evaluator_ref is None
             or self.budget_ref is None
+            or self.runtime_receipt_ref is None
             or self.authoritative_metric is None
             or self.selected_candidate_id is None
         ):
@@ -818,6 +820,11 @@ class EvolutionRunEvidence(StrictModel):
                 None
                 if self.parent_evidence_ref is None
                 else self.parent_evidence_ref.identity_data()
+            ),
+            "runtime_receipt_ref": (
+                None
+                if self.runtime_receipt_ref is None
+                else self.runtime_receipt_ref.identity_data()
             ),
             "candidate_ledger_complete": self.candidate_ledger_complete,
             "transition_ledger_complete": self.transition_ledger_complete,
@@ -1014,7 +1021,31 @@ class AdapterCapability(RegistryEntry):
     supported_subject_kinds: tuple[str, ...] = ()
     supported_backend_kinds: tuple[str, ...] = ()
     supported_backend_adapters: tuple[str, ...] = ()
+    supported_subject_adapters: tuple[str, ...] = ()
     supported_subject_interfaces: tuple[str, ...] = ()
+    # ``None`` means that a backend factory did not declare which keys it
+    # reads.  An explicit empty tuple is a closed, valid read-set.
+    backend_default_read_set: tuple[str, ...] | None = None
+    # These are deliberately named *none* model sentinels.  A capability may
+    # bind only the non-provider execution modes closed by ExecutionSpec;
+    # activating a real model still requires ModelActivationReceipt.
+    none_model_sentinels: tuple[
+        Literal["none", "none/deterministic", "none/echo"], ...
+    ] = ()
+    # A real model may enter execution only when the selected execution
+    # adapter declares where its runtime activation evidence comes from.
+    # This is deliberately an enum rather than an adapter-name allowlist:
+    # providers/harnesses remain pluggable while the evidence semantics stay
+    # closed and independently replayable.
+    model_activation_source: Literal[
+        "provider_response",
+        "runtime_manifest",
+        "native_result",
+        "adapter_receipt",
+    ] | None = None
+    supported_state_reset_policies: tuple[
+        Literal["per_case", "per_rollout", "never"], ...
+    ] = ()
 
     @field_validator("source")
     @classmethod
@@ -1050,7 +1081,10 @@ class AdapterCapability(RegistryEntry):
         "supported_subject_kinds",
         "supported_backend_kinds",
         "supported_backend_adapters",
+        "supported_subject_adapters",
         "supported_subject_interfaces",
+        "none_model_sentinels",
+        "supported_state_reset_policies",
     )
     @classmethod
     def capability_values_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
@@ -1060,11 +1094,46 @@ class AdapterCapability(RegistryEntry):
             raise ValueError("adapter capability values must be non-empty")
         return values
 
+    @field_validator("backend_default_read_set")
+    @classmethod
+    def backend_default_keys_are_unique(
+        cls, values: tuple[str, ...] | None
+    ) -> tuple[str, ...] | None:
+        if values is None:
+            return None
+        if len(set(values)) != len(values):
+            raise ValueError("adapter backend default read-set values must be unique")
+        if any(not value.strip() for value in values):
+            raise ValueError(
+                "adapter backend default read-set values must be non-empty"
+            )
+        return values
+
+    @model_validator(mode="after")
+    def policy_fields_match_capability_kind(self) -> "AdapterCapability":
+        if self.adapter_kind != "backend_factory" and (
+            self.backend_default_read_set is not None
+        ):
+            raise ValueError(
+                "backend_default_read_set is allowed only for backend_factory"
+            )
+        if self.adapter_kind != "execution" and (
+            self.none_model_sentinels
+            or self.model_activation_source is not None
+            or self.supported_state_reset_policies
+        ):
+            raise ValueError(
+                "model activation policies and state-reset policies are allowed "
+                "only for execution"
+            )
+        return self
+
     def supports(
         self,
         *,
         benchmark_kind: str,
         subject_kind: str,
+        subject_adapter: str,
         backend_kind: str,
         backend_adapter: str,
         subject_interface: str | None,
@@ -1076,6 +1145,8 @@ class AdapterCapability(RegistryEntry):
              or benchmark_kind in self.supported_benchmark_kinds)
             and (not self.supported_subject_kinds
                  or subject_kind in self.supported_subject_kinds)
+            and (not self.supported_subject_adapters
+                 or subject_adapter in self.supported_subject_adapters)
             and (not self.supported_backend_kinds
                  or backend_kind in self.supported_backend_kinds)
             and (not self.supported_backend_adapters
@@ -1291,6 +1362,220 @@ class ProviderBinding(StrictModel):
             raise ValueError("base_url must not contain a query string or fragment")
         return value
 
+    def identity_data(self) -> dict[str, Any]:
+        """Return the relocatable, secret-free provider identity projection."""
+
+        return {
+            "provider_id": self.provider_id,
+            "base_url": self.base_url,
+            "wire_api": self.wire_api,
+            "model_id": self.model_id,
+            "credential_ref": self.credential_ref.identity_data(),
+        }
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+class ModelActivationUsage(StrictModel):
+    """Provider-reported usage carried by the same native activation evidence.
+
+    Wall time is intentionally excluded: BMP measures it at the scheduler
+    boundary, while token and monetary usage must be replayed from the provider
+    or harness evidence that identified the active model.
+    """
+
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cache_read_tokens: int | None = Field(default=None, ge=0)
+    cache_write_tokens: int | None = Field(default=None, ge=0)
+    total_tokens: int | None = Field(default=None, ge=0)
+    cost: float | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def token_total_is_consistent(self) -> "ModelActivationUsage":
+        if (
+            self.total_tokens is not None
+            and self.input_tokens is not None
+            and self.output_tokens is not None
+            and self.total_tokens != self.input_tokens + self.output_tokens
+        ):
+            raise ValueError("total_tokens must equal input_tokens + output_tokens")
+        return self
+
+
+class ModelActivationEvidence(StrictModel):
+    """Closed JSON projection replayed to derive a model activation receipt.
+
+    ``runtime_manifest`` evidence is the native JSONL trace itself and is
+    replayed separately. Other activation sources use this envelope so an
+    arbitrary file or caller-supplied scalar cannot substantiate activation.
+    """
+
+    format: Literal["bmp-model-activation-evidence-v1"] = (
+        "bmp-model-activation-evidence-v1"
+    )
+    activation_source: Literal[
+        "provider_response",
+        "native_result",
+        "adapter_receipt",
+    ]
+    provider_id: str = Field(pattern=ID_PATTERN)
+    base_url: str = Field(min_length=1)
+    wire_api: str = Field(min_length=1)
+    model_id: str = Field(min_length=1)
+    credential_name: str = Field(pattern=ID_PATTERN)
+    credential_value_sha256: str = Field(pattern=SHA256_PATTERN)
+    usage: ModelActivationUsage | None = None
+
+    @field_validator("base_url")
+    @classmethod
+    def base_url_is_secret_free_http_url(cls, value: str) -> str:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("base_url must be an absolute HTTP(S) URL")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("base_url must not contain credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("base_url must not contain a query string or fragment")
+        return value
+
+    def binding_identity_data(self) -> dict[str, Any]:
+        return {
+            "provider_id": self.provider_id,
+            "base_url": self.base_url,
+            "wire_api": self.wire_api,
+            "model_id": self.model_id,
+            "credential_ref": {
+                "name": self.credential_name,
+                "value_sha256": self.credential_value_sha256,
+                "secret": True,
+            },
+        }
+
+    def binding_digest(self) -> str:
+        encoded = json.dumps(
+            self.binding_identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
+class ModelActivationReceipt(StrictModel):
+    """Runtime proof that the requested provider/model reached execution.
+
+    A positive receipt binds a resolved :class:`ProviderBinding` without
+    serializing a credential value. ``binding_digest`` is computed from the
+    binding's identity projection (which intentionally omits
+    ``CredentialRef.source_file``), while ``evidence_refs`` retain the
+    adapter-native result/trace bytes used to observe activation. An exploratory
+    run without a binding or observation is retained as ``unobserved``. A real
+    model is never inferred from a command line or manifest declaration alone.
+    """
+
+    protocol_version: Literal[1] = 1
+    requested_model: str = Field(min_length=1)
+    requested_provider_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    requested_model_id: str = Field(min_length=1)
+    activated_provider_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    activated_model_id: str | None = Field(default=None, min_length=1)
+    binding_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    activated_binding_digest: str | None = Field(
+        default=None,
+        pattern=SHA256_PATTERN,
+    )
+    activation_source: Literal[
+        "provider_response",
+        "runtime_manifest",
+        "native_result",
+        "adapter_receipt",
+    ]
+    status: Literal["matched", "mismatch", "unobserved"]
+    reason: tuple[str, ...] = ()
+    evidence_refs: tuple[ArtifactRef, ...] = ()
+
+    @field_validator("reason")
+    @classmethod
+    def model_activation_reasons_are_unique(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("model activation reasons must be non-empty")
+        if len(set(values)) != len(values):
+            raise ValueError("model activation reasons must be unique")
+        return values
+
+    @model_validator(mode="after")
+    def activation_is_coherent(self) -> "ModelActivationReceipt":
+        if self.requested_model != self.requested_model_id:
+            raise ValueError(
+                "model activation requested_model must equal requested_model_id"
+            )
+        activated = (self.activated_provider_id, self.activated_model_id)
+        requested = (self.requested_provider_id, self.requested_model_id)
+        if self.status == "matched":
+            if self.requested_provider_id is None or activated != requested:
+                raise ValueError(
+                    "matched model activation requires the requested provider/model"
+                )
+            if self.binding_digest is None:
+                raise ValueError("matched model activation requires a binding digest")
+            if self.activated_binding_digest != self.binding_digest:
+                raise ValueError(
+                    "matched model activation requires the observed binding digest"
+                )
+            if self.reason:
+                raise ValueError("matched model activation cannot have reasons")
+            if not self.evidence_refs:
+                raise ValueError("matched model activation requires evidence refs")
+        elif self.status == "mismatch":
+            if (
+                self.requested_provider_id is None
+                or self.binding_digest is None
+                or any(value is None for value in activated)
+                or self.activated_binding_digest is None
+                or (
+                    activated == requested
+                    and self.activated_binding_digest == self.binding_digest
+                )
+            ):
+                raise ValueError(
+                    "mismatched model activation requires a different observed provider/model"
+                )
+            if not self.reason:
+                raise ValueError("mismatched model activation requires a reason")
+            if not self.evidence_refs:
+                raise ValueError("mismatched model activation requires evidence refs")
+        else:
+            if any(value is not None for value in activated):
+                raise ValueError("unobserved model activation cannot claim an active model")
+            if self.activated_binding_digest is not None:
+                raise ValueError(
+                    "unobserved model activation cannot claim an active binding"
+                )
+            if not self.reason:
+                raise ValueError("unobserved model activation requires a reason")
+        ref_keys = [
+            (ref.path, ref.sha256, ref.size_bytes) for ref in self.evidence_refs
+        ]
+        if len(set(ref_keys)) != len(ref_keys):
+            raise ValueError("model activation evidence refs must be unique")
+        if self.status in {"matched", "mismatch"} and len(self.evidence_refs) != 1:
+            raise ValueError(
+                "observed model activation requires exactly one replayable evidence ref"
+            )
+        return self
+
 
 class NetworkObservationMode(str, Enum):
     active_probe = "active_probe"
@@ -1385,6 +1670,26 @@ class NetworkObservation(StrictModel):
             self.egress_attempted or self.egress_succeeded or self.reached_endpoints
         ):
             raise ValueError("unobservable network mode cannot claim observed activity")
+        endpoint_successes = {
+            "allowed",
+            "connected",
+            "connection_succeeded",
+            "reached",
+            "success",
+            "ok",
+        }
+        if any(
+            endpoint.outcome.strip().casefold() in endpoint_successes
+            for endpoint in self.reached_endpoints
+        ):
+            if not self.egress_succeeded:
+                raise ValueError(
+                    "successful network endpoint requires egress_succeeded=true"
+                )
+            if not self.declared_allow_internet:
+                raise ValueError(
+                    "denied network policy cannot record a successful endpoint"
+                )
         return self
 
 
@@ -2310,6 +2615,36 @@ ProtocolKind = Literal[
 ]
 
 
+class CaseOrderArtifact(StrictModel):
+    """Portable ordered case selection consumed by the custom order adapter."""
+
+    schema_version: Literal["bmp.case-order.v1"] = "bmp.case-order.v1"
+    ordered_case_ids: tuple[str, ...]
+
+    @field_validator("ordered_case_ids")
+    @classmethod
+    def ordered_ids_are_valid(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if not values:
+            raise ValueError("custom case-order artifact must select at least one case")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("custom case-order artifact contains an invalid BMP id")
+        if len(set(values)) != len(values):
+            raise ValueError("custom case-order artifact ids must be unique")
+        return values
+
+
+class CustomCaseOrderSpec(StrictModel):
+    """Content-addressed external strategy input for ``case_order=custom``."""
+
+    adapter: str = Field(
+        default="magentabench.case-order.json.v1",
+        pattern=ADAPTER_PATTERN,
+    )
+    source: str = Field(min_length=1)
+    sha256: str = Field(pattern=SHA256_PATTERN)
+    size_bytes: int = Field(ge=0)
+
+
 class ProtocolSpec(RegistryEntry):
     """Execution schedule defaults resolved before local execution overrides."""
 
@@ -2320,6 +2655,7 @@ class ProtocolSpec(RegistryEntry):
         "fixed", "seeded_random", "random", "custom", "explicit"
     ] = "fixed"
     explicit_case_ids: tuple[str, ...] = ()
+    custom_order: CustomCaseOrderSpec | None = None
     adaptive_budget: bool = False
     candidate_selection: Literal["single", "exact", "best_of_n"]
     state_reset: Literal["per_case", "per_rollout", "never"] = "per_case"
@@ -2338,14 +2674,18 @@ class ProtocolSpec(RegistryEntry):
 
     @model_validator(mode="after")
     def explicit_ids_match_order_policy(self) -> "ProtocolSpec":
-        if self.case_order in {"custom", "explicit"} and not self.explicit_case_ids:
+        if self.case_order == "explicit" and not self.explicit_case_ids:
             raise ValueError(
-                "explicit_case_ids must be non-empty when case_order is custom or explicit"
+                "explicit_case_ids must be non-empty when case_order is explicit"
             )
-        if self.case_order not in {"custom", "explicit"} and self.explicit_case_ids:
+        if self.case_order != "explicit" and self.explicit_case_ids:
             raise ValueError(
-                "explicit_case_ids are forbidden unless case_order is custom or explicit"
+                "explicit_case_ids are forbidden unless case_order is explicit"
             )
+        if self.case_order == "custom" and self.custom_order is None:
+            raise ValueError("custom_order is required when case_order is custom")
+        if self.case_order != "custom" and self.custom_order is not None:
+            raise ValueError("custom_order is forbidden unless case_order is custom")
         return self
 
 
@@ -2354,6 +2694,7 @@ class ExecutionSpec(StrictModel):
 
     backend: str = Field(pattern=ID_PATTERN)
     model: str = Field(min_length=1)
+    provider_binding: ProviderBinding | None = None
     seed: int | None = None
     budget: Budget | None = None
 
@@ -2373,12 +2714,24 @@ class ExecutionSpec(StrictModel):
             field_name="ExecutionSpec.backend_overrides",
         )
 
+    @model_validator(mode="after")
+    def provider_binding_matches_model(self) -> "ExecutionSpec":
+        if self.provider_binding is None:
+            return self
+        if self.model in {"none", "none/deterministic", "none/echo"}:
+            raise ValueError("none-model execution forbids provider_binding")
+        if self.provider_binding.model_id != self.model:
+            raise ValueError("provider_binding.model_id must equal execution.model")
+        return self
+
 
 class ResolvedExecutionSpec(StrictModel):
     """Execution contract with registry references inlined.
 
-    provider_binding is optional only until the CLI-agent adapter resolves it;
-    a model-scope claim MUST compile-reject when provider_binding is None.
+    ``provider_binding`` is absent for the closed ``none/*`` execution modes.
+    It is optional for an exploratory real-model run so missing provider
+    identity can be recorded explicitly, but a positive runtime result requires
+    it plus a matching :class:`ModelActivationReceipt`.
     """
 
     backend: BackendSpec
@@ -2400,6 +2753,11 @@ class ResolvedExecutionSpec(StrictModel):
             raise ValueError("seed is required when case_order=seeded_random")
         if case_order != "seeded_random" and self.seed is not None:
             raise ValueError("seed is forbidden unless case_order=seeded_random")
+        if self.provider_binding is not None:
+            if self.model in {"none", "none/deterministic", "none/echo"}:
+                raise ValueError("none-model execution forbids provider_binding")
+            if self.provider_binding.model_id != self.model:
+                raise ValueError("provider_binding.model_id must equal execution.model")
         return self
 
 
@@ -2416,7 +2774,11 @@ class CaseArtifact(StrictModel):
             *self.task_contract_refs,
             *self.verifier_contract_refs,
         )
-        identities = [(ref.sha256, ref.size_bytes) for ref in refs]
+        # Distinct contract files can share bytes (for example a fixture
+        # copied into both the environment and verifier trees).  Preserve
+        # each path in the activated contract closure; only an identical
+        # reference at the same path is a duplicate.
+        identities = [(ref.path, ref.sha256, ref.size_bytes) for ref in refs]
         if len(set(identities)) != len(identities):
             raise ValueError("case artifact refs must be content-unique")
         return self
@@ -2439,11 +2801,18 @@ class CaseSetArtifact(StrictModel):
     benchmark_digest: str = Field(pattern=SHA256_PATTERN)
     loader_adapter: str = Field(pattern=ADAPTER_PATTERN)
     loader_digest: str = Field(pattern=SHA256_PATTERN)
-    selection_method: Literal["all_cases", "explicit_case_ids"] = "all_cases"
+    selection_method: Literal[
+        "all_cases", "explicit_case_ids", "custom_order_artifact"
+    ] = "all_cases"
     case_order: Literal[
         "fixed", "seeded_random", "random", "custom", "explicit"
     ] = "fixed"
     order_seed: int | None = None
+    order_strategy_adapter: str | None = Field(
+        default=None,
+        pattern=ADAPTER_PATTERN,
+    )
+    order_strategy_ref: ArtifactRef | None = None
     source_content_digest: str = Field(pattern=SHA256_PATTERN)
     source_content_refs: tuple[ArtifactRef, ...]
     ordered_case_ids: tuple[str, ...]
@@ -2462,22 +2831,36 @@ class CaseSetArtifact(StrictModel):
             raise ValueError("order_seed is required for seeded_random case order")
         if self.case_order != "seeded_random" and self.order_seed is not None:
             raise ValueError("order_seed is forbidden for non-seeded case order")
-        if (
-            self.case_order in {"custom", "explicit"}
-            and self.selection_method != "explicit_case_ids"
-        ):
+        if self.case_order == "explicit" and self.selection_method != "explicit_case_ids":
             raise ValueError(
                 "explicit case order requires selection_method=explicit_case_ids"
             )
         if (
-            self.case_order not in {"custom", "explicit"}
+            self.case_order != "explicit"
             and self.selection_method == "explicit_case_ids"
         ):
             raise ValueError(
                 "selection_method=explicit_case_ids requires explicit case order"
             )
+        if self.case_order == "custom":
+            if self.selection_method != "custom_order_artifact":
+                raise ValueError(
+                    "custom case order requires selection_method=custom_order_artifact"
+                )
+            if self.order_strategy_adapter is None or self.order_strategy_ref is None:
+                raise ValueError(
+                    "custom case order requires an adapter and content reference"
+                )
+        elif self.order_strategy_adapter is not None or self.order_strategy_ref is not None:
+            raise ValueError(
+                "order strategy adapter/ref are forbidden for non-custom case order"
+            )
+        # Different source files may legitimately have identical bytes (for
+        # example shared Dockerfiles).  Preserve every path in the source
+        # closure; only the same content reference at the same path is a
+        # duplicate.  The closure digest still binds path plus bytes.
         source_identities = [
-            (ref.sha256, ref.size_bytes) for ref in self.source_content_refs
+            (ref.path, ref.sha256, ref.size_bytes) for ref in self.source_content_refs
         ]
         if (
             not source_identities
@@ -2497,6 +2880,12 @@ class CaseSetArtifact(StrictModel):
             "selection_method": self.selection_method,
             "case_order": self.case_order,
             "order_seed": self.order_seed,
+            "order_strategy_adapter": self.order_strategy_adapter,
+            "order_strategy_ref": (
+                None
+                if self.order_strategy_ref is None
+                else self.order_strategy_ref.identity_data()
+            ),
             "source_content_digest": self.source_content_digest,
             "source_content_refs": [
                 ref.identity_data() for ref in self.source_content_refs
@@ -2593,25 +2982,236 @@ SUBJECT_KIND_SCOPE_MATRIX: Mapping[str, frozenset[ClaimScope]] = MappingProxyTyp
 
 
 class ExperimentContrast(StrictModel):
+    # Publish the same coarse shape closure enforced by the Pydantic
+    # validator. JSON Schema cannot portably express equality between the two
+    # arm values, so distinctness remains a typed-model check; field presence,
+    # nullability and the three mutually exclusive forms are portable.
+    model_config = ConfigDict(
+        json_schema_extra={
+            "oneOf": [
+                {
+                    "properties": {
+                        "mode": {"const": "all_arms"},
+                        "counterbalanced": {"const": False},
+                        "control_id": {"type": "null"},
+                        "treatment_id": {"type": "null"},
+                        "factor_path": {"type": "null"},
+                        "control_value": {"type": "null"},
+                        "treatment_value": {"type": "null"},
+                    },
+                    "required": ["mode", "counterbalanced"],
+                },
+                {
+                    "properties": {
+                        "mode": {"const": "one_factor"},
+                        "factor_path": {"type": "null"},
+                        "control_id": {"type": "string"},
+                        "treatment_id": {"type": "string"},
+                        "control_value": {"type": "null"},
+                        "treatment_value": {"type": "null"},
+                    },
+                    "required": [
+                        "mode",
+                        "counterbalanced",
+                        "control_id",
+                        "treatment_id",
+                    ],
+                },
+                {
+                    "properties": {
+                        "mode": {"const": "one_factor"},
+                        "factor_path": {"type": "string"},
+                        "control_id": {"type": "null"},
+                        "treatment_id": {"type": "null"},
+                    },
+                    "required": [
+                        "mode",
+                        "counterbalanced",
+                        "factor_path",
+                        "control_value",
+                        "treatment_value",
+                    ],
+                },
+            ]
+        }
+    )
+
     mode: Literal["one_factor", "all_arms"]
     control_id: str | None = Field(default=None, pattern=ID_PATTERN)
     treatment_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    # The legacy subject-id form remains valid.  ``factor_path`` makes the
+    # arm axis explicit for model, backend, configuration, schedule, or
+    # adapter-owned factors without teaching BMP a list of special cases.
+    factor_path: str | None = None
+    control_value: Any | None = None
+    treatment_value: Any | None = None
     counterbalanced: bool
+
+    @field_validator("factor_path")
+    @classmethod
+    def contrast_factor_path_is_normalized(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        pattern = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+        if pattern.fullmatch(value) is None:
+            raise ValueError("contrast factor_path must be a normalized factor name")
+        return value
+
+    @field_validator("control_value", "treatment_value", mode="before")
+    @classmethod
+    def contrast_values_are_json_safe(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        _reject_secret_like_keys(value, field_name="ExperimentContrast arm value")
+        try:
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "ExperimentContrast arm value must be JSON-compatible"
+            ) from exc
+        return value
 
     @model_validator(mode="after")
     def contrast_shape_matches_mode(self) -> "ExperimentContrast":
+        # ``Any | None`` intentionally permits JSON ``null`` as a meaningful
+        # arm value.  Presence, rather than ``value is not None``, therefore
+        # distinguishes an explicitly declared null arm from an omitted arm.
+        supplied = self.model_fields_set
+        supplied_values = supplied.intersection(
+            {"control_value", "treatment_value"}
+        )
         if self.mode == "one_factor":
-            if self.control_id is None or self.treatment_id is None:
-                raise ValueError("one_factor contrast requires control_id and treatment_id")
-            if self.control_id == self.treatment_id:
-                raise ValueError("control_id and treatment_id must be distinct")
+            legacy = self.factor_path is None
+            if legacy:
+                if self.control_id is None or self.treatment_id is None:
+                    raise ValueError(
+                        "one_factor contrast requires control_id and treatment_id"
+                    )
+                if self.control_id == self.treatment_id:
+                    raise ValueError("control_id and treatment_id must be distinct")
+                # Pydantic's canonical JSON representation includes optional
+                # arm fields as ``null`` even when they were omitted.  Treat
+                # null as absent for the legacy subject-id form so manifests
+                # can be independently reloaded from their serialized bytes.
+                if (self.control_value is not None
+                        or self.treatment_value is not None):
+                    raise ValueError(
+                        "subject-id contrast cannot provide control/treatment values"
+                    )
+            else:
+                if self.control_id is not None or self.treatment_id is not None:
+                    raise ValueError(
+                        "factor contrast cannot provide control_id or treatment_id"
+                    )
+                if supplied_values != {
+                    "control_value",
+                    "treatment_value",
+                }:
+                    raise ValueError(
+                        "factor contrast requires control_value and treatment_value"
+                    )
+                if json.dumps(
+                    self.control_value,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                ) == json.dumps(
+                    self.treatment_value,
+                    sort_keys=True,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                ):
+                    raise ValueError("control_value and treatment_value must be distinct")
         elif (
             self.control_id is not None
             or self.treatment_id is not None
+            or self.factor_path is not None
+            or self.control_value is not None
+            or self.treatment_value is not None
             or self.counterbalanced
         ):
             raise ValueError("all_arms contrast forbids arm filtering and counterbalancing")
         return self
+
+
+class StatisticalAnalysisPlan(StrictModel):
+    """Pre-registered paired analysis contract carried by every arm.
+
+    ``paired_unit`` names the complete factor key used to match one control
+    observation with one treatment observation. ``case_id`` is the runtime
+    case identity; all other names refer to ``ResolvedManifestMetadata.factors``.
+    The implementation is intentionally small and versioned so a standalone
+    verifier can reproduce the exact variance and interval calculation.
+    """
+
+    format: Literal["bmp-statistical-analysis-plan-v1"] = (
+        "bmp-statistical-analysis-plan-v1"
+    )
+    paired_unit: tuple[str, ...] = ("case_id", "repetition")
+    repetition_field: Literal["repetition"] = "repetition"
+    minimum_repetitions: int = Field(default=2, ge=2, strict=True)
+    variance_method: Literal["sample_variance_v1"] = "sample_variance_v1"
+    ci_method: Literal["normal_approximation_v1"] = "normal_approximation_v1"
+    confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0, strict=True)
+    holdout_required: bool = True
+    holdout_split: str | None = Field(default=None, pattern=ID_PATTERN)
+    multiple_comparison_method: Literal["none", "bonferroni"] = "none"
+    family_size: int = Field(default=1, ge=1, strict=True)
+    family_id: str | None = Field(default=None, pattern=ID_PATTERN)
+
+    @field_validator("paired_unit")
+    @classmethod
+    def paired_unit_is_complete_and_unique(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        pattern = re.compile(r"^(?:case_id|[A-Za-z_][A-Za-z0-9_.-]*)$")
+        if not values or len(set(values)) != len(values):
+            raise ValueError("paired_unit must be non-empty and unique")
+        if any(pattern.fullmatch(value) is None for value in values):
+            raise ValueError("paired_unit contains an invalid factor name")
+        if "case_id" not in values:
+            raise ValueError("paired_unit must include case_id")
+        return values
+
+    @model_validator(mode="after")
+    def plan_shape_is_coherent(self) -> "StatisticalAnalysisPlan":
+        if self.repetition_field not in self.paired_unit:
+            raise ValueError("paired_unit must include repetition_field")
+        if self.holdout_required != (self.holdout_split is not None):
+            raise ValueError(
+                "holdout_required=true requires holdout_split and false forbids it"
+            )
+        if self.family_size == 1:
+            if self.multiple_comparison_method != "none" or self.family_id is not None:
+                raise ValueError(
+                    "a single comparison requires method='none' and no family_id"
+                )
+        elif (
+            self.multiple_comparison_method != "bonferroni"
+            or self.family_id is None
+        ):
+            raise ValueError(
+                "multiple comparisons require Bonferroni and a family_id"
+            )
+        return self
+
+    def canonical_digest(self) -> str:
+        payload = json.dumps(
+            self.model_dump(mode="json"),
+            sort_keys=True,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        )
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class ClaimDesign(StrictModel):
@@ -2620,6 +3220,7 @@ class ClaimDesign(StrictModel):
     scope: ClaimScope
     purpose: RunPurpose
     vary: tuple[str, ...]
+    statistical_analysis: StatisticalAnalysisPlan | None = None
 
     @field_validator("vary")
     @classmethod
@@ -2804,6 +3405,7 @@ class ProvenanceRecord(StrictModel):
     container_receipt_ref: ArtifactRef | None = None
     runtime_manifest_receipt: RuntimeManifestReceipt | None = None
     configuration_activation: ConfigurationActivationReceipt | None = None
+    model_activation: ModelActivationReceipt | None = None
     evolution_evidence_ref: ArtifactRef | None = None
     test_override: TestOverrideReceipt | None = None
 
@@ -3029,7 +3631,12 @@ class AttemptAllocation(StrictModel):
 
 
 class BudgetDebit(StrictModel):
-    """Measured leaf usage and returned unused cap at completion."""
+    """Measured leaf usage and returned unused cap at completion.
+
+    Some native backends (for example a no-op agent) do not expose token or
+    monetary counters.  ``usage_observable`` records that limitation instead
+    of allowing an adapter to silently coerce an unknown value to zero.
+    """
 
     attempt_id: str = Field(pattern=ID_PATTERN)
     child_run_id: str = Field(pattern=ID_PATTERN)
@@ -3037,6 +3644,7 @@ class BudgetDebit(StrictModel):
     spent: UsageRecord
     released: BudgetAllocation
     budget_exceeded: bool = False
+    usage_observable: bool = True
 
 
 class AttemptExecution(StrictModel):
@@ -3306,7 +3914,7 @@ class ScheduleActivationReceipt(StrictModel):
             spent_records.append(attempt.debit.spent)
             if attempt.debit.completion_sequence <= (allocation.launch_sequence or 0):
                 raise ValueError("attempt debit completion must follow launch")
-            if not attempt.debit.budget_exceeded:
+            if not attempt.debit.budget_exceeded and attempt.debit.usage_observable:
                 cap = allocation.allocated
                 released = attempt.debit.released
                 if cap.max_tokens is not None and (
@@ -3322,6 +3930,22 @@ class ScheduleActivationReceipt(StrictModel):
                     or attempt.debit.spent.cost + released.max_cost != cap.max_cost
                 ):
                     raise ValueError("spent plus released cost must equal allocated cap")
+            elif not attempt.debit.budget_exceeded and not attempt.debit.usage_observable:
+                # Unknown usage is a valid observation, but it can never
+                # produce a valid schedule under a finite token/cost cap.
+                # The scheduler must retain the unknown fields as ``None`` and
+                # add a mismatch reason below; rejecting the whole receipt
+                # would discard useful verifier and infrastructure evidence.
+                cap = allocation.allocated
+                released = attempt.debit.released
+                if cap.max_tokens is not None and released.max_tokens is not None:
+                    raise ValueError(
+                        "unobservable token usage must not claim released tokens"
+                    )
+                if cap.max_cost is not None and released.max_cost is not None:
+                    raise ValueError(
+                        "unobservable cost usage must not claim released cost"
+                    )
         if len(set(child_run_ids)) != len(child_run_ids):
             raise ValueError("attempt debit child run ids must be unique")
         if len(set(completion_sequences)) != len(completion_sequences):
@@ -3382,6 +4006,11 @@ class ScheduleActivationReceipt(StrictModel):
             measured_mismatches.append("observed selection policy differs from declaration")
         if self.budget_ledger.reconciles_exactly is False:
             measured_mismatches.append("budget ledger does not reconcile exactly")
+        if any(
+            attempt.debit is not None and not attempt.debit.usage_observable
+            for attempt in self.attempts
+        ):
+            measured_mismatches.append("budget usage is unobservable")
         if any(
             attempt.debit is not None and attempt.debit.budget_exceeded
             for attempt in self.attempts
@@ -3483,6 +4112,54 @@ class EffectEstimate(StrictModel):
         return self
 
 
+class StatisticalAnalysisReceipt(StrictModel):
+    """Derived analysis values independently replayable from report lineage."""
+
+    format: Literal["bmp-statistical-analysis-receipt-v1"] = (
+        "bmp-statistical-analysis-receipt-v1"
+    )
+    plan_digest: str = Field(pattern=SHA256_PATTERN)
+    metric: str = Field(min_length=1)
+    paired_unit: tuple[str, ...]
+    repetition_field: Literal["repetition"]
+    observed_pair_count: int = Field(ge=1, strict=True)
+    observed_unit_count: int = Field(ge=1, strict=True)
+    observed_min_repetitions: int = Field(ge=1, strict=True)
+    pairing_digest: str = Field(pattern=SHA256_PATTERN)
+    variance_method: Literal["sample_variance_v1"]
+    sample_variance: float | None = Field(default=None, ge=0, strict=True)
+    standard_error: float | None = Field(default=None, ge=0, strict=True)
+    ci_method: Literal["normal_approximation_v1"]
+    confidence_level: float = Field(gt=0.5, lt=1.0, strict=True)
+    effective_alpha: float = Field(gt=0, lt=0.5, strict=True)
+    point_estimate: float
+    confidence_interval: tuple[float, float] | None = None
+    holdout_split: str | None = Field(default=None, pattern=ID_PATTERN)
+    holdout_verified: bool
+    multiple_comparison_method: Literal["none", "bonferroni"]
+    family_size: int = Field(ge=1, strict=True)
+    family_id: str | None = Field(default=None, pattern=ID_PATTERN)
+
+    @model_validator(mode="after")
+    def receipt_shape_is_coherent(self) -> "StatisticalAnalysisReceipt":
+        computed = (
+            self.sample_variance,
+            self.standard_error,
+            self.confidence_interval,
+        )
+        if any(value is None for value in computed) and not all(
+            value is None for value in computed
+        ):
+            raise ValueError(
+                "variance, standard_error, and confidence_interval are all-or-none"
+            )
+        if self.confidence_interval is not None:
+            lower, upper = self.confidence_interval
+            if lower > upper:
+                raise ValueError("statistical confidence interval is reversed")
+        return self
+
+
 class LineageRef(StrictModel):
     """Bindings from one parent plan run to its selected child attempt."""
 
@@ -3523,12 +4200,256 @@ class Observation(StrictModel):
     n_runs: int = Field(ge=1)
 
 
+class AuthorityDocumentRef(StrictModel):
+    """One stable, tracked authority document from an external protocol."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    relative_path: str = Field(min_length=1)
+    artifact_ref: ArtifactRef
+
+    @field_validator("relative_path")
+    @classmethod
+    def relative_path_is_normalized(cls, value: str) -> str:
+        return _validate_logical_relative_path(
+            value, field_name="authority document relative_path"
+        )
+
+
+class ExternalProtocolAuthorityReceipt(StrictModel):
+    """Read-only binding to an external protocol's tracked authority bytes."""
+
+    format: Literal["bmp-external-protocol-authority-v1"]
+    protocol_id: str = Field(pattern=ID_PATTERN)
+    source_commit: str = Field(pattern=r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+    source_root: str = Field(min_length=1, pattern=r"^/")
+    authority_documents: tuple[AuthorityDocumentRef, ...]
+    contract_version: str = Field(min_length=1)
+    contract_relative_path: str = Field(min_length=1)
+    contract_ref: ArtifactRef
+    audit_rules_ref: ArtifactRef
+
+    @field_validator("source_root")
+    @classmethod
+    def source_root_is_absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("external protocol source_root must be absolute")
+        return value
+
+    @field_validator("contract_relative_path")
+    @classmethod
+    def contract_path_is_normalized(cls, value: str) -> str:
+        return _validate_logical_relative_path(
+            value, field_name="external protocol contract_relative_path"
+        )
+
+    @model_validator(mode="after")
+    def authority_refs_are_complete(self) -> "ExternalProtocolAuthorityReceipt":
+        if not self.authority_documents:
+            raise ValueError("external protocol authority documents must be non-empty")
+        ids = [document.id for document in self.authority_documents]
+        paths = [document.relative_path for document in self.authority_documents]
+        if len(set(ids)) != len(ids):
+            raise ValueError("external protocol authority document ids must be unique")
+        if len(set(paths)) != len(paths):
+            raise ValueError("external protocol authority document paths must be unique")
+        refs = [
+            *(document.artifact_ref for document in self.authority_documents),
+            self.contract_ref,
+            self.audit_rules_ref,
+        ]
+        identities = [(ref.path, ref.sha256, ref.size_bytes) for ref in refs]
+        if len(set(identities)) != len(identities):
+            raise ValueError("external protocol authority refs must be unique")
+        return self
+
+
+class IntegrationProbePhase(str, Enum):
+    compile = "compile"
+    activation = "activation"
+    subject = "subject"
+    verifier = "verifier"
+    cleanup = "cleanup"
+    complete = "complete"
+
+
+class IntegrationProbeOutcome(str, Enum):
+    completed = "completed"
+    subject_failure = "subject_failure"
+    verifier_failure = "verifier_failure"
+    infrastructure_failure = "infrastructure_failure"
+    blocked = "blocked"
+
+
+class IntegrationProbeIdentityRole(str, Enum):
+    """Closed roles for probe identity bytes retained outside a manifest."""
+
+    benchmark_source = "benchmark_source"
+    loader_implementation = "loader_implementation"
+    execution_adapter_implementation = "execution_adapter_implementation"
+    subject_implementation = "subject_implementation"
+    backend_executable = "backend_executable"
+    verifier_contract = "verifier_contract"
+    container_image_receipt = "container_image_receipt"
+
+
+class IntegrationProbeIdentityRef(StrictModel):
+    """A probe identity role bound directly to retained, rehashable bytes."""
+
+    role: IntegrationProbeIdentityRole
+    artifact_ref: ArtifactRef
+
+
+class IntegrationProbeRecord(StrictModel):
+    """Content-addressed evidence for a real but non-claim integration probe.
+
+    Probe records are intentionally weaker than ``ObservationReport``: they
+    can retain evidence from a partial integration contact that never reached
+    the full Pipeline.  They are always exploratory and always carry explicit
+    claim blockers, so a successful case cannot be mistaken for a benchmark
+    result.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "allOf": [
+                {
+                    "anyOf": [
+                        {
+                            "properties": {"manifest_ref": {"type": "object"}},
+                            "required": ["manifest_ref"],
+                        },
+                        {
+                            "properties": {"identity_refs": {"minItems": 1}},
+                            "required": ["identity_refs"],
+                        },
+                    ]
+                },
+                {
+                    "if": {
+                        "properties": {"manifest_ref": {"type": "object"}},
+                        "required": ["manifest_ref"],
+                    },
+                    "then": {
+                        "properties": {"manifest_digest": {"type": "string"}},
+                        "required": ["manifest_digest"],
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {"manifest_digest": {"type": "string"}},
+                        "required": ["manifest_digest"],
+                    },
+                    "then": {
+                        "properties": {"manifest_ref": {"type": "object"}},
+                        "required": ["manifest_ref"],
+                    },
+                },
+            ]
+        }
+    )
+
+    format: Literal["bmp-integration-probe-v1"]
+    purpose: Literal[RunPurpose.exploratory]
+    probe_id: str = Field(pattern=ID_PATTERN)
+    benchmark_adapter: str = Field(pattern=ADAPTER_PATTERN)
+    case_id: str = Field(pattern=ID_PATTERN)
+    phase: IntegrationProbePhase
+    outcome: IntegrationProbeOutcome
+    status: RunStatus
+    manifest_digest: str | None = Field(default=None, pattern=SHA256_PATTERN)
+    manifest_ref: ArtifactRef | None = None
+    identity_refs: tuple[IntegrationProbeIdentityRef, ...] = ()
+    public_input_ref: ArtifactRef | None = None
+    evidence_refs: tuple[ArtifactRef, ...]
+    claim_blockers: tuple[str, ...]
+
+    @model_validator(mode="after")
+    def evidence_and_outcome_are_coherent(self) -> "IntegrationProbeRecord":
+        blockers = self.claim_blockers
+        if not blockers or any(not blocker.strip() for blocker in blockers):
+            raise ValueError("integration probe requires non-empty claim blockers")
+        if len(set(blockers)) != len(blockers):
+            raise ValueError("integration probe claim blockers must be unique")
+        refs = tuple(
+            ref
+            for ref in (
+                self.manifest_ref,
+                self.public_input_ref,
+                *self.evidence_refs,
+                *(identity.artifact_ref for identity in self.identity_refs),
+            )
+            if ref is not None
+        )
+        identities = [(ref.path, ref.sha256, ref.size_bytes) for ref in refs]
+        if len(set(identities)) != len(identities):
+            raise ValueError("integration probe artifact refs must be unique")
+        if self.manifest_ref is None and self.manifest_digest is not None:
+            raise ValueError("manifest_digest requires a manifest_ref")
+        if self.manifest_ref is not None and self.manifest_digest is None:
+            raise ValueError("manifest_ref requires a manifest_digest")
+        if self.manifest_ref is None and not self.identity_refs:
+            raise ValueError(
+                "integration probe requires a manifest_ref or identity_refs"
+            )
+        allowed_statuses = {
+            IntegrationProbeOutcome.completed: {
+                RunStatus.pass_,
+                RunStatus.verified_fail,
+                RunStatus.scored,
+            },
+            IntegrationProbeOutcome.subject_failure: {
+                RunStatus.no_output,
+                RunStatus.invalid_output,
+                RunStatus.timeout,
+                RunStatus.agent_error,
+                RunStatus.harness_fault,
+                RunStatus.unsupported,
+            },
+            IntegrationProbeOutcome.verifier_failure: {
+                RunStatus.verifier_error,
+                RunStatus.invalid_output,
+                RunStatus.timeout,
+            },
+            IntegrationProbeOutcome.infrastructure_failure: {
+                RunStatus.infra_error,
+                RunStatus.timeout,
+            },
+            IntegrationProbeOutcome.blocked: {
+                RunStatus.unsupported,
+                RunStatus.infra_error,
+            },
+        }
+        if self.status not in allowed_statuses[self.outcome]:
+            raise ValueError(
+                "integration probe status does not match its outcome taxonomy"
+            )
+        if self.outcome == IntegrationProbeOutcome.completed and (
+            self.public_input_ref is None or not self.evidence_refs
+        ):
+            raise ValueError(
+                "completed integration probe requires public input and evidence"
+            )
+        return self
+
+
 class ObservationReport(StrictModel):
     """Exploratory observations with no claim eligibility or causal fields."""
 
     model_config = ConfigDict(
         json_schema_extra={
             "allOf": [
+                {
+                    "if": {
+                        "properties": {"protocol_valid": {"const": True}},
+                        "required": ["protocol_valid"],
+                    },
+                    "then": {
+                        "properties": {"protocol_reasons": {"maxItems": 0}}
+                    },
+                    "else": {
+                        "properties": {"protocol_reasons": {"minItems": 1}}
+                    },
+                },
                 {
                     "if": {
                         "properties": {"isolation_valid": {"const": True}},
@@ -3549,6 +4470,8 @@ class ObservationReport(StrictModel):
     subject_kind: SubjectKind
     experiment_id: str = Field(pattern=ID_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
+    protocol_valid: bool = True
+    protocol_reasons: tuple[str, ...] = ()
     isolation_valid: bool
     isolation_reasons: tuple[str, ...]
     observations: tuple[Observation, ...] = ()
@@ -3557,7 +4480,16 @@ class ObservationReport(StrictModel):
     record_index_ref: ArtifactRef | None = None
 
     @model_validator(mode="after")
-    def isolation_result_is_explicit(self) -> "ObservationReport":
+    def validity_results_are_explicit(self) -> "ObservationReport":
+        protocol_reasons = self.protocol_reasons
+        if self.protocol_valid and protocol_reasons:
+            raise ValueError("valid exploratory protocol cannot have failure reasons")
+        if not self.protocol_valid and not protocol_reasons:
+            raise ValueError("invalid exploratory protocol requires failure reasons")
+        if any(not reason.strip() for reason in protocol_reasons):
+            raise ValueError("exploratory protocol reasons must be non-empty")
+        if len(set(protocol_reasons)) != len(protocol_reasons):
+            raise ValueError("exploratory protocol reasons must be unique")
         reasons = self.isolation_reasons
         if self.isolation_valid and reasons:
             raise ValueError("valid exploratory isolation cannot have failure reasons")
@@ -3645,6 +4577,7 @@ class ClaimReport(StrictModel):
         }
     )
     effect: EffectEstimate | None = None
+    statistics_receipt: StatisticalAnalysisReceipt | None = None
     failure_breakdown: Mapping[RunStatus, int] = Field(default_factory=dict)
     lineage: tuple[LineageRef, ...] = ()
     record_index_ref: ArtifactRef | None = None
@@ -3748,6 +4681,7 @@ __all__ = [
     "BudgetLedger",
     "CaseAllocation",
     "CaseArtifact",
+    "CaseOrderArtifact",
     "CaseSetActivationReceipt",
     "CaseSetArtifact",
     "CheckpointLoadReceipt",
@@ -3757,6 +4691,7 @@ __all__ = [
     "ClaimScope",
     "CustomBenchmarkArtifact",
     "CustomBenchmarkSpec",
+    "CustomCaseOrderSpec",
     "CredentialRef",
     "EffectEstimate",
     "EvolutionCandidateRecord",
@@ -3780,6 +4715,9 @@ __all__ = [
     "JournalRecord",
     "LineageRef",
     "MountSpec",
+    "ModelActivationEvidence",
+    "ModelActivationReceipt",
+    "ModelActivationUsage",
     "NetworkBoundary",
     "NetworkEndpointRecord",
     "NetworkObservation",
@@ -3804,6 +4742,8 @@ __all__ = [
     "RunStatus",
     "ScheduleActivationReceipt",
     "ScoringKind",
+    "StatisticalAnalysisPlan",
+    "StatisticalAnalysisReceipt",
     "SubjectKind",
     "SUBJECT_KIND_SCOPE_MATRIX",
     "SubjectArtifact",

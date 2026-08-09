@@ -46,6 +46,78 @@
       },
       "title": "Budget",
       "type": "object"
+    },
+    "CredentialRef": {
+      "additionalProperties": false,
+      "description": "Identity-bearing credential digest; secret values are never serialized.",
+      "properties": {
+        "name": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Name",
+          "type": "string"
+        },
+        "secret": {
+          "const": true,
+          "title": "Secret",
+          "type": "boolean"
+        },
+        "source_file": {
+          "minLength": 1,
+          "title": "Source File",
+          "type": "string"
+        },
+        "value_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Value Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value_sha256",
+        "secret",
+        "source_file"
+      ],
+      "title": "CredentialRef",
+      "type": "object"
+    },
+    "ProviderBinding": {
+      "additionalProperties": false,
+      "description": "Resolved provider, transport, model, and credential identity.",
+      "properties": {
+        "base_url": {
+          "minLength": 1,
+          "title": "Base Url",
+          "type": "string"
+        },
+        "credential_ref": {
+          "$ref": "#/$defs/CredentialRef"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Provider Id",
+          "type": "string"
+        },
+        "wire_api": {
+          "minLength": 1,
+          "title": "Wire Api",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider_id",
+        "base_url",
+        "wire_api",
+        "model_id",
+        "credential_ref"
+      ],
+      "title": "ProviderBinding",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -76,6 +148,17 @@
       "minLength": 1,
       "title": "Model",
       "type": "string"
+    },
+    "provider_binding": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProviderBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "seed": {
       "anyOf": [

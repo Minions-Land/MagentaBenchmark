@@ -20,7 +20,7 @@ verifier_result.rewards.reward = 0.0
 
 单键，且**即使在失败的 no-op 上 `rewards` 依然非空**。这一点很重要：不能把"`rewards` 有内容"当作"运行成功"。
 
-leaderboard 的解析位置：`leaderboard/src/leaderboard/ci/static_analysis.py:142-145`，读 `verifier_result.rewards.reward`。当我们写 TB2.1 registry 时，`authoritative_reward_metric = "reward"` 必须引用**上面那次实际观测**，而不是引用 leaderboard 的源码 —— 源码是别人对格式的读法，观测才是格式本身。
+leaderboard 的解析位置：`leaderboard/src/leaderboard/ci/static_analysis.py:142-145`，读 `verifier_result.rewards.reward`。现有 `registries/benchmarks/terminal-bench-2-1.toml` 已把 `authoritative_reward_metric = "reward"` 绑定为本地协议事实；其依据是**上面那次实际观测**，而不是把 leaderboard 源码当成 verifier 证据 —— 源码是别人对格式的读法，观测才是格式本身。
 
 **已缓存的镜像（digest 钉住，已验证）**：
 
@@ -37,7 +37,11 @@ alexgshaw/regex-log:20251031
 
 而且 TB2.1 **没有机器可读的 public/gold 清单**。所以分类只能是**逐 case 的显式白名单**，未分类内容一律拒绝 —— 不能用黑名单，因为黑名单会把"我们的推断"编码成"完备知识"。
 
-已由 boundary-guardian 通过实际阅读文件内容裁定：`task.yaml` 是**逐 case 公开**的 —— 它只含 `name`/`description`/`tags`/超时/`test_scripts` 路径列表，不含期望输出或阈值。路径列表不等于评分数据。分类必须逐 case 且各自带 digest，**永远不是 benchmark 级别**。
+当前 checkout 的 89 个任务均使用 `task.toml` + `instruction.md`，没有旧版
+`task.yaml`。loader 把这两类文件按逐 case 白名单归为公开 task contract，把
+`tests/` 单独归为 verifier-only refs，并彻底排除 `solution/`、README 与 VCS 元数据。
+分类必须逐 case 且各自带 digest，**永远不是 benchmark 级别**；未来出现任何未知
+路径都必须 fail closed，不能因当前 89 个 case 的布局而自动公开。
 
 ### BiomniBench-DA / AOSEBench
 

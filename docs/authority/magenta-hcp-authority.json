@@ -1,0 +1,56 @@
+{
+  "audit_rules_ref": {
+    "path": "/mnt/aliyunsb/aralacai/MagentaBench/scripts/audit_hcp_boundary.sh",
+    "sha256": "979af4dda6868a7c18df1e27e5cf9e23667c4ec72f42b7f06c2eb418749adcfb",
+    "size_bytes": 4649
+  },
+  "authority_documents": [
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/README.md",
+        "sha256": "f8caffca315630224151962aebb1242eb614eac0eeb256ce3928ac9127653275",
+        "size_bytes": 4008
+      },
+      "id": "hcp-readme",
+      "relative_path": "HarnessComponentProtocol/README.md"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md",
+        "sha256": "8d32c9887935652c4013c76ed804f918b7fc0f6b6a7baaa31c4407cbd8fab8d0",
+        "size_bytes": 11133
+      },
+      "id": "hcp-contract",
+      "relative_path": "HarnessComponentProtocol/docs/governance/contract.md"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md",
+        "sha256": "8652b3eda13c50f06d91c727600945518b36ce329b1a746ff15bf50f8e9342a5",
+        "size_bytes": 10456
+      },
+      "id": "hcp-architecture",
+      "relative_path": "HarnessComponentProtocol/docs/governance/hcp-architecture.md"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-naming.md",
+        "sha256": "a66a29121a7ef16efc1f2d33d71fce40021805a15eda3e3b8ba0cc5c71f80e2a",
+        "size_bytes": 8977
+      },
+      "id": "hcp-naming",
+      "relative_path": "HarnessComponentProtocol/docs/governance/hcp-naming.md"
+    }
+  ],
+  "contract_ref": {
+    "path": "/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/HcpClient.ts",
+    "sha256": "e1ba03d60411ef45451dfb7350e8c03a8dd43677ae4e8477238056e09e0537a4",
+    "size_bytes": 52236
+  },
+  "contract_relative_path": "HarnessComponentProtocol/HcpClient.ts",
+  "contract_version": "assembly-sidecar-v1",
+  "format": "bmp-external-protocol-authority-v1",
+  "protocol_id": "magenta-hcp",
+  "source_commit": "78e2998f5bb78aa029c5cfe6f9508777f307679d",
+  "source_root": "/mnt/aliyunsb/aralacai/Magenta"
+}

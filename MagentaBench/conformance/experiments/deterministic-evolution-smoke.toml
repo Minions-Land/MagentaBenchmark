@@ -1,0 +1,19 @@
+[experiment]
+id = "deterministic-evolution-smoke"
+benchmark = "deterministic-evolution.v1"
+subject = "deterministic-local.evolver"
+protocol = "deterministic-evolution.v1"
+
+[experiment.design]
+scope = "evolver"
+purpose = "exploratory"
+vary = []
+
+[execution]
+backend = "fake.local"
+model = "none/deterministic"
+
+[execution.budget]
+max_tokens = 6
+max_wall_seconds = 10.0
+max_cost = 0.0

@@ -1,0 +1,15 @@
+[benchmark]
+id = "terminal-bench-2.1"
+kind = "custom"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+source = "../../../terminal-bench-2-1"
+commit = "5c8eadf1f393183288fa08b8f73ca9a469cc5e00"
+content_globs = ["tasks/**/*"]
+verifier = "harbor.native"
+scoring_kind = "binary"
+authoritative_reward_metric = "reward"
+reward_pass_value = 1.0
+
+[benchmark.config]
+task_source = "tasks"

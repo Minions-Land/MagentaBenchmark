@@ -217,7 +217,7 @@
     },
     "BudgetDebit": {
       "additionalProperties": false,
-      "description": "Measured leaf usage and returned unused cap at completion.",
+      "description": "Measured leaf usage and returned unused cap at completion.\n\nSome native backends (for example a no-op agent) do not expose token or\nmonetary counters.  ``usage_observable`` records that limitation instead\nof allowing an adapter to silently coerce an unknown value to zero.",
       "properties": {
         "attempt_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -244,6 +244,11 @@
         },
         "spent": {
           "$ref": "#/$defs/UsageRecord"
+        },
+        "usage_observable": {
+          "default": true,
+          "title": "Usage Observable",
+          "type": "boolean"
         }
       },
       "required": [

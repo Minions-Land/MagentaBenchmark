@@ -26,6 +26,15 @@ _EXPORT_MODULES = {
     "ConfigurationRegistry": ".configuration",
     "ConfigurationRegistryError": ".configuration",
     "ConfigurationDriftError": ".configuration",
+    "bind_model_activation": ".model_activation",
+    "ensure_model_activation_receipt": ".model_activation",
+    "make_model_activation_receipt": ".model_activation",
+    "DeterministicLocalEvolutionAdapter": ".evolution",
+    "DeterministicTargetEvaluator": ".evolution",
+    "EvolutionBudgetExceeded": ".evolution",
+    "EvolutionRuntime": ".evolution",
+    "EvolutionRuntimeError": ".evolution",
+    "EvolutionRuntimeResult": ".evolution",
 }
 
 
@@ -53,4 +62,13 @@ __all__ = [
     "ConfigurationRegistry",
     "ConfigurationRegistryError",
     "ConfigurationDriftError",
+    "bind_model_activation",
+    "ensure_model_activation_receipt",
+    "make_model_activation_receipt",
+    "DeterministicLocalEvolutionAdapter",
+    "DeterministicTargetEvaluator",
+    "EvolutionBudgetExceeded",
+    "EvolutionRuntime",
+    "EvolutionRuntimeError",
+    "EvolutionRuntimeResult",
 ]

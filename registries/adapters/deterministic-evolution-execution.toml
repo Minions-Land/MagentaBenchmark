@@ -1,0 +1,16 @@
+[adapter]
+id = "deterministic-evolution.execution"
+kind = "adapter"
+adapter = "deterministic_evolution"
+bmp_version = "0.1"
+adapter_kind = "execution"
+source = "."
+entrypoint = "plugins/deterministic_evolution/adapter.py:DeterministicEvolutionExecutionAdapter"
+digest = "ba3253fa29f213eb8e6c84331cb3a00601c9de58ac1853e404d211a7c0de7762"
+supported_benchmark_kinds = ["custom"]
+supported_subject_kinds = ["evolver", "meta_evolver"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["fake"]
+supported_subject_adapters = ["deterministic-local"]
+none_model_sentinels = ["none/deterministic"]
+supported_state_reset_policies = ["never"]

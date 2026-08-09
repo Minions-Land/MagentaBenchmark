@@ -1,0 +1,11 @@
+[adapter]
+id = "terminal-bench.loader"
+kind = "adapter"
+adapter = "terminal_bench"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "."
+entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchLoader"
+digest = "6c87328261c8787bf691cb129acef2cce7792b48ca9516321883332eec98c73d"
+supported_benchmark_kinds = ["custom"]
+supported_backend_adapters = ["harbor"]

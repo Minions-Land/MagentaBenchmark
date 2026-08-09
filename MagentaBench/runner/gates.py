@@ -29,12 +29,24 @@ from MagentaBench.schemas import (
     RunReport,
     RunStatus,
     ScheduleActivationReceipt,
+    StatisticalAnalysisReceipt,
     canonical_digest,
 )
 from MagentaBench.schemas.models import SubjectKind
+from MagentaBench.schemas.model_activation import replay_model_activation_receipt
+from MagentaBench.schemas.statistics import (
+    PairedScore,
+    analyze_paired_scores,
+    benchmark_evaluation_split,
+)
 
 from .backend.fake import CaseExecution
 from .compiler import CompiledRun, canonical_json_bytes, sha256_bytes
+from .case_order import (
+    CaseOrderError,
+    custom_order_binding,
+    selected_case_ids as resolve_selected_case_ids,
+)
 from .evidence import artifact_ref, sha256_file, source_closure_digest
 
 
@@ -72,35 +84,86 @@ def _invalid(reason: str) -> GateResult:
     return GateResult(valid=False, reason=reason)
 
 
+def _contrast_arm_key(
+    item: CompletedRun,
+    *,
+    factor_path: str | None,
+) -> str | bytes:
+    if factor_path is None:
+        return item.plan.manifest.subject.id
+    if factor_path not in item.plan.factor_values:
+        return b"__missing_factor__"
+    return canonical_json_bytes(item.plan.factor_values[factor_path])
+
+
+def _contrast_expected_keys(
+    control_id: str,
+    treatment_id: str,
+    *,
+    factor_path: str | None,
+    control_value: object | None,
+    treatment_value: object | None,
+) -> tuple[str | bytes, str | bytes]:
+    if factor_path is None:
+        return control_id, treatment_id
+    return canonical_json_bytes(control_value), canonical_json_bytes(treatment_value)
+
+
 def _subject_pairs(
-    completed: list[CompletedRun], control_id: str, treatment_id: str
+    completed: list[CompletedRun],
+    control_id: str,
+    treatment_id: str,
+    *,
+    factor_path: str | None = None,
+    control_value: object | None = None,
+    treatment_value: object | None = None,
 ) -> tuple[list[tuple[CompletedRun, CompletedRun]], str | None]:
-    grouped: dict[bytes, dict[str, CompletedRun]] = defaultdict(dict)
+    control_key, treatment_key = _contrast_expected_keys(
+        control_id,
+        treatment_id,
+        factor_path=factor_path,
+        control_value=control_value,
+        treatment_value=treatment_value,
+    )
+    grouped: dict[bytes, dict[str | bytes, CompletedRun]] = defaultdict(dict)
     from .compiler import canonical_json_bytes
 
     for item in completed:
         factors = {
             key: value
             for key, value in item.plan.factor_values.items()
-            if key not in {"subject", "experiment.subject", "order_position"}
+            if key
+            not in {
+                "subject",
+                "experiment.subject",
+                "order_position",
+                factor_path,
+            }
         }
         # A parent run can contain several selected benchmark cases.  Include
         # the case identity in pairing so control/treatment scores never cross
         # case boundaries.
         factors["__case_id"] = item.case.case_id
-        grouped[canonical_json_bytes(factors)][item.plan.manifest.subject.id] = item
+        arm = _contrast_arm_key(item, factor_path=factor_path)
+        grouped[canonical_json_bytes(factors)][arm] = item
     pairs: list[tuple[CompletedRun, CompletedRun]] = []
     for pair in grouped.values():
-        if set(pair) != {control_id, treatment_id}:
+        if set(pair) != {control_key, treatment_key}:
             return [], "paired control/treatment structure is incomplete"
-        pairs.append((pair[control_id], pair[treatment_id]))
+        pairs.append((pair[control_key], pair[treatment_key]))
     if not pairs:
         return [], "no paired control/treatment runs"
     return pairs, None
 
 
 def _counterbalance_is_valid(
-    completed: list[CompletedRun], control_id: str, treatment_id: str
+    completed: list[CompletedRun],
+    control_id: str,
+    treatment_id: str,
+    *,
+    factor_path: str | None = None,
+    control_value: object | None = None,
+    treatment_value: object | None = None,
 ) -> bool:
     from .compiler import canonical_json_bytes
 
@@ -108,14 +171,27 @@ def _counterbalance_is_valid(
         (item.plan.manifest.metadata.run_id, item.case.case_id): index
         for index, item in enumerate(completed)
     }
-    pair_groups: dict[bytes, dict[str, CompletedRun]] = defaultdict(dict)
+    control_key, treatment_key = _contrast_expected_keys(
+        control_id,
+        treatment_id,
+        factor_path=factor_path,
+        control_value=control_value,
+        treatment_value=treatment_value,
+    )
+    pair_groups: dict[bytes, dict[str | bytes, CompletedRun]] = defaultdict(dict)
     outer_keys: dict[bytes, bytes] = {}
     for item in completed:
         factors = dict(item.plan.factor_values)
         pair_factors = {
             key: value
             for key, value in factors.items()
-            if key not in {"subject", "experiment.subject", "order_position"}
+            if key
+            not in {
+                "subject",
+                "experiment.subject",
+                "order_position",
+                factor_path,
+            }
         }
         outer_factors = {
             key: value
@@ -124,22 +200,22 @@ def _counterbalance_is_valid(
         }
         pair_factors["__case_id"] = item.case.case_id
         pair_key = canonical_json_bytes(pair_factors)
-        pair_groups[pair_key][item.plan.manifest.subject.id] = item
+        pair_groups[pair_key][_contrast_arm_key(item, factor_path=factor_path)] = item
         outer_keys[pair_key] = canonical_json_bytes(outer_factors)
 
     directions: dict[bytes, set[bool]] = defaultdict(set)
     counts: Counter[bytes] = Counter()
     for pair_key, pair in pair_groups.items():
-        if set(pair) != {control_id, treatment_id}:
+        if set(pair) != {control_key, treatment_key}:
             return False
         control_first = (
             positions[(
-                pair[control_id].plan.manifest.metadata.run_id,
-                pair[control_id].case.case_id,
+            pair[control_key].plan.manifest.metadata.run_id,
+                pair[control_key].case.case_id,
             )]
             < positions[(
-                pair[treatment_id].plan.manifest.metadata.run_id,
-                pair[treatment_id].case.case_id,
+            pair[treatment_key].plan.manifest.metadata.run_id,
+                pair[treatment_key].case.case_id,
             )]
         )
         outer = outer_keys[pair_key]
@@ -199,7 +275,7 @@ def _report_identity(items: Iterable[CompletedRun]) -> tuple[str, str, SubjectKi
 
 def _report_contrast(
     items: Iterable[CompletedRun],
-) -> tuple[str, str, bool, bool]:
+) -> tuple[str, str, bool, bool, str | None, object | None, object | None]:
     """Derive arm and protocol flags from the resolved manifests."""
 
     runs = tuple(items)
@@ -207,8 +283,8 @@ def _report_contrast(
     if len(contrasts) != 1:
         raise ValueError("experiment contrast must be invariant across runs")
     contrast = runs[0].plan.manifest.contrast
-    control_id = contrast.control_id or runs[0].plan.manifest.subject.id
-    treatment_id = contrast.treatment_id or runs[-1].plan.manifest.subject.id
+    control_id = contrast.control_id or "__factor_control__"
+    treatment_id = contrast.treatment_id or "__factor_treatment__"
     protocols = [item.plan.manifest.execution.protocol for item in runs]
     protocol_digests = {
         None if protocol is None else canonical_digest(protocol)
@@ -220,7 +296,15 @@ def _report_contrast(
     deterministic = bool(
         protocol is not None and getattr(protocol, "deterministic_conformance", False)
     )
-    return control_id, treatment_id, deterministic, contrast.counterbalanced
+    return (
+        control_id,
+        treatment_id,
+        deterministic,
+        contrast.counterbalanced,
+        contrast.factor_path,
+        contrast.control_value,
+        contrast.treatment_value,
+    )
 
 
 def _lineage_ref(item: CompletedRun) -> LineageRef:
@@ -310,7 +394,11 @@ def _exploratory_metric_scores(
     return metric, tuple(scores)
 
 
-def _receipt_binding_errors(item: CompletedRun) -> list[str]:
+def _receipt_binding_errors(
+    item: CompletedRun,
+    *,
+    allowed_invalid_schedule_reasons: frozenset[str] = frozenset(),
+) -> list[str]:
     receipt = item.schedule_receipt
     if receipt is None:
         return ["ScheduleActivationReceipt missing"]
@@ -324,7 +412,12 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("schedule run_id does not match manifest")
     if receipt.protocol_digest != canonical_digest(protocol):
         errors.append("schedule protocol_digest does not match resolved protocol")
-    if not receipt.schedule_valid:
+    if not receipt.schedule_valid and (
+        not receipt.mismatch_reasons
+        or not set(receipt.mismatch_reasons).issubset(
+            allowed_invalid_schedule_reasons
+        )
+    ):
         reasons = "; ".join(receipt.mismatch_reasons) or "unspecified mismatch"
         errors.append(f"schedule receipt is invalid: {reasons}")
     if receipt.declared_rollouts_per_case != protocol.rollouts_per_case:
@@ -333,12 +426,22 @@ def _receipt_binding_errors(item: CompletedRun) -> list[str]:
         errors.append("declared parallelism does not match resolved protocol")
     if receipt.declared_case_order != protocol.case_order:
         errors.append("declared case_order does not match resolved protocol")
-    if protocol.case_order in {"custom", "explicit"}:
+    if protocol.case_order == "explicit":
         expected_case_ids = tuple(protocol.explicit_case_ids)
         if not expected_case_ids:
             errors.append("explicit case_order is missing explicit_case_ids")
         elif receipt.observed_case_order != expected_case_ids:
             errors.append("observed_case_order does not match explicit_case_ids")
+    elif protocol.case_order == "custom":
+        try:
+            expected_case_ids = resolve_selected_case_ids(protocol)
+        except CaseOrderError as exc:
+            errors.append(str(exc))
+        else:
+            if receipt.observed_case_order != expected_case_ids:
+                errors.append(
+                    "observed_case_order does not match custom order artifact"
+                )
     if receipt.declared_state_reset != protocol.state_reset:
         errors.append("declared state_reset does not match resolved protocol")
     if receipt.declared_candidate_selection != effective_selection:
@@ -615,15 +718,30 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         if artifact.order_seed != expected_case_set_seed:
             errors.append("case-set order seed drift")
     expected_selection_method = (
-        "explicit_case_ids"
-        if protocol is not None and protocol.case_order in {"custom", "explicit"}
+        {
+            "custom": "custom_order_artifact",
+            "explicit": "explicit_case_ids",
+        }.get(protocol.case_order, "all_cases")
+        if protocol is not None
         else "all_cases"
     )
     if artifact.selection_method != expected_selection_method:
         errors.append("case-set selection method drift")
-    if protocol is not None and protocol.case_order in {"custom", "explicit"}:
+    if protocol is not None and protocol.case_order == "explicit":
         if artifact.ordered_case_ids != tuple(protocol.explicit_case_ids):
             errors.append("case-set explicit case order drift")
+    elif protocol is not None and protocol.case_order == "custom":
+        try:
+            expected_ids, expected_adapter, expected_ref = custom_order_binding(protocol)
+        except CaseOrderError as exc:
+            errors.append(str(exc))
+        else:
+            if artifact.ordered_case_ids != expected_ids:
+                errors.append("case-set custom case order drift")
+            if artifact.order_strategy_adapter != expected_adapter:
+                errors.append("case-set custom order adapter drift")
+            if artifact.order_strategy_ref != expected_ref:
+                errors.append("case-set custom order content reference drift")
     source = getattr(benchmark, "source", None)
     compiled_source_digest = getattr(
         benchmark, "source_content_digest", None
@@ -663,6 +781,8 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
     if len(matching_attempts) != 1:
         errors.append("completed case lacks unique selected-attempt lineage")
     content_refs = list(artifact.source_content_refs)
+    if artifact.order_strategy_ref is not None:
+        content_refs.append(artifact.order_strategy_ref)
     for case in artifact.cases:
         content_refs.extend(
             (
@@ -771,6 +891,56 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
                 f"{configuration_activation.status!r}"
             )
         refs.extend(configuration_activation.evidence_refs)
+    model = manifest.execution.model
+    model_activation = provenance.model_activation
+    none_models = {"none", "none/deterministic", "none/echo"}
+    if model in none_models:
+        if manifest.execution.provider_binding is not None:
+            errors.append("none-model execution has an undeclared ProviderBinding")
+        if model_activation is not None:
+            errors.append("none-model execution has an undeclared ModelActivationReceipt")
+    elif model_activation is not None:
+        binding = manifest.execution.provider_binding
+        sources = {
+            item.capability.model_activation_source
+            for item in manifest.metadata.adapter_capabilities
+            if item.capability.adapter_kind == "execution"
+            and item.capability.model_activation_source is not None
+        }
+        if len(sources) != 1:
+            errors.append("model activation capability binding is ambiguous")
+        elif model_activation.activation_source != next(iter(sources)):
+            errors.append("model activation source drift")
+        if model_activation.requested_model != model:
+            errors.append("model activation requested model drift")
+        if binding is None:
+            if model_activation.requested_provider_id is not None:
+                errors.append("undeclared model activation provider binding")
+            if model_activation.binding_digest is not None:
+                errors.append("undeclared model activation binding digest")
+        else:
+            if model_activation.requested_provider_id != binding.provider_id:
+                errors.append("model activation provider binding drift")
+            if model_activation.requested_model_id != binding.model_id:
+                errors.append("model activation model binding drift")
+            if model_activation.binding_digest != binding.canonical_digest():
+                errors.append("model activation binding digest drift")
+        refs.extend(model_activation.evidence_refs)
+        errors.extend(
+            replay_model_activation_receipt(
+                model_activation,
+                requested_model=model,
+                binding=binding,
+                bundle_usage=bundle.usage,
+                require_usage=manifest.claim_design.purpose == RunPurpose.claim,
+            )
+        )
+        if manifest.claim_design.purpose == RunPurpose.claim:
+            usage = bundle.usage
+            if usage is None or usage.total_tokens is None:
+                errors.append("real-model claim token usage is unobservable")
+            if usage is None or usage.cost is None:
+                errors.append("real-model claim cost usage is unobservable")
     evolution_ref = provenance.evolution_evidence_ref
     evolution_required = manifest.claim_design.purpose == RunPurpose.claim
     if manifest.subject.kind in {"evolver", "meta_evolver"}:
@@ -851,6 +1021,29 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
                     != provenance.executable_digest
                 ):
                     errors.append("container executable digest cross-link drift")
+    return errors
+
+
+def _model_activation_isolation_errors(item: CompletedRun) -> list[str]:
+    """Return honest activation blockers without classifying them as drift."""
+
+    manifest = item.plan.manifest
+    model = manifest.execution.model
+    if model in {"none", "none/deterministic", "none/echo"}:
+        return []
+    errors: list[str] = []
+    if manifest.execution.provider_binding is None:
+        errors.append(
+            f"{item.case.case_id}: real-model ProviderBinding is missing"
+        )
+    receipt = item.case.bundle.provenance.model_activation
+    if receipt is None:
+        errors.append(f"{item.case.case_id}: ModelActivationReceipt is missing")
+    elif receipt.status != "matched":
+        reasons = "; ".join(receipt.reason) or "native activation did not match"
+        errors.append(
+            f"{item.case.case_id}: model activation is {receipt.status}: {reasons}"
+        )
     return errors
 
 
@@ -944,6 +1137,9 @@ def _evaluate_claim(
     deterministic_conformance: bool,
     counterbalanced: bool,
     record_index_ref: ArtifactRef | None,
+    contrast_factor_path: str | None = None,
+    contrast_control_value: object | None = None,
+    contrast_treatment_value: object | None = None,
 ) -> ClaimReport:
     """Evaluate independent gates and derive claim eligibility."""
 
@@ -1002,6 +1198,7 @@ def _evaluate_claim(
     for item in items:
         bundle = item.case.bundle
         isolation_errors.extend(_evidence_integrity_errors(item))
+        isolation_errors.extend(_model_activation_isolation_errors(item))
         policy_errors = _network_policy_errors(item)
         isolation_errors.extend(policy_errors)
         network_observation = bundle.network_observation
@@ -1119,14 +1316,118 @@ def _evaluate_claim(
             ),
         )
 
-    pairs, pair_error = _subject_pairs(items, control_id, treatment_id)
+    pairs, pair_error = _subject_pairs(
+        items,
+        control_id,
+        treatment_id,
+        factor_path=contrast_factor_path,
+        control_value=contrast_control_value,
+        treatment_value=contrast_treatment_value,
+    )
     statistics_reasons: list[str] = []
     if pair_error:
         statistics_reasons.append(pair_error)
-    if deterministic_conformance:
+    analysis_plans = {
+        canonical_json_bytes(item.plan.manifest.claim_design.statistical_analysis)
+        for item in items
+        if item.plan.manifest.claim_design.statistical_analysis is not None
+    }
+    plans_missing = any(
+        item.plan.manifest.claim_design.statistical_analysis is None
+        for item in items
+    )
+    if analysis_plans and (plans_missing or len(analysis_plans) != 1):
+        statistics_reasons.append(
+            "StatisticalAnalysisPlan must be invariant across every arm"
+        )
+    analysis_plan = (
+        None
+        if not analysis_plans or plans_missing or len(analysis_plans) != 1
+        else next(
+            item.plan.manifest.claim_design.statistical_analysis
+            for item in items
+            if item.plan.manifest.claim_design.statistical_analysis is not None
+        )
+    )
+    statistics_receipt: StatisticalAnalysisReceipt | None = None
+    if analysis_plan is not None:
         if not counterbalanced:
             statistics_reasons.append("counterbalance metadata is false")
-        elif not _counterbalance_is_valid(items, control_id, treatment_id):
+        elif not _counterbalance_is_valid(
+            items,
+            control_id,
+            treatment_id,
+            factor_path=contrast_factor_path,
+            control_value=contrast_control_value,
+            treatment_value=contrast_treatment_value,
+        ):
+            statistics_reasons.append(
+                "observed control/treatment order is not counterbalanced"
+            )
+        if len(items) != expected_run_count:
+            statistics_reasons.append("not all repetitions are terminal")
+
+        observations: list[PairedScore] = []
+        for control, treatment in pairs:
+            control_evidence = control.case.bundle.verifier_evidence
+            treatment_evidence = treatment.case.bundle.verifier_evidence
+            control_score = (
+                None
+                if control_evidence is None or authoritative_metric is None
+                else control_evidence.metrics.get(authoritative_metric)
+            )
+            treatment_score = (
+                None
+                if treatment_evidence is None or authoritative_metric is None
+                else treatment_evidence.metrics.get(authoritative_metric)
+            )
+            if control_score is None or treatment_score is None:
+                statistics_reasons.append(
+                    "statistics require authoritative verifier scores for every pair"
+                )
+                continue
+            unit_values = {
+                key: value
+                for key, value in control.plan.factor_values.items()
+                if key
+                not in {
+                    "subject",
+                    "experiment.subject",
+                    "order_position",
+                    contrast_factor_path,
+                }
+            }
+            unit_values["case_id"] = control.case.case_id
+            observations.append(
+                PairedScore(
+                    unit_values=unit_values,
+                    control_score=control_score,
+                    treatment_score=treatment_score,
+                )
+            )
+        analysis = analyze_paired_scores(
+            analysis_plan,
+            metric=authoritative_metric or "unbound",
+            observations=observations,
+            evaluation_splits=tuple(
+                benchmark_evaluation_split(item.plan.manifest.benchmark)
+                for item in items
+            ),
+            allow_no_holdout=deterministic_conformance,
+        )
+        statistics_receipt = analysis.receipt
+        statistics_reasons.extend(analysis.errors)
+    elif deterministic_conformance:
+        if not counterbalanced:
+            statistics_reasons.append("counterbalance metadata is false")
+        elif not _counterbalance_is_valid(
+            items,
+            control_id,
+            treatment_id,
+            factor_path=contrast_factor_path,
+            control_value=contrast_control_value,
+            treatment_value=contrast_treatment_value,
+        ):
             statistics_reasons.append("observed control/treatment order is not counterbalanced")
         if len(items) != expected_run_count:
             statistics_reasons.append("not all repetitions are terminal")
@@ -1144,7 +1445,12 @@ def _evaluate_claim(
         _invalid("; ".join(statistics_reasons))
         if statistics_reasons
         else _valid(
-            "deterministic conformance pairing and counterbalance are complete",
+            (
+                "paired sample variance and confidence interval match the "
+                "StatisticalAnalysisPlan"
+                if analysis_plan is not None
+                else "deterministic conformance pairing and counterbalance are complete"
+            ),
             tuple(
                 str(item.schedule_receipt_path.resolve())
                 for item in items
@@ -1161,39 +1467,54 @@ def _evaluate_claim(
         GateName.statistics_valid: statistics_gate,
     }
     effect = None
-    differences: list[float] = []
-    for control, treatment in pairs:
-        control_score = (
-            None
-            if authoritative_metric is None
-            else (
-                None
-                if control.case.bundle.verifier_evidence is None
-                else control.case.bundle.verifier_evidence.metrics.get(authoritative_metric)
-            )
-        )
-        treatment_score = (
-            None
-            if authoritative_metric is None
-            else (
-                None
-                if treatment.case.bundle.verifier_evidence is None
-                else treatment.case.bundle.verifier_evidence.metrics.get(authoritative_metric)
-            )
-        )
-        if control_score is None or treatment_score is None:
-            differences = []
-            break
-        differences.append(treatment_score - control_score)
-    if differences:
-        point = mean(differences)
+    if (
+        statistics_receipt is not None
+        and statistics_receipt.confidence_interval is not None
+    ):
         effect = EffectEstimate(
-            metric=authoritative_metric,
-            point_estimate=point,
-            confidence_interval=(min(differences), max(differences)),
+            metric=statistics_receipt.metric,
+            point_estimate=statistics_receipt.point_estimate,
+            confidence_interval=statistics_receipt.confidence_interval,
             n_runs=len(items),
-            n_pairs=len(pairs),
+            n_pairs=statistics_receipt.observed_pair_count,
         )
+    elif analysis_plan is None:
+        differences: list[float] = []
+        for control, treatment in pairs:
+            control_score = (
+                None
+                if authoritative_metric is None
+                else (
+                    None
+                    if control.case.bundle.verifier_evidence is None
+                    else control.case.bundle.verifier_evidence.metrics.get(
+                        authoritative_metric
+                    )
+                )
+            )
+            treatment_score = (
+                None
+                if authoritative_metric is None
+                else (
+                    None
+                    if treatment.case.bundle.verifier_evidence is None
+                    else treatment.case.bundle.verifier_evidence.metrics.get(
+                        authoritative_metric
+                    )
+                )
+            )
+            if control_score is None or treatment_score is None:
+                differences = []
+                break
+            differences.append(treatment_score - control_score)
+        if differences:
+            effect = EffectEstimate(
+                metric=authoritative_metric,
+                point_estimate=mean(differences),
+                confidence_interval=(min(differences), max(differences)),
+                n_runs=len(items),
+                n_pairs=len(pairs),
+            )
 
     counts = Counter(statuses)
     lineage = tuple(_lineage_ref(item) for item in items)
@@ -1204,6 +1525,7 @@ def _evaluate_claim(
         manifest_digest=report_manifest_digest,
         gates=gates,
         effect=effect,
+        statistics_receipt=statistics_receipt,
         failure_breakdown=dict(counts),
         lineage=lineage,
         record_index_ref=record_index_ref,
@@ -1264,7 +1586,15 @@ def evaluate_run_report(
         raise ValueError("run purpose must be invariant across an experiment")
     purpose = next(iter(purposes))
     if purpose == RunPurpose.claim:
-        derived_control_id, derived_treatment_id, derived_deterministic, derived_counterbalanced = (
+        (
+            derived_control_id,
+            derived_treatment_id,
+            derived_deterministic,
+            derived_counterbalanced,
+            derived_factor_path,
+            derived_control_value,
+            derived_treatment_value,
+        ) = (
             _report_contrast(items)
         )
         return _evaluate_claim(
@@ -1275,6 +1605,9 @@ def evaluate_run_report(
             deterministic_conformance=derived_deterministic,
             counterbalanced=derived_counterbalanced,
             record_index_ref=record_index_ref,
+            contrast_factor_path=derived_factor_path,
+            contrast_control_value=derived_control_value,
+            contrast_treatment_value=derived_treatment_value,
         )
 
     integrity_errors = [
@@ -1282,7 +1615,12 @@ def evaluate_run_report(
         for item in items
         for error in (
             *_evidence_integrity_errors(item),
-            *_receipt_binding_errors(item),
+            *_receipt_binding_errors(
+                item,
+                allowed_invalid_schedule_reasons=frozenset(
+                    {"budget usage is unobservable"}
+                ),
+            ),
         )
     ]
     if integrity_errors:
@@ -1290,8 +1628,22 @@ def evaluate_run_report(
             "exploratory evidence integrity failed: "
             + "; ".join(integrity_errors)
         )
+    protocol_errors: list[str] = []
+    for item in items:
+        receipt = item.schedule_receipt
+        if receipt is None:
+            protocol_errors.append(
+                f"{item.case.case_id}: ScheduleActivationReceipt missing"
+            )
+        elif not receipt.schedule_valid:
+            reasons = "; ".join(receipt.mismatch_reasons) or "unspecified mismatch"
+            protocol_errors.append(
+                f"{item.case.case_id}: schedule receipt is invalid: {reasons}"
+            )
+    protocol_reasons = tuple(sorted(set(protocol_errors)))
     isolation_errors: list[str] = []
     for item in items:
+        isolation_errors.extend(_model_activation_isolation_errors(item))
         policy_errors = _network_policy_errors(item)
         isolation_errors.extend(policy_errors)
         observation = item.case.bundle.network_observation
@@ -1318,6 +1670,8 @@ def evaluate_run_report(
         subject_kind=subject_kind,
         experiment_id=derived_experiment_id,
         manifest_digest=derived_manifest_digest,
+        protocol_valid=not protocol_reasons,
+        protocol_reasons=protocol_reasons,
         isolation_valid=not isolation_reasons,
         isolation_reasons=isolation_reasons,
         observations=observations,

@@ -1,0 +1,338 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "BudgetAllocation": {
+      "additionalProperties": false,
+      "description": "Pre-launch token/cost allocation; wall time remains global.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "title": "BudgetAllocation",
+      "type": "object"
+    },
+    "EvolutionBudgetEvent": {
+      "additionalProperties": false,
+      "description": "One measured operation debit and its root-budget lineage.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "budget_exceeded": {
+          "default": false,
+          "title": "Budget Exceeded",
+          "type": "boolean"
+        },
+        "candidate_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Ids",
+          "type": "array"
+        },
+        "event_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "operation": {
+          "$ref": "#/$defs/EvolutionBudgetOperation"
+        },
+        "remaining_after": {
+          "$ref": "#/$defs/BudgetAllocation"
+        },
+        "sequence": {
+          "minimum": 0,
+          "title": "Sequence",
+          "type": "integer"
+        },
+        "spent": {
+          "$ref": "#/$defs/UsageRecord"
+        },
+        "usage_observable": {
+          "title": "Usage Observable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "event_id",
+        "sequence",
+        "operation",
+        "candidate_ids",
+        "spent",
+        "usage_observable",
+        "remaining_after"
+      ],
+      "title": "EvolutionBudgetEvent",
+      "type": "object"
+    },
+    "EvolutionBudgetOperation": {
+      "description": "Billable operations understood by the neutral runtime.",
+      "enum": [
+        "parent_evolution",
+        "seed",
+        "generate",
+        "search_evaluate",
+        "revise",
+        "holdout_evaluate"
+      ],
+      "title": "EvolutionBudgetOperation",
+      "type": "string"
+    },
+    "UsageRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read Tokens"
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write Tokens"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        },
+        "wall_clock_seconds": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wall Clock Seconds"
+        }
+      },
+      "title": "UsageRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Root evolution budget replayed across every billable operation.",
+  "properties": {
+    "budget_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Budget Digest",
+      "type": "string"
+    },
+    "budget_exceeded": {
+      "title": "Budget Exceeded",
+      "type": "boolean"
+    },
+    "budget_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "declared_budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "elapsed_wall_seconds": {
+      "minimum": 0,
+      "title": "Elapsed Wall Seconds",
+      "type": "number"
+    },
+    "events": {
+      "items": {
+        "$ref": "#/$defs/EvolutionBudgetEvent"
+      },
+      "minItems": 1,
+      "title": "Events",
+      "type": "array"
+    },
+    "reconciles_exactly": {
+      "title": "Reconciles Exactly",
+      "type": "boolean"
+    },
+    "total_usage": {
+      "$ref": "#/$defs/UsageRecord"
+    },
+    "usage_observable": {
+      "title": "Usage Observable",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "budget_digest",
+    "budget_ref",
+    "declared_budget",
+    "events",
+    "total_usage",
+    "elapsed_wall_seconds",
+    "usage_observable",
+    "reconciles_exactly",
+    "budget_exceeded"
+  ],
+  "title": "EvolutionBudgetLedger",
+  "type": "object"
+}

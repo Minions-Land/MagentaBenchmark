@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Runtime proof that the requested provider/model reached execution.\n\nA positive receipt binds a resolved :class:`ProviderBinding` without\nserializing a credential value. ``binding_digest`` is computed from the\nbinding's identity projection (which intentionally omits\n``CredentialRef.source_file``), while ``evidence_refs`` retain the\nadapter-native result/trace bytes used to observe activation. An exploratory\nrun without a binding or observation is retained as ``unobserved``. A real\nmodel is never inferred from a command line or manifest declaration alone.",
+  "properties": {
+    "activated_binding_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated Binding Digest"
+    },
+    "activated_model_id": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated Model Id"
+    },
+    "activated_provider_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Activated Provider Id"
+    },
+    "activation_source": {
+      "enum": [
+        "provider_response",
+        "runtime_manifest",
+        "native_result",
+        "adapter_receipt"
+      ],
+      "title": "Activation Source",
+      "type": "string"
+    },
+    "binding_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Binding Digest"
+    },
+    "evidence_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "protocol_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Protocol Version",
+      "type": "integer"
+    },
+    "reason": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Reason",
+      "type": "array"
+    },
+    "requested_model": {
+      "minLength": 1,
+      "title": "Requested Model",
+      "type": "string"
+    },
+    "requested_model_id": {
+      "minLength": 1,
+      "title": "Requested Model Id",
+      "type": "string"
+    },
+    "requested_provider_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Provider Id"
+    },
+    "status": {
+      "enum": [
+        "matched",
+        "mismatch",
+        "unobserved"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requested_model",
+    "requested_model_id",
+    "activation_source",
+    "status"
+  ],
+  "title": "ModelActivationReceipt",
+  "type": "object"
+}

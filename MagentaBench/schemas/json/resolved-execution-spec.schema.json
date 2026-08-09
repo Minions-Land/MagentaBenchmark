@@ -183,6 +183,40 @@
       "title": "CredentialRef",
       "type": "object"
     },
+    "CustomCaseOrderSpec": {
+      "additionalProperties": false,
+      "description": "Content-addressed external strategy input for ``case_order=custom``.",
+      "properties": {
+        "adapter": {
+          "default": "magentabench.case-order.json.v1",
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "CustomCaseOrderSpec",
+      "type": "object"
+    },
     "EnvironmentSpec": {
       "additionalProperties": false,
       "description": "Reproducible environment requirements; interpreter pin is mandatory.",
@@ -350,6 +384,17 @@
           "title": "Checkpoint Policy",
           "type": "string"
         },
+        "custom_order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CustomCaseOrderSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "deterministic_conformance": {
           "default": false,
           "title": "Deterministic Conformance",
@@ -449,7 +494,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "Execution contract with registry references inlined.\n\nprovider_binding is optional only until the CLI-agent adapter resolves it;\na model-scope claim MUST compile-reject when provider_binding is None.",
+  "description": "Execution contract with registry references inlined.\n\n``provider_binding`` is absent for the closed ``none/*`` execution modes.\nIt is optional for an exploratory real-model run so missing provider\nidentity can be recorded explicitly, but a positive runtime result requires\nit plus a matching :class:`ModelActivationReceipt`.",
   "properties": {
     "backend": {
       "$ref": "#/$defs/BackendSpec"

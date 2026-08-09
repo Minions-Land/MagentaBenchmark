@@ -305,3 +305,51 @@ def test_attempt_overrun_is_agent_error_and_stops_later_launch(tmp_path: Path) -
     assert all(attempt.status.value == "agent_error" for attempt in result.receipt.attempts)
     assert all(attempt.debit and attempt.debit.budget_exceeded for attempt in result.receipt.attempts)
     assert "budget_exceeded" in result.receipt.mismatch_reasons
+
+
+def test_unobservable_usage_materializes_invalid_receipt_without_fake_zeroes(
+    tmp_path: Path,
+) -> None:
+    """A native backend may omit token/cost counters without losing its evidence."""
+
+    run = _scheduled_run(
+        rollouts_per_case=1,
+        parallelism=1,
+        candidate_selection="single",
+    )
+    budget = Budget(max_tokens=100, max_wall_seconds=3.0, max_cost=2.0)
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(update={"budget": budget})
+            }
+        ),
+    )
+    backend = FakeBackend(tmp_path / "records")
+    task = backend._load_task(run)
+
+    def attempt_runner(attempt):
+        case = backend.execute(
+            run,
+            task,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+        )
+        # Simulate Harbor/NOP, which has no provider token or cost counters.
+        unknown = case.bundle.model_copy(update={"usage": UsageRecord()})
+        atomic_write_json(case.bundle_path, unknown)
+        return replace(case, bundle=unknown, bundle_digest=sha256_file(case.bundle_path))
+
+    result = _execute(tmp_path, run, [task], attempt_runner, backend)
+    assert result.receipt.schedule_valid is False
+    assert "budget usage is unobservable" in result.receipt.mismatch_reasons
+    debit = result.receipt.attempts[0].debit
+    assert debit is not None
+    assert debit.usage_observable is False
+    assert debit.released.max_tokens is None
+    assert debit.released.max_cost is None
+    restored = ScheduleActivationReceipt.model_validate_json(
+        result.receipt_path.read_bytes()
+    )
+    assert restored == result.receipt

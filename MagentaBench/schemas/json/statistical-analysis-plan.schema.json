@@ -1,0 +1,102 @@
+{
+  "additionalProperties": false,
+  "description": "Pre-registered paired analysis contract carried by every arm.\n\n``paired_unit`` names the complete factor key used to match one control\nobservation with one treatment observation. ``case_id`` is the runtime\ncase identity; all other names refer to ``ResolvedManifestMetadata.factors``.\nThe implementation is intentionally small and versioned so a standalone\nverifier can reproduce the exact variance and interval calculation.",
+  "properties": {
+    "ci_method": {
+      "const": "normal_approximation_v1",
+      "default": "normal_approximation_v1",
+      "title": "Ci Method",
+      "type": "string"
+    },
+    "confidence_level": {
+      "default": 0.95,
+      "exclusiveMaximum": 1.0,
+      "exclusiveMinimum": 0.5,
+      "title": "Confidence Level",
+      "type": "number"
+    },
+    "family_id": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Family Id"
+    },
+    "family_size": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Family Size",
+      "type": "integer"
+    },
+    "format": {
+      "const": "bmp-statistical-analysis-plan-v1",
+      "default": "bmp-statistical-analysis-plan-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "holdout_required": {
+      "default": true,
+      "title": "Holdout Required",
+      "type": "boolean"
+    },
+    "holdout_split": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Holdout Split"
+    },
+    "minimum_repetitions": {
+      "default": 2,
+      "minimum": 2,
+      "title": "Minimum Repetitions",
+      "type": "integer"
+    },
+    "multiple_comparison_method": {
+      "default": "none",
+      "enum": [
+        "none",
+        "bonferroni"
+      ],
+      "title": "Multiple Comparison Method",
+      "type": "string"
+    },
+    "paired_unit": {
+      "default": [
+        "case_id",
+        "repetition"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "title": "Paired Unit",
+      "type": "array"
+    },
+    "repetition_field": {
+      "const": "repetition",
+      "default": "repetition",
+      "title": "Repetition Field",
+      "type": "string"
+    },
+    "variance_method": {
+      "const": "sample_variance_v1",
+      "default": "sample_variance_v1",
+      "title": "Variance Method",
+      "type": "string"
+    }
+  },
+  "title": "StatisticalAnalysisPlan",
+  "type": "object"
+}

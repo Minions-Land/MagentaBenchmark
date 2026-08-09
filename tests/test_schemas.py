@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 
@@ -148,6 +149,7 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         "resource-spec",
         "credential-ref",
         "provider-binding",
+        "model-activation-receipt",
         "evidence-bundle",
         "adapter-capability-artifact",
         "network-observation",
@@ -163,6 +165,7 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
     }.issubset(documents)
     provenance_schema = documents["evidence-bundle"]["$defs"]["ProvenanceRecord"]
     assert "runtime_manifest_receipt" in provenance_schema["properties"]
+    assert "model_activation" in provenance_schema["properties"]
     assert documents["subject-spec"]["discriminator"]["propertyName"] == "kind"
     assert "claim_eligible" in documents["claim-report"]["properties"]
     assert "effect_is_causal_claim" in documents["claim-report"]["properties"]
@@ -179,6 +182,22 @@ def test_json_schema_is_generated_for_public_contracts() -> None:
         claim_schema["allOf"][0]["if"]["properties"]["gates"]["required"]
         == gate_order
     )
+
+
+def test_checked_in_json_schemas_exactly_match_public_models() -> None:
+    documents = schema_documents()
+    schema_root = Path(__file__).parents[1] / "MagentaBench/schemas/json"
+    expected_names = {
+        f"{name}.schema.json" for name in documents
+    }
+    observed_names = {
+        path.name for path in schema_root.glob("*.schema.json")
+    }
+
+    assert observed_names == expected_names
+    for name, document in documents.items():
+        path = schema_root / f"{name}.schema.json"
+        assert json.loads(path.read_text(encoding="utf-8")) == document, name
 
 
 def test_claim_design_is_required_and_closed(tmp_path: Path) -> None:

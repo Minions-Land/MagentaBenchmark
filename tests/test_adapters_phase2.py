@@ -26,8 +26,13 @@ from MagentaBench.adapters.subjects.cli_agent import (
     write_magenta_settings,
     write_cli_outputs,
 )
-from MagentaBench.schemas import RunStatus
-from MagentaBench.schemas import EvidenceBundle, ProvenanceRecord
+from MagentaBench.schemas import (
+    CredentialRef,
+    EvidenceBundle,
+    ProviderBinding,
+    ProvenanceRecord,
+    RunStatus,
+)
 
 
 AOSE = Path("/mnt/aliyunsb/BioAgent/AOSEBench")
@@ -377,6 +382,19 @@ def test_magenta_configuration_receipt_binds_effective_settings_and_activation(
             "model": "gpt-5.6",
             "provider": "openai",
         },
+        provider_binding=ProviderBinding(
+            provider_id="openai",
+            base_url="https://api.openai.com/v1",
+            wire_api="responses",
+            model_id="gpt-5.6",
+            credential_ref=CredentialRef(
+                name="openai-primary",
+                value_sha256="a" * 64,
+                secret=True,
+                source_file="credentials/providers.toml",
+            ),
+        ),
+        requested_model="gpt-5.6",
     )
     assert artifacts.configuration_receipt is not None
     receipt = artifacts.configuration_receipt
@@ -405,9 +423,15 @@ def test_magenta_configuration_receipt_binds_effective_settings_and_activation(
         configuration_digest="a" * 64,
     )
     assert bound.configuration_activation == neutral
+    assert bound.model_activation is not None
+    assert bound.model_activation.status == "unobserved"
+    assert bound.model_activation.activated_provider_id is None
+    assert bound.model_activation.activated_model_id is None
+    assert "no provider-call binding evidence" in bound.model_activation.reason[0]
     status = json.loads(artifacts.status_path.read_text())
     assert status["configuration_activation_status"] == "matched"
     assert status["activation_receipt"]["status"] == "observed"
+    assert status["model_activation"]["status"] == "unobserved"
 
 
 def test_magenta_jsonl_never_falls_back_to_event_stream_as_answer() -> None:

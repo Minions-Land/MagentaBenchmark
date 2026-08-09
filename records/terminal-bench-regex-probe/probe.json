@@ -1,0 +1,94 @@
+{
+  "benchmark_adapter": "terminal_bench",
+  "case_id": "regex-log",
+  "claim_blockers": [
+    "official verifier could not download uv from GitHub and uvx was unavailable",
+    "task container image digest was not retained by Harbor",
+    "task-container network behavior was unobservable to BMP",
+    "model and provider activation were not applicable to the nop integration subject",
+    "the historical loader and execution-adapter implementation bytes were not retained",
+    "native token, cost, and wall-clock usage were not retained as a BMP usage receipt",
+    "the adapter implementation changed after this probe and requires a fresh claim run"
+  ],
+  "evidence_refs": [
+    {
+      "path": "/mnt/aliyunsb/aralacai/MagentaBench/records/terminal-bench-regex-probe/harbor-result.json",
+      "sha256": "98ae3c2b0cc662e8d089479b3dcbfafe6f587717d76bbc06e64f9011f4cc8c23",
+      "size_bytes": 1793
+    },
+    {
+      "path": "/mnt/aliyunsb/aralacai/MagentaBench/records/terminal-bench-regex-probe/verifier-failure.txt",
+      "sha256": "780ac71cf166074b5a109a95dd14016ab0af6ff0d5dfd037bc4d4c0b463ee986",
+      "size_bytes": 630
+    }
+  ],
+  "format": "bmp-integration-probe-v1",
+  "identity_refs": [
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/terminal-bench-2-1/tasks/regex-log/instruction.md",
+        "sha256": "4f7ac05e70cf9220ea0f1e5a052c5f908cd0fa884e847d80b0bd51bae2e96f9c",
+        "size_bytes": 1021
+      },
+      "role": "benchmark_source"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/terminal-bench-2-1/tasks/regex-log/task.toml",
+        "sha256": "6bc98525852755caf1fe34c174c2f10f4328adb4ce6c1968dcafe1c877e4e160",
+        "size_bytes": 989
+      },
+      "role": "benchmark_source"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/terminal-bench-2-1/tasks/regex-log/environment/Dockerfile",
+        "sha256": "5f264ff0bf62a49aee3c6398447de5108df141e7a2ad35c6de8ef39fa62049c6",
+        "size_bytes": 201
+      },
+      "role": "benchmark_source"
+    },
+    {
+      "artifact_ref": {
+        "path": "/bin/true",
+        "sha256": "eb00297aa2ae7a7c9911c5ab9c22b50dbffef28c2cd89284116e5ff7fd3a5bb4",
+        "size_bytes": 42168
+      },
+      "role": "subject_implementation"
+    },
+    {
+      "artifact_ref": {
+        "path": "/root/.local/share/uv/tools/harbor/bin/harbor",
+        "sha256": "998eb086b23784f317a336d2cf6d306896ea1cb6fc8998806b2ecacba2ebad7c",
+        "size_bytes": 324
+      },
+      "role": "backend_executable"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/terminal-bench-2-1/tasks/regex-log/tests/test.sh",
+        "sha256": "4770437ea96c3cc84684b4f99d55fb148fcac09f9ea1e8ef49de487716e6c334",
+        "size_bytes": 608
+      },
+      "role": "verifier_contract"
+    },
+    {
+      "artifact_ref": {
+        "path": "/mnt/aliyunsb/aralacai/terminal-bench-2-1/tasks/regex-log/tests/test_outputs.py",
+        "sha256": "345c3bd09ab6f6fe8c8361a58c0a47bf0a13b3fcb38a5ac7824e44ff855e8f72",
+        "size_bytes": 3730
+      },
+      "role": "verifier_contract"
+    }
+  ],
+  "outcome": "verifier_failure",
+  "phase": "verifier",
+  "probe_id": "terminal-bench-regex-20260808",
+  "public_input_ref": {
+    "path": "/mnt/aliyunsb/aralacai/MagentaBench/records/terminal-bench-regex-probe/public_input.json",
+    "sha256": "8e13a99c75835b84562bf217903dc10dbf645f4aab086af76a300623aed1c182",
+    "size_bytes": 1155
+  },
+  "purpose": "exploratory",
+  "status": "verifier_error"
+}

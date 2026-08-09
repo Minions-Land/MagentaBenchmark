@@ -30,8 +30,10 @@ from .adapter_registry import (
 )
 from .backend.fake import CaseExecution, EvidenceDriftError
 from .compiler import CompiledRun, Compiler, canonical_json_bytes, sha256_bytes
+from .case_order import CaseOrderError, selected_case_ids
 from .evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
 from .gates import CompletedRun, _receipt_binding_errors, evaluate_run_report
+from .model_activation import ensure_model_activation_receipt
 from .scheduler import ScheduleResult, Scheduler
 
 
@@ -495,9 +497,13 @@ class Pipeline:
             )
         protocol = run.manifest.execution.protocol
         if protocol is not None and protocol.case_order in {"custom", "explicit"}:
-            if receipt.observed_case_order != tuple(protocol.explicit_case_ids):
+            try:
+                expected_case_ids = selected_case_ids(protocol)
+            except CaseOrderError as exc:
+                raise ResumeDriftError(str(exc)) from exc
+            if receipt.observed_case_order != expected_case_ids:
                 raise ResumeDriftError(
-                    "resume schedule explicit case order drift"
+                    "resume schedule selected case order drift"
                 )
         budget = run.manifest.execution.budget
         for field in ("max_tokens", "max_cost"):
@@ -870,11 +876,14 @@ class Pipeline:
                         lambda attempt,
                         run=run,
                         adapter=execution_adapter,
-                        cases=runtime_cases: adapter.execute(
-                            self.backend,
+                        cases=runtime_cases: ensure_model_activation_receipt(
                             run,
-                            cases[attempt.case_id],
-                            attempt,
+                            adapter.execute(
+                                self.backend,
+                                run,
+                                cases[attempt.case_id],
+                                attempt,
+                            ),
                         )
                     ),
                     reset_state=(

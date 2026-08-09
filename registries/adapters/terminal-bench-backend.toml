@@ -1,0 +1,17 @@
+[adapter]
+id = "harbor.terminal-bench.factory"
+kind = "adapter"
+adapter = "harbor"
+bmp_version = "0.1"
+adapter_kind = "backend_factory"
+source = "."
+entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchHarborFactory"
+digest = "6c87328261c8787bf691cb129acef2cce7792b48ca9516321883332eec98c73d"
+supported_benchmark_kinds = ["custom"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["harbor"]
+backend_default_read_set = [
+  "agent_kwargs",
+  "agent_timeout_multiplier",
+  "environment_type",
+]

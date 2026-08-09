@@ -129,7 +129,7 @@ artifact additionally binds the helper closure digest and relative paths, so a
 helper-only edit changes the manifest identity and invalidates old evidence.
 
 For the Magenta subject adapter, generic configuration paths are projected to
-Magenta's public v0.1.22 flags (`transport`, cache retention, prompt-cache
+Magenta's public v0.1.23 flags (`transport`, cache retention, prompt-cache
 mode, cache telemetry/diagnostics, tool search, provider, and model). Retry and
 provider timeout controls are materialized only through the explicit
 `MAGENTA_CODING_AGENT_DIR` settings bridge. The adapter persists requested and
@@ -144,6 +144,45 @@ artifact digest, consuming adapter, requested/activated paths, secret-free
 projections, and their digests. Claim provenance requires a `matched` receipt
 when a configuration artifact is present; exploratory provenance can retain an
 unobserved configuration for diagnostics without turning it into a claim.
+
+## Provider/model activation
+
+A provider-backed model is a separate trust boundary from generic adapter
+configuration. The execution declaration may pin a secret-free
+`ProviderBinding`; its credential reference contains only a name and SHA-256 of
+the credential value, never the value itself. The selected execution capability
+must also declare how native activation will be observed:
+
+```toml
+[execution]
+backend = "provider-backed-harness"
+model = "gpt-5.6"
+
+[execution.provider_binding]
+provider_id = "openai"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+model_id = "gpt-5.6"
+
+[execution.provider_binding.credential_ref]
+name = "openai-primary"
+value_sha256 = "<sha256>"
+secret = true
+source_file = "credentials/providers.toml"
+
+# In the selected execution AdapterCapability:
+# model_activation_source = "provider_response" | "runtime_manifest" |
+#                           "native_result" | "adapter_receipt"
+```
+
+After execution, the adapter emits a `ModelActivationReceipt` that records the
+requested and activated provider/model, the relocatable provider-binding
+digest, its declared observation source, and content-addressed native evidence.
+BMP never treats a CLI flag or the requested manifest value as proof of
+activation. A missing observation is persisted as `status = "unobserved"` so an
+exploratory run can retain the provider call and diagnostics, but isolation and
+claim gates fail closed. A claim additionally requires observable total-token
+and monetary-cost usage; unknown values remain `null`, never zero.
 
 ## Evolution and meta-evolution boundary
 
@@ -172,10 +211,19 @@ an adapter declaration and capability tuple, not a change to BMP core.
 
 This makes the protocol open for new benchmarks while keeping execution,
 scoring, lineage, and evidence verification in one shared BMP implementation.
-`EvolutionRunEvidence` is a public JSON contract and loader, not an algorithm:
-it retains the complete candidate and transition ledgers, content-addressed
-artifacts, evaluator/budget/adapter digests, and recursive meta-evolver parent
-evidence. A claim run with an evolver subject must bind that evidence through
-`ProvenanceRecord.evolution_evidence_ref`; missing or mismatched evidence fails
-closed. Exploratory runs may carry an unobserved evolution record, but it is
-never promoted to a positive claim.
+`EvolutionRunEvidence` remains algorithm-neutral. The BMP-owned
+`EvolutionRuntime` now supplies the external lifecycle around an adapter and
+emits a content-addressed `EvolutionRuntimeReceipt`. The receipt retains every
+search or holdout evaluator query, exact budget debits and remaining caps, and
+the transition sequence at which selection became immutable. The sealed
+holdout authority is injected separately and cannot be invoked until after the
+select transition. Meta-evolution additionally debits the recursively verified
+parent runtime into the outer budget ledger.
+
+The registered `deterministic_evolution` adapter exercises this full path
+through Pipeline without a model provider. It is a conformance runtime, not a
+claim that an in-process adapter is adversarially isolated: its exploratory
+report deliberately records the local process network boundary as unobservable
+and therefore has `isolation_valid=false`. Production adapters must provide
+their own process/container isolation and evaluator authorities while reusing
+the same receipt and standalone-verification contract.

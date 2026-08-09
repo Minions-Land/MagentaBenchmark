@@ -130,6 +130,32 @@
     {
       "else": {
         "properties": {
+          "protocol_reasons": {
+            "minItems": 1
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "protocol_valid": {
+            "const": true
+          }
+        },
+        "required": [
+          "protocol_valid"
+        ]
+      },
+      "then": {
+        "properties": {
+          "protocol_reasons": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "else": {
+        "properties": {
           "isolation_reasons": {
             "minItems": 1
           }
@@ -202,6 +228,19 @@
       },
       "title": "Observations",
       "type": "array"
+    },
+    "protocol_reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Protocol Reasons",
+      "type": "array"
+    },
+    "protocol_valid": {
+      "default": true,
+      "title": "Protocol Valid",
+      "type": "boolean"
     },
     "purpose": {
       "const": "exploratory",

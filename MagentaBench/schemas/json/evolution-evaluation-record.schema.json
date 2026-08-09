@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "EvolutionEvaluationStage": {
+      "description": "Evaluator authority used for one query.",
+      "enum": [
+        "search",
+        "sealed_holdout"
+      ],
+      "title": "EvolutionEvaluationStage",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One content-addressed query to search or sealed-holdout evaluation.",
+  "properties": {
+    "after_transition_sequence": {
+      "minimum": 0,
+      "title": "After Transition Sequence",
+      "type": "integer"
+    },
+    "budget_event_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Budget Event Id",
+      "type": "string"
+    },
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "candidate_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "evaluation_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Evaluation Id",
+      "type": "string"
+    },
+    "evaluator_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Evaluator Digest",
+      "type": "string"
+    },
+    "evaluator_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "request_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "result_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "score": {
+      "title": "Score",
+      "type": "number"
+    },
+    "score_metric": {
+      "minLength": 1,
+      "title": "Score Metric",
+      "type": "string"
+    },
+    "sequence": {
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "split_manifest_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "stage": {
+      "$ref": "#/$defs/EvolutionEvaluationStage"
+    }
+  },
+  "required": [
+    "evaluation_id",
+    "sequence",
+    "stage",
+    "candidate_id",
+    "evaluator_digest",
+    "evaluator_ref",
+    "split_manifest_ref",
+    "candidate_ref",
+    "request_ref",
+    "result_ref",
+    "score",
+    "score_metric",
+    "budget_event_id",
+    "after_transition_sequence"
+  ],
+  "title": "EvolutionEvaluationRecord",
+  "type": "object"
+}

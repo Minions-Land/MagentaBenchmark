@@ -1,0 +1,8 @@
+[subject]
+id = "deterministic-local.meta-evolver"
+kind = "meta_evolver"
+adapter = "deterministic-local"
+bmp_version = "0.1"
+source = "../../MagentaBench"
+target = "evolver"
+emits_trace = false

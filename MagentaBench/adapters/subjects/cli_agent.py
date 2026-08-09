@@ -16,10 +16,13 @@ from typing import Mapping, Sequence
 
 from MagentaBench.schemas import (
     ConfigurationActivationReceipt,
+    ModelActivationReceipt,
+    ProviderBinding,
     RunStatus,
     RuntimeAssemblySidecarRef,
     RuntimeManifestReceipt,
 )
+from MagentaBench.schemas.model_activation import derive_model_activation_receipt
 from MagentaBench.runner.evidence import artifact_ref, atomic_write_bytes
 
 
@@ -122,7 +125,7 @@ class MagentaLaunchConfiguration:
     def settings_document(self) -> dict[str, object]:
         """Return Magenta ``settings.json`` values for non-CLI controls.
 
-        Magenta v0.1.22 exposes retry/provider controls through settings rather
+        Magenta v0.1.23 exposes retry/provider controls through settings rather
         than startup flags.  The document is also useful for older/newer hosts
         that choose to inject a temporary ``MAGENTA_CODING_AGENT_DIR``.
         """
@@ -280,7 +283,7 @@ class MagentaJsonlTrace:
 
     @property
     def effective_configuration(self) -> Mapping[str, object]:
-        """Return the public v0.1.22 settings projection from the final manifest."""
+        """Return the public v0.1.23 settings projection from the final manifest."""
 
         return MappingProxyType(
             _project_effective_magenta_configuration(self.effective_runtime_manifest)
@@ -379,6 +382,7 @@ class CliOutputArtifacts:
     status_path: Path
     runtime_manifest_receipt: RuntimeManifestReceipt | None = None
     configuration_receipt: MagentaConfigurationReceipt | None = None
+    model_activation_receipt: ModelActivationReceipt | None = None
 
     def __iter__(self):
         # Preserve historical three-path unpacking for non-BMP callers.
@@ -402,6 +406,8 @@ class CliOutputArtifacts:
                     configuration_digest=configuration_digest
                 )
             )
+        if self.model_activation_receipt is not None:
+            updates["model_activation"] = self.model_activation_receipt
         return provenance.model_copy(update=updates)
 
     @property
@@ -419,6 +425,11 @@ class CliOutputArtifacts:
                     None
                     if self.configuration_receipt is None
                     else self.configuration_receipt.model_dump()
+                ),
+                "model_activation_receipt": (
+                    None
+                    if self.model_activation_receipt is None
+                    else self.model_activation_receipt.model_dump(mode="json")
                 ),
             }
         )
@@ -615,7 +626,7 @@ def _mapping_for_configuration(
 def resolve_magenta_configuration(
     configuration: Mapping[str, object] | MagentaLaunchConfiguration | None,
 ) -> MagentaLaunchConfiguration:
-    """Normalize a generic BMP configuration into Magenta v0.1.22 controls.
+    """Normalize a generic BMP configuration into Magenta v0.1.23 controls.
 
     Aliases are intentionally finite and conflict-checked.  This prevents TOML
     key spelling or insertion order from changing the provider command.
@@ -1075,7 +1086,7 @@ def write_magenta_settings(
 ) -> Path:
     """Materialize a deterministic Magenta ``settings.json`` projection.
 
-    This is the explicit bridge for settings-only v0.1.22 controls such as
+    This is the explicit bridge for settings-only v0.1.23 controls such as
     ``retry.provider.timeoutMs``.  The caller owns the directory lifecycle and
     can bind it through ``MAGENTA_CODING_AGENT_DIR`` for one process.
     """
@@ -1714,6 +1725,31 @@ def _make_configuration_receipt(
     )
 
 
+def _make_model_activation_receipt(
+    *,
+    requested_model: str,
+    provider_binding: ProviderBinding,
+    trace: MagentaJsonlTrace,
+    runtime_receipt: RuntimeManifestReceipt,
+) -> ModelActivationReceipt:
+    """Retain Magenta's runtime declaration without inventing call evidence."""
+
+    if provider_binding.model_id != requested_model:
+        raise CliAgentConfigurationError(
+            "ProviderBinding.model_id must equal the requested Magenta model"
+        )
+    # ``trace`` was already parsed against Magenta's full public protocol. The
+    # neutral receipt still re-reads the persisted bytes through BMP's much
+    # smaller model-activation projection so standalone verification performs
+    # the same derivation without trusting these in-memory scalars.
+    return derive_model_activation_receipt(
+        requested_model=requested_model,
+        binding=provider_binding,
+        activation_source="runtime_manifest",
+        evidence_ref=runtime_receipt.trace_ref,
+    )
+
+
 def parse_magenta_jsonl(raw_stdout: str) -> MagentaJsonlTrace:
     """Parse Magenta's public protocol-v1 JSONL without reading HCP internals."""
 
@@ -1841,6 +1877,8 @@ def write_cli_outputs(
     requested_configuration: Mapping[str, object]
     | MagentaLaunchConfiguration
     | None = None,
+    provider_binding: ProviderBinding | None = None,
+    requested_model: str | None = None,
 ) -> CliOutputArtifacts:
     """Persist trace, answer, and status files without persisting environment values.
 
@@ -1879,6 +1917,17 @@ def write_cli_outputs(
         raise CliAgentConfigurationError(
             "Magenta configuration is only supported for the Magenta CLI subject"
         )
+    if requested_model is not None and provider_binding is None:
+        raise CliAgentConfigurationError(
+            "requested_model requires a ProviderBinding for activation evidence"
+        )
+    if (
+        provider_binding is not None
+        and _normalize_agent(effective_agent) not in {"magenta", "pi"}
+    ):
+        raise CliAgentConfigurationError(
+            "ProviderBinding activation evidence is only supported for Magenta"
+        )
     trace.write_text(result.stdout, encoding="utf-8")
     answer_text = result.answer_text(agent=effective_agent)
     answer.write_text(answer_text + ("\n" if answer_text else ""), encoding="utf-8")
@@ -1894,6 +1943,7 @@ def write_cli_outputs(
     }
     runtime_manifest_receipt = None
     configuration_receipt = None
+    model_activation_receipt = None
     if _normalize_agent(effective_agent) in {"magenta", "pi"}:
         try:
             parsed_trace = parse_magenta_jsonl(result.stdout)
@@ -2033,6 +2083,16 @@ def write_cli_outputs(
                 path=receipt_path.resolve(),
             )
             status_payload["magenta_configuration"] = configuration_receipt.model_dump()
+            if provider_binding is not None:
+                model_activation_receipt = _make_model_activation_receipt(
+                    requested_model=requested_model or provider_binding.model_id,
+                    provider_binding=provider_binding,
+                    trace=parsed_trace,
+                    runtime_receipt=runtime_manifest_receipt,
+                )
+                status_payload["model_activation"] = (
+                    model_activation_receipt.model_dump(mode="json")
+                )
     status.write_text(
         json.dumps(status_payload, indent=2),
         encoding="utf-8",
@@ -2043,6 +2103,7 @@ def write_cli_outputs(
         status_path=status,
         runtime_manifest_receipt=runtime_manifest_receipt,
         configuration_receipt=configuration_receipt,
+        model_activation_receipt=model_activation_receipt,
     )
 
 

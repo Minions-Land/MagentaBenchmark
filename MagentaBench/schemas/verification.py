@@ -8,6 +8,7 @@ import hashlib
 import json
 import random
 import copy
+import subprocess
 from dataclasses import dataclass
 from math import isclose
 from pathlib import Path
@@ -27,6 +28,7 @@ from .compiler import canonical_digest
 from .models import (
     ArtifactRef,
     AttemptExecution,
+    CaseOrderArtifact,
     CaseSetActivationReceipt,
     CaseSetArtifact,
     CheckpointSaveReceipt,
@@ -35,9 +37,12 @@ from .models import (
     ConfigurationArtifact,
     ConfigurationCompositionStep,
     ConfigurationSpec,
+    CustomCaseOrderSpec,
     GateName,
     EvidenceBundle,
     EvolutionRunEvidence,
+    IntegrationProbeRecord,
+    ExternalProtocolAuthorityReceipt,
     ObservationReport,
     RecordIndex,
     ResolvedBmpManifest,
@@ -46,6 +51,15 @@ from .models import (
     RunPurpose,
     RunStatus,
     ScheduleActivationReceipt,
+    StatisticalAnalysisPlan,
+    StatisticalAnalysisReceipt,
+    UsageRecord,
+)
+from .model_activation import replay_model_activation_receipt
+from .statistics import PairedScore, StatisticalAnalysisResult, analyze_paired_scores, benchmark_evaluation_split
+from .evolution import (
+    EvolutionEvaluationStage,
+    EvolutionRuntimeReceipt,
 )
 
 
@@ -94,6 +108,23 @@ class VerifiedEvolutionRunEvidence:
     evidence: EvolutionRunEvidence
     evidence_path: Path
     nested_parent: "VerifiedEvolutionRunEvidence | None" = None
+    runtime_receipt: EvolutionRuntimeReceipt | None = None
+
+
+@dataclass(frozen=True)
+class VerifiedIntegrationProbeRecord:
+    """A standalone-verified exploratory integration probe."""
+
+    record: IntegrationProbeRecord
+    record_path: Path
+
+
+@dataclass(frozen=True)
+class VerifiedExternalProtocolAuthorityReceipt:
+    """Verified authority bytes for a protocol outside BMP ownership."""
+
+    receipt: ExternalProtocolAuthorityReceipt
+    receipt_path: Path
 
 
 VerifiedRunReport = VerifiedClaimReport | VerifiedObservationReport
@@ -241,6 +272,15 @@ def _verify_bundle_artifacts(
             )
             for index, ref in enumerate(configuration_activation.evidence_refs)
         )
+    model_activation = bundle.provenance.model_activation
+    if model_activation is not None:
+        refs.extend(
+            (
+                f"{label}.provenance.model_activation.evidence_refs[{index}]",
+                ref,
+            )
+            for index, ref in enumerate(model_activation.evidence_refs)
+        )
     if bundle.provenance.evolution_evidence_ref is not None:
         refs.append(
             (
@@ -314,10 +354,182 @@ def _evolution_artifact_refs(
         ("adapter_ref", evidence.adapter_ref),
         ("evaluator_ref", evidence.evaluator_ref),
         ("budget_ref", evidence.budget_ref),
+        ("runtime_receipt_ref", evidence.runtime_receipt_ref),
     ):
         if ref is not None:
             refs.append((ref_name, ref))
     return tuple(refs)
+
+
+def _verify_evolution_runtime_receipt(
+    evidence: EvolutionRunEvidence,
+    *,
+    path_map: Mapping[str, str],
+    mismatches: list[str],
+    label: str,
+) -> EvolutionRuntimeReceipt | None:
+    ref = evidence.runtime_receipt_ref
+    if ref is None:
+        return None
+    _, content = _verify_ref(
+        ref,
+        label=f"{label}.runtime_receipt_ref",
+        path_map=path_map,
+        mismatches=mismatches,
+    )
+    if content is None:
+        return None
+    try:
+        receipt = EvolutionRuntimeReceipt.model_validate_json(content)
+    except (ValidationError, ValueError) as exc:
+        mismatches.append(f"{label}.runtime_receipt: invalid schema: {exc}")
+        return None
+
+    candidate_digest = canonical_digest(
+        [candidate.identity_data() for candidate in evidence.candidate_ledger]
+    )
+    transition_digest = canonical_digest(
+        [transition.identity_data() for transition in evidence.transition_ledger]
+    )
+    for field_name, observed, expected in (
+        ("run_id", receipt.run_id, evidence.run_id),
+        ("kind", receipt.kind, evidence.kind),
+        ("adapter_digest", receipt.adapter_digest, evidence.adapter_digest),
+        ("evaluator_digest", receipt.evaluator_digest, evidence.evaluator_digest),
+        ("budget_digest", receipt.budget_digest, evidence.budget_digest),
+        (
+            "candidate_ledger_digest",
+            receipt.candidate_ledger_digest,
+            candidate_digest,
+        ),
+        (
+            "transition_ledger_digest",
+            receipt.transition_ledger_digest,
+            transition_digest,
+        ),
+        (
+            "selected_candidate_id",
+            receipt.selected_candidate_id,
+            evidence.selected_candidate_id,
+        ),
+        (
+            "parent_evidence_ref",
+            receipt.parent_evidence_ref,
+            evidence.parent_evidence_ref,
+        ),
+    ):
+        if observed != expected:
+            mismatches.append(f"{label}.runtime_receipt: {field_name} drift")
+
+    refs: list[tuple[str, ArtifactRef]] = [
+        ("budget_ledger.budget_ref", receipt.budget_ledger.budget_ref),
+        (
+            "sealed_holdout.split_manifest_ref",
+            receipt.sealed_holdout.split_manifest_ref,
+        ),
+    ]
+    if receipt.parent_evidence_ref is not None:
+        refs.append(("parent_evidence_ref", receipt.parent_evidence_ref))
+    for index, evaluation in enumerate(receipt.evaluations):
+        refs.extend(
+            (
+                (f"evaluations[{index}].evaluator_ref", evaluation.evaluator_ref),
+                (
+                    f"evaluations[{index}].split_manifest_ref",
+                    evaluation.split_manifest_ref,
+                ),
+                (f"evaluations[{index}].candidate_ref", evaluation.candidate_ref),
+                (f"evaluations[{index}].request_ref", evaluation.request_ref),
+                (f"evaluations[{index}].result_ref", evaluation.result_ref),
+            )
+        )
+    for ref_label, artifact in refs:
+        _verify_ref(
+            artifact,
+            label=f"{label}.runtime_receipt.{ref_label}",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+
+    candidates = {
+        candidate.candidate_id: candidate for candidate in evidence.candidate_ledger
+    }
+    selected = candidates.get(receipt.selected_candidate_id)
+    for evaluation in receipt.evaluations:
+        candidate = candidates.get(evaluation.candidate_id)
+        if candidate is None:
+            mismatches.append(
+                f"{label}.runtime_receipt: evaluation references unknown candidate"
+            )
+            continue
+        if evaluation.candidate_ref not in candidate.artifact_refs:
+            mismatches.append(
+                f"{label}.runtime_receipt: evaluation candidate artifact drift"
+            )
+        if evaluation.result_ref not in candidate.feedback_refs:
+            mismatches.append(
+                f"{label}.runtime_receipt: evaluation feedback artifact drift"
+            )
+
+    holdout_records = tuple(
+        evaluation
+        for evaluation in receipt.evaluations
+        if evaluation.stage == EvolutionEvaluationStage.sealed_holdout
+    )
+    if selected is not None and len(holdout_records) == 1:
+        holdout = holdout_records[0]
+        if (
+            selected.score != holdout.score
+            or selected.score_metric != holdout.score_metric
+            or selected.evaluator_digest != holdout.evaluator_digest
+        ):
+            mismatches.append(
+                f"{label}.runtime_receipt: selected candidate holdout score drift"
+            )
+        if evidence.authoritative_metric != holdout.score_metric:
+            mismatches.append(
+                f"{label}.runtime_receipt: authoritative holdout metric drift"
+            )
+
+    selection = next(
+        (
+            transition
+            for transition in evidence.transition_ledger
+            if transition.transition_id
+            == receipt.sealed_holdout.selection_transition_id
+        ),
+        None,
+    )
+    if selection is None:
+        mismatches.append(
+            f"{label}.runtime_receipt: sealed holdout selection transition missing"
+        )
+    elif (
+        selection.sequence != receipt.sealed_holdout.selection_transition_sequence
+        or selection.phase.value != "select"
+        or receipt.selected_candidate_id not in selection.output_candidate_ids
+    ):
+        mismatches.append(
+            f"{label}.runtime_receipt: sealed holdout selection transition drift"
+        )
+    else:
+        after_selection = tuple(
+            transition.phase.value
+            for transition in evidence.transition_ledger
+            if transition.sequence > selection.sequence
+        )
+        if after_selection != ("terminate",):
+            mismatches.append(
+                f"{label}.runtime_receipt: search transition continued after selection"
+            )
+
+    candidate_ids = set(candidates)
+    for event in receipt.budget_ledger.events:
+        if not set(event.candidate_ids).issubset(candidate_ids):
+            mismatches.append(
+                f"{label}.runtime_receipt: budget event references unknown candidate"
+            )
+    return receipt
 
 
 def _verify_evolution_file(
@@ -351,6 +563,13 @@ def _verify_evolution_file(
             path_map=path_map,
             mismatches=mismatches,
         )
+
+    runtime_receipt = _verify_evolution_runtime_receipt(
+        evidence,
+        path_map=path_map,
+        mismatches=mismatches,
+        label=label,
+    )
 
     nested_parent: VerifiedEvolutionRunEvidence | None = None
     if evidence.parent_evidence_ref is not None:
@@ -391,10 +610,38 @@ def _verify_evolution_file(
                     mismatches.append(
                         f"{label}.parent_evidence: meta_evolver parent must be evolver evidence"
                     )
+    if (
+        evidence.kind == "meta_evolver"
+        and runtime_receipt is not None
+        and nested_parent is not None
+        and nested_parent.runtime_receipt is not None
+    ):
+        parent_events = tuple(
+            event
+            for event in runtime_receipt.budget_ledger.events
+            if event.operation.value == "parent_evolution"
+        )
+        if len(parent_events) == 1:
+            parent_usage = nested_parent.runtime_receipt.budget_ledger.total_usage
+            if (
+                parent_events[0].spent.total_tokens != parent_usage.total_tokens
+                or parent_events[0].spent.cost != parent_usage.cost
+            ):
+                mismatches.append(
+                    f"{label}.runtime_receipt: recursive parent budget usage drift"
+                )
+            if (
+                runtime_receipt.budget_ledger.elapsed_wall_seconds
+                < nested_parent.runtime_receipt.budget_ledger.elapsed_wall_seconds
+            ):
+                mismatches.append(
+                    f"{label}.runtime_receipt: recursive parent wall usage drift"
+                )
     return VerifiedEvolutionRunEvidence(
         evidence=evidence,
         evidence_path=source,
         nested_parent=nested_parent,
+        runtime_receipt=runtime_receipt,
     )
 
 
@@ -423,6 +670,206 @@ def verify_evolution_run_evidence(
     if mismatches or verified is None:
         raise ReportVerificationError(mismatches or ["evolution evidence verification failed"])
     return verified
+
+
+def verify_integration_probe(
+    record_path: str | Path,
+    *,
+    path_map: Mapping[str, str] | None = None,
+) -> VerifiedIntegrationProbeRecord:
+    """Verify a probe record and every retained content reference."""
+
+    relocation = {} if path_map is None else dict(path_map)
+    source = Path(record_path).expanduser().resolve()
+    mismatches: list[str] = []
+    try:
+        record_bytes = source.read_bytes()
+    except OSError as exc:
+        raise ReportVerificationError(
+            [f"integration probe: cannot read {source}: {exc}"]
+        ) from exc
+    try:
+        record = IntegrationProbeRecord.model_validate_json(record_bytes)
+    except (ValidationError, ValueError) as exc:
+        raise ReportVerificationError(
+            [f"integration probe: invalid schema: {exc}"]
+        ) from exc
+
+    refs: list[tuple[str, ArtifactRef]] = []
+    if record.manifest_ref is not None:
+        refs.append(("manifest_ref", record.manifest_ref))
+    if record.public_input_ref is not None:
+        refs.append(("public_input_ref", record.public_input_ref))
+    refs.extend(
+        (f"identity_refs[{index}].artifact_ref", identity.artifact_ref)
+        for index, identity in enumerate(record.identity_refs)
+    )
+    refs.extend(
+        (f"evidence_refs[{index}]", ref)
+        for index, ref in enumerate(record.evidence_refs)
+    )
+    verified_bytes: dict[tuple[str, str, int], bytes | None] = {}
+    for label, ref in refs:
+        identity = (ref.path, ref.sha256, ref.size_bytes)
+        if identity not in verified_bytes:
+            _, content = _verify_ref(
+                ref,
+                label=f"integration probe.{label}",
+                path_map=relocation,
+                mismatches=mismatches,
+            )
+            verified_bytes[identity] = content
+
+    if record.manifest_ref is not None:
+        manifest_identity = (
+            record.manifest_ref.path,
+            record.manifest_ref.sha256,
+            record.manifest_ref.size_bytes,
+        )
+        manifest_bytes = verified_bytes.get(manifest_identity)
+        manifest = (
+            None
+            if manifest_bytes is None
+            else _parse_json_model(
+                ResolvedBmpManifest,
+                manifest_bytes,
+                label="integration probe.manifest_ref",
+                mismatches=mismatches,
+            )
+        )
+        if manifest is not None:
+            if manifest.canonical_digest() != record.manifest_digest:
+                mismatches.append("integration probe: manifest digest drift")
+            if manifest.benchmark.adapter != record.benchmark_adapter:
+                mismatches.append("integration probe: benchmark adapter drift")
+
+    if record.public_input_ref is not None:
+        public_identity = (
+            record.public_input_ref.path,
+            record.public_input_ref.sha256,
+            record.public_input_ref.size_bytes,
+        )
+        public_bytes = verified_bytes.get(public_identity)
+        if public_bytes is not None:
+            try:
+                public_input = json.loads(public_bytes)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                mismatches.append(
+                    f"integration probe.public_input_ref: invalid JSON: {exc}"
+                )
+            else:
+                if not isinstance(public_input, Mapping):
+                    mismatches.append(
+                        "integration probe.public_input_ref: expected a JSON object"
+                    )
+                else:
+                    observed_case_id = public_input.get(
+                        "case_id", public_input.get("instance_id")
+                    )
+                    if observed_case_id != record.case_id:
+                        mismatches.append("integration probe: case id drift")
+
+    if mismatches:
+        raise ReportVerificationError(mismatches)
+    return VerifiedIntegrationProbeRecord(record=record, record_path=source)
+
+
+def verify_external_protocol_authority(
+    receipt_path: str | Path,
+    *,
+    path_map: Mapping[str, str] | None = None,
+) -> VerifiedExternalProtocolAuthorityReceipt:
+    """Verify tracked authority documents against their declared source commit.
+
+    The verifier treats the external checkout as an authority input.  It does
+    not import, instantiate, or resolve anything from that protocol.
+    """
+
+    relocation = {} if path_map is None else dict(path_map)
+    source = Path(receipt_path).expanduser().resolve()
+    mismatches: list[str] = []
+    try:
+        payload = source.read_bytes()
+        receipt = ExternalProtocolAuthorityReceipt.model_validate_json(payload)
+    except OSError as exc:
+        raise ReportVerificationError(
+            [f"external authority: cannot read {source}: {exc}"]
+        ) from exc
+    except (ValidationError, ValueError) as exc:
+        raise ReportVerificationError(
+            [f"external authority: invalid schema: {exc}"]
+        ) from exc
+
+    root = _resolve_path(receipt.source_root, relocation)
+    try:
+        observed_commit = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        mismatches.append(f"external authority: cannot inspect source checkout: {exc}")
+        observed_commit = ""
+    if observed_commit != receipt.source_commit:
+        mismatches.append(
+            "external authority: source commit drift "
+            f"(expected {receipt.source_commit}, observed {observed_commit or 'unavailable'})"
+        )
+
+    refs: list[tuple[str, ArtifactRef, str | None]] = [
+        (
+            f"authority_documents[{index}]",
+            document.artifact_ref,
+            document.relative_path,
+        )
+        for index, document in enumerate(receipt.authority_documents)
+    ]
+    refs.extend(
+        [
+            ("contract_ref", receipt.contract_ref, receipt.contract_relative_path),
+            ("audit_rules_ref", receipt.audit_rules_ref, None),
+        ]
+    )
+    for label, ref, relative_path in refs:
+        _, content = _verify_ref(
+            ref,
+            label=f"external authority.{label}",
+            path_map=relocation,
+            mismatches=mismatches,
+        )
+        if content is None or relative_path is None or not observed_commit:
+            continue
+        try:
+            tracked = subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "show",
+                    f"{receipt.source_commit}:{relative_path}",
+                ],
+                capture_output=True,
+                timeout=15,
+                check=True,
+            ).stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            mismatches.append(f"external authority.{label}: cannot read tracked bytes: {exc}")
+            continue
+        if tracked != content:
+            mismatches.append(
+                f"external authority.{label}: bytes differ from source commit"
+            )
+
+    if mismatches:
+        raise ReportVerificationError(mismatches)
+    return VerifiedExternalProtocolAuthorityReceipt(
+        receipt=receipt,
+        receipt_path=source,
+    )
 
 
 def _configuration_merge(
@@ -700,6 +1147,7 @@ def _verify_manifest_adapter_capabilities(
         if manifest.subject.kind == "fake"
         else getattr(manifest.subject, "interface", None)
     )
+    subject_adapter = manifest.subject.adapter
     compatibility = (
         manifest.benchmark.adapter,
         manifest.execution.backend.adapter,
@@ -720,6 +1168,8 @@ def _verify_manifest_adapter_capabilities(
         manifest.benchmark.kind == "custom"
         or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
         or manifest.subject.kind in {"evolver", "meta_evolver"}
+        or manifest.execution.model
+        not in {"none", "none/deterministic", "none/echo"}
     ):
         required.add((manifest.benchmark.adapter, "execution"))
 
@@ -742,8 +1192,70 @@ def _verify_manifest_adapter_capabilities(
 
     for index, artifact in enumerate(manifest.metadata.adapter_capabilities):
         artifact_label = f"{label}[{index}]"
+        capability = artifact.capability
         if artifact.canonical_digest() != artifact.artifact_digest:
             mismatches.append(f"{artifact_label}: artifact_digest drift")
+        if not capability.supports(
+            benchmark_kind=manifest.benchmark.kind,
+            subject_kind=manifest.subject.kind,
+            subject_adapter=subject_adapter,
+            backend_kind=manifest.execution.backend.kind,
+            backend_adapter=manifest.execution.backend.adapter,
+            subject_interface=subject_interface,
+        ):
+            mismatches.append(
+                f"{artifact_label}: capability rejects resolved run tuple"
+            )
+        if capability.adapter_kind == "backend_factory":
+            read_set = capability.backend_default_read_set
+            if read_set is None:
+                mismatches.append(
+                    f"{artifact_label}: backend default read-set is undeclared"
+                )
+            else:
+                unknown_defaults = sorted(
+                    set(manifest.execution.backend.defaults) - set(read_set)
+                )
+                if unknown_defaults:
+                    mismatches.append(
+                        f"{artifact_label}: backend defaults are outside declared "
+                        f"read-set: {unknown_defaults}"
+                    )
+        elif capability.adapter_kind == "execution":
+            if not capability.supported_subject_adapters:
+                mismatches.append(
+                    f"{artifact_label}: subject adapter compatibility is undeclared"
+                )
+            if manifest.execution.model in {
+                "none",
+                "none/deterministic",
+                "none/echo",
+            }:
+                if not capability.none_model_sentinels:
+                    mismatches.append(
+                        f"{artifact_label}: none-model sentinels are undeclared"
+                    )
+                elif manifest.execution.model not in capability.none_model_sentinels:
+                    mismatches.append(
+                        f"{artifact_label}: execution model is outside declared "
+                        "none-model sentinels"
+                    )
+            elif capability.model_activation_source is None:
+                mismatches.append(
+                    f"{artifact_label}: ModelActivationReceipt provenance is undeclared"
+                )
+            if not capability.supported_state_reset_policies:
+                mismatches.append(
+                    f"{artifact_label}: state-reset policies are undeclared"
+                )
+            elif (
+                manifest.execution.protocol is None
+                or manifest.execution.protocol.state_reset
+                not in capability.supported_state_reset_policies
+            ):
+                mismatches.append(
+                    f"{artifact_label}: state reset is outside declared policies"
+                )
         _verify_ref(
             artifact.declaration_ref,
             label=f"{artifact_label}.declaration_ref",
@@ -896,6 +1408,79 @@ def _verify_bundle_provenance(
             mismatches.append(
                 f"{label}: configuration activation status is {activation.status!r}"
             )
+    model = manifest.execution.model
+    model_activation = provenance.model_activation
+    none_models = {"none", "none/deterministic", "none/echo"}
+    if model in none_models:
+        if manifest.execution.provider_binding is not None:
+            mismatches.append(
+                f"{label}: none-model execution has an undeclared ProviderBinding"
+            )
+        if model_activation is not None:
+            mismatches.append(
+                f"{label}: none-model execution has an undeclared ModelActivationReceipt"
+            )
+    elif model_activation is not None:
+        binding = manifest.execution.provider_binding
+        sources = {
+            item.capability.model_activation_source
+            for item in manifest.metadata.adapter_capabilities
+            if item.capability.adapter_kind == "execution"
+            and item.capability.model_activation_source is not None
+        }
+        if len(sources) != 1:
+            mismatches.append(
+                f"{label}: model activation capability binding is ambiguous"
+            )
+        elif model_activation.activation_source != next(iter(sources)):
+            mismatches.append(f"{label}: model activation source drift")
+        if model_activation.requested_model != model:
+            mismatches.append(f"{label}: model activation requested model drift")
+        if binding is None:
+            if model_activation.requested_provider_id is not None:
+                mismatches.append(
+                    f"{label}: undeclared model activation provider binding"
+                )
+            if model_activation.binding_digest is not None:
+                mismatches.append(
+                    f"{label}: undeclared model activation binding digest"
+                )
+        else:
+            if model_activation.requested_provider_id != binding.provider_id:
+                mismatches.append(f"{label}: model activation provider binding drift")
+            if model_activation.requested_model_id != binding.model_id:
+                mismatches.append(f"{label}: model activation model binding drift")
+            if model_activation.binding_digest != binding.canonical_digest():
+                mismatches.append(f"{label}: model activation binding digest drift")
+        activation_evidence_path: Path | None = None
+        activation_path_valid = True
+        if model_activation.evidence_refs:
+            try:
+                activation_evidence_path = _resolve_path(
+                    model_activation.evidence_refs[0].path,
+                    path_map,
+                )
+            except ValueError as exc:
+                activation_path_valid = False
+                mismatches.append(f"{label}: model activation evidence path: {exc}")
+        activation_errors = (
+            replay_model_activation_receipt(
+                model_activation,
+                requested_model=model,
+                binding=binding,
+                bundle_usage=bundle.usage,
+                require_usage=manifest.claim_design.purpose == RunPurpose.claim,
+                evidence_path=activation_evidence_path,
+            )
+            if activation_path_valid
+            else ()
+        )
+        mismatches.extend(f"{label}: {error}" for error in activation_errors)
+        if manifest.claim_design.purpose == RunPurpose.claim:
+            if bundle.usage is None or bundle.usage.total_tokens is None:
+                mismatches.append(f"{label}: real-model token usage is unobservable")
+            if bundle.usage is None or bundle.usage.cost is None:
+                mismatches.append(f"{label}: real-model cost usage is unobservable")
     evolution_ref = provenance.evolution_evidence_ref
     evolution_required = manifest.claim_design.purpose == RunPurpose.claim
     if manifest.subject.kind in {"evolver", "meta_evolver"}:
@@ -1121,7 +1706,7 @@ def _verify_schedule_manifest_binding(
                 mismatches.append(
                     f"{label}: observed_case_order does not match seeded activated case set"
                 )
-    elif protocol.case_order in {"custom", "explicit"}:
+    elif protocol.case_order == "explicit":
         expected_case_order = tuple(protocol.explicit_case_ids)
         if not expected_case_order:
             mismatches.append(
@@ -1134,6 +1719,12 @@ def _verify_schedule_manifest_binding(
         elif schedule.observed_case_order != expected_case_order:
             mismatches.append(
                 f"{label}: observed_case_order does not match explicit_case_ids"
+            )
+    elif protocol.case_order == "custom":
+        expected_case_order = tuple(activated_case_ids)
+        if schedule.observed_case_order != expected_case_order:
+            mismatches.append(
+                f"{label}: observed_case_order does not match activated custom order"
             )
     elif Counter(schedule.observed_case_order) != Counter(activated_case_ids):
         mismatches.append(
@@ -1154,6 +1745,7 @@ def _verify_case_set_receipt(
     expected_loader_digest: str | None = None,
     expected_case_order: str | None = None,
     expected_order_seed: int | None = None,
+    expected_custom_order: CustomCaseOrderSpec | None = None,
     expected_source_content_digest: str | None = None,
 ) -> CaseSetActivationReceipt | None:
     """Verify a case-set activation receipt and its content-addressed closure."""
@@ -1224,10 +1816,13 @@ def _verify_case_set_receipt(
     if artifact.ordered_case_ids != receipt.ordered_case_ids:
         mismatches.append(f"{label}: ordered_case_ids do not match artifact")
     expected_selection_method = (
-        "explicit_case_ids"
-        if expected_case_order in {"custom", "explicit"}
-        else "all_cases"
-    ) if expected_case_order is not None else None
+        {
+            "custom": "custom_order_artifact",
+            "explicit": "explicit_case_ids",
+        }.get(expected_case_order, "all_cases")
+        if expected_case_order is not None
+        else None
+    )
     if expected_selection_method is not None and artifact.selection_method != expected_selection_method:
         mismatches.append(f"{label}: selection_method does not match manifest protocol")
     if (
@@ -1237,6 +1832,50 @@ def _verify_case_set_receipt(
         mismatches.append(f"{label}: case_order does not match manifest protocol")
     if artifact.order_seed != expected_order_seed:
         mismatches.append(f"{label}: order_seed does not match manifest protocol")
+    if expected_case_order == "custom":
+        if expected_custom_order is None:
+            mismatches.append(f"{label}: custom order declaration is missing")
+        else:
+            strategy_ref = artifact.order_strategy_ref
+            if artifact.order_strategy_adapter != expected_custom_order.adapter:
+                mismatches.append(
+                    f"{label}: custom order adapter does not match manifest protocol"
+                )
+            if strategy_ref is None:
+                mismatches.append(f"{label}: custom order content reference is missing")
+            else:
+                if (
+                    strategy_ref.sha256 != expected_custom_order.sha256
+                    or strategy_ref.size_bytes != expected_custom_order.size_bytes
+                ):
+                    mismatches.append(
+                        f"{label}: custom order content identity does not match manifest"
+                    )
+                _, strategy_bytes = _verify_ref(
+                    strategy_ref,
+                    label=f"{label}.case_set.order_strategy_ref",
+                    path_map=path_map,
+                    mismatches=mismatches,
+                )
+                strategy = (
+                    None
+                    if strategy_bytes is None
+                    else _parse_json_model(
+                        CaseOrderArtifact,
+                        strategy_bytes,
+                        label=f"{label}.case_set.order_strategy_ref",
+                        mismatches=mismatches,
+                    )
+                )
+                if (
+                    strategy is not None
+                    and artifact.ordered_case_ids != strategy.ordered_case_ids
+                ):
+                    mismatches.append(
+                        f"{label}: case order does not match custom order artifact"
+                    )
+    elif expected_custom_order is not None:
+        mismatches.append(f"{label}: non-custom protocol declares custom order")
     if (
         expected_source_content_digest is not None
         and artifact.source_content_digest != expected_source_content_digest
@@ -1252,6 +1891,10 @@ def _verify_case_set_receipt(
         )
         for index, content_ref in enumerate(artifact.source_content_refs)
     ]
+    if artifact.order_strategy_ref is not None:
+        content_refs.append(
+            (f"{label}.case_set.order_strategy_ref", artifact.order_strategy_ref)
+        )
     for case in artifact.cases:
         content_refs.append(
             (f"{label}.case_set.cases[{case.case_id}].public_input_ref", case.public_input_ref)
@@ -1983,6 +2626,7 @@ def _schedule_substantiates_protocol(
     manifest: ResolvedBmpManifest,
     *,
     active_digests: tuple[str, str] | None,
+    case_set_receipt: CaseSetActivationReceipt | None = None,
 ) -> bool:
     """Recompute the persisted portion of ``_receipt_binding_errors``."""
 
@@ -2018,10 +2662,19 @@ def _schedule_substantiates_protocol(
     )
     if schedule.observed_case_order != allocated_case_ids:
         return False
-    if protocol.case_order in {"custom", "explicit"} and (
+    if protocol.case_order == "explicit" and (
         schedule.observed_case_order != tuple(protocol.explicit_case_ids)
     ):
         return False
+    if protocol.case_order == "custom":
+        # The scheduler receipt must be tied to the exact content-addressed
+        # case-set activation.  The case-set verifier separately checks the
+        # strategy adapter/ref and JSON artifact; this check ensures the
+        # protocol gate cannot be evaluated from a forged schedule alone.
+        if case_set_receipt is None:
+            return False
+        if schedule.observed_case_order != case_set_receipt.ordered_case_ids:
+            return False
     launched_case_ids = {attempt.case_id for attempt in schedule.attempts}
     expected_resets = {
         "never": 0,
@@ -2055,6 +2708,308 @@ def _schedule_substantiates_protocol(
     return True
 
 
+def _statistical_plan_for_lineage(
+    lineage_entries: list[tuple[Any, EvidenceBundle | None]],
+    manifest_by_run: Mapping[str, ResolvedBmpManifest],
+) -> tuple[StatisticalAnalysisPlan | None, tuple[str, ...]]:
+    """Recover one invariant analysis plan from the indexed manifests.
+
+    A claim is never allowed to silently mix planned and unplanned arms.  The
+    runner applies the same rule before constructing a receipt; keeping this
+    small helper here lets a relocated report be checked without importing the
+    runtime compiler.
+    """
+
+    plans = [
+        manifest_by_run[lineage.run_id].claim_design.statistical_analysis
+        for lineage, _ in lineage_entries
+        if lineage.run_id in manifest_by_run
+    ]
+    present = [plan for plan in plans if plan is not None]
+    if not present:
+        return None, ()
+    digests = {plan.canonical_digest() for plan in present}
+    if len(present) != len(plans) or len(digests) != 1:
+        return None, ("StatisticalAnalysisPlan must be invariant across every arm",)
+    return present[0], ()
+
+
+def _statistical_factor_values(
+    lineage: Any,
+    manifest: ResolvedBmpManifest,
+    *,
+    exclude_factor: str | None = None,
+) -> dict[str, Any]:
+    """Project manifest factors exactly as the runner's paired observations."""
+
+    values = {
+        key: value
+        for key, value in manifest.metadata.factors.items()
+        if key
+        not in {
+            "subject",
+            "experiment.subject",
+            "order_position",
+            exclude_factor,
+        }
+    }
+    values["case_id"] = lineage.case_id
+    return values
+
+
+def _verification_arm_key(
+    lineage: Any,
+    manifest: ResolvedBmpManifest,
+    *,
+    factor_path: str | None,
+) -> str | bytes:
+    if factor_path is None:
+        return manifest.subject.id
+    values = manifest.metadata.factors
+    if factor_path not in values:
+        return b"__missing_factor__"
+    return _canonical_key(values[factor_path])
+
+
+def _verification_expected_arms(
+    contrast: Any,
+) -> tuple[str | bytes, str | bytes]:
+    if contrast.factor_path is None:
+        return contrast.control_id, contrast.treatment_id
+    return (
+        _canonical_key(contrast.control_value),
+        _canonical_key(contrast.treatment_value),
+    )
+
+
+def _counterbalance_for_statistical_plan(
+    lineage_entries: list[tuple[Any, EvidenceBundle | None]],
+    manifest_by_run: Mapping[str, ResolvedBmpManifest],
+    *,
+    control_id: str,
+    treatment_id: str,
+    factor_path: str | None = None,
+    control_value: object | None = None,
+    treatment_value: object | None = None,
+) -> bool:
+    """Check both treatment/control order directions for every outer unit."""
+
+    positions = {
+        (lineage.run_id, lineage.case_id): index
+        for index, (lineage, _) in enumerate(lineage_entries)
+    }
+    control_key: str | bytes
+    treatment_key: str | bytes
+    if factor_path is None:
+        control_key, treatment_key = control_id, treatment_id
+    else:
+        control_key = _canonical_key(control_value)
+        treatment_key = _canonical_key(treatment_value)
+    groups: dict[bytes, dict[str | bytes, tuple[Any, ResolvedBmpManifest]]] = {}
+    outer_keys: dict[bytes, bytes] = {}
+    for lineage, _ in lineage_entries:
+        manifest = manifest_by_run.get(lineage.run_id)
+        if manifest is None:
+            return False
+        factors = _statistical_factor_values(
+            lineage,
+            manifest,
+            exclude_factor=factor_path,
+        )
+        pair_key = _canonical_key(factors)
+        arm = _verification_arm_key(lineage, manifest, factor_path=factor_path)
+        if arm in groups.setdefault(pair_key, {}):
+            return False
+        groups[pair_key][arm] = (lineage, manifest)
+        outer = {key: value for key, value in factors.items() if key != "repetition"}
+        outer_keys[pair_key] = _canonical_key(outer)
+
+    directions: dict[bytes, set[bool]] = {}
+    counts: Counter[bytes] = Counter()
+    for pair_key, pair in groups.items():
+        if set(pair) != {control_key, treatment_key}:
+            return False
+        control_lineage, _ = pair[control_key]
+        treatment_lineage, _ = pair[treatment_key]
+        control_position = positions.get(
+            (control_lineage.run_id, control_lineage.case_id)
+        )
+        treatment_position = positions.get(
+            (treatment_lineage.run_id, treatment_lineage.case_id)
+        )
+        if control_position is None or treatment_position is None:
+            return False
+        outer_key = outer_keys[pair_key]
+        directions.setdefault(outer_key, set()).add(
+            control_position < treatment_position
+        )
+        counts[outer_key] += 1
+    return bool(directions) and all(
+        counts[key] >= 2 and values == {False, True}
+        for key, values in directions.items()
+    )
+
+
+def _replay_statistical_plan(
+    lineage_entries: list[tuple[Any, EvidenceBundle | None]],
+    manifest_by_run: Mapping[str, ResolvedBmpManifest],
+    plan: StatisticalAnalysisPlan,
+) -> tuple[StatisticalAnalysisResult, bool, str | None]:
+    """Rebuild the receipt and the gate-side pairing checks from report bytes."""
+
+    manifests = [
+        manifest_by_run.get(lineage.run_id)
+        for lineage, _ in lineage_entries
+    ]
+    errors: list[str] = []
+    if any(manifest is None for manifest in manifests):
+        errors.append("statistical analysis lineage manifest is missing")
+        return (
+            StatisticalAnalysisResult(receipt=None, errors=tuple(errors)),
+            False,
+            None,
+        )
+    resolved_manifests = [manifest for manifest in manifests if manifest is not None]
+    metrics = {manifest.benchmark.authoritative_reward_metric for manifest in resolved_manifests}
+    metric = next(iter(metrics), None) if len(metrics) == 1 else None
+    if metric is None:
+        errors.append("authoritative reward metric differs across runs")
+
+    contrast_keys = {
+        _canonical_key(manifest.contrast.model_dump(mode="json"))
+        for manifest in resolved_manifests
+    }
+    if len(contrast_keys) != 1:
+        errors.append("experiment contrast differs across runs")
+        control_id = treatment_id = None
+        factor_path = None
+        control_value = treatment_value = None
+    else:
+        contrast = resolved_manifests[0].contrast
+        if contrast.mode != "one_factor":
+            errors.append("StatisticalAnalysisPlan requires a one_factor contrast")
+            control_id = treatment_id = None
+            factor_path = None
+            control_value = treatment_value = None
+        else:
+            control_id = contrast.control_id
+            treatment_id = contrast.treatment_id
+            factor_path = contrast.factor_path
+            control_value = contrast.control_value
+            treatment_value = contrast.treatment_value
+    observations: list[PairedScore] = []
+    # A generic factor contrast may intentionally use JSON ``null`` for one
+    # arm.  The model validator guarantees both arm fields were supplied when
+    # ``factor_path`` is present, so branch on the path—not on value
+    # non-nullness—when deciding whether pairing is available.
+    if metric is not None and (
+        factor_path is not None
+        or (factor_path is None and control_id is not None and treatment_id is not None)
+    ):
+        control_key, treatment_key = _verification_expected_arms(
+            resolved_manifests[0].contrast
+        )
+        grouped: dict[
+            bytes, dict[str | bytes, tuple[Any, EvidenceBundle, ResolvedBmpManifest]]
+        ] = {}
+        for lineage, bundle in lineage_entries:
+            manifest = manifest_by_run.get(lineage.run_id)
+            if manifest is None or bundle is None:
+                errors.append("statistics require complete lineage evidence")
+                continue
+            factors = _statistical_factor_values(
+                lineage,
+                manifest,
+                exclude_factor=factor_path,
+            )
+            pair_key = _canonical_key(
+                {
+                    key: value
+                    for key, value in factors.items()
+                    if key not in {"case_id", factor_path}
+                }
+                | {"case_id": lineage.case_id}
+            )
+            arm = _verification_arm_key(
+                lineage,
+                manifest,
+                factor_path=factor_path,
+            )
+            if arm in grouped.setdefault(pair_key, {}):
+                errors.append("paired control/treatment structure contains duplicate arms")
+                continue
+            grouped[pair_key][arm] = (lineage, bundle, manifest)
+        for pair in grouped.values():
+            if set(pair) != {control_key, treatment_key}:
+                errors.append("paired control/treatment structure is incomplete")
+                continue
+            control_lineage, control_bundle, control_manifest = pair[control_key]
+            treatment_lineage, treatment_bundle, _ = pair[treatment_key]
+            control_evidence = control_bundle.verifier_evidence
+            treatment_evidence = treatment_bundle.verifier_evidence
+            control_score = (
+                None
+                if control_evidence is None
+                else control_evidence.metrics.get(metric)
+            )
+            treatment_score = (
+                None
+                if treatment_evidence is None
+                else treatment_evidence.metrics.get(metric)
+            )
+            if control_score is None or treatment_score is None:
+                errors.append("statistics require authoritative verifier scores for every pair")
+                continue
+            observations.append(
+                PairedScore(
+                    unit_values=_statistical_factor_values(
+                        control_lineage,
+                        control_manifest,
+                        exclude_factor=factor_path,
+                    ),
+                    control_score=control_score,
+                    treatment_score=treatment_score,
+                )
+            )
+    deterministic = bool(
+        resolved_manifests
+        and resolved_manifests[0].execution.protocol is not None
+        and resolved_manifests[0].execution.protocol.deterministic_conformance
+    )
+    result = analyze_paired_scores(
+        plan,
+        metric=metric or "unbound",
+        observations=observations,
+        evaluation_splits=tuple(
+            benchmark_evaluation_split(manifest.benchmark)
+            for manifest in resolved_manifests
+        ),
+        allow_no_holdout=deterministic,
+    )
+    result = StatisticalAnalysisResult(
+        receipt=result.receipt,
+        errors=tuple(dict.fromkeys((*errors, *result.errors))),
+    )
+    counterbalanced = bool(
+        (
+            factor_path is not None
+            or (factor_path is None and control_id is not None and treatment_id is not None)
+        )
+        and resolved_manifests
+        and resolved_manifests[0].contrast.counterbalanced
+        and _counterbalance_for_statistical_plan(
+            lineage_entries,
+            manifest_by_run,
+            control_id=control_id or "",
+            treatment_id=treatment_id or "",
+            factor_path=factor_path,
+            control_value=control_value,
+            treatment_value=treatment_value,
+        )
+    )
+    return result, counterbalanced, metric
+
+
 def _statistics_are_substantiated(
     lineage_entries: list[tuple[Any, EvidenceBundle | None]],
     manifest_by_run: Mapping[str, ResolvedBmpManifest],
@@ -2085,8 +3040,8 @@ def _statistics_are_substantiated(
     contrast = ordered[0][2].contrast
     protocol = ordered[0][2].execution.protocol
     assert protocol is not None
-    control_id = contrast.control_id or ordered[0][2].subject.id
-    treatment_id = contrast.treatment_id or ordered[-1][2].subject.id
+    control_key, treatment_key = _verification_expected_arms(contrast)
+    factor_path = contrast.factor_path
 
     # Keep the lineage next to its manifest.  A multi-case parent run shares
     # one immutable manifest object across all selected cases, so recovering
@@ -2094,21 +3049,28 @@ def _statistics_are_substantiated(
     # attribute one case's ordering to another.
     pairs: dict[
         bytes,
-        dict[str, tuple[Any, ResolvedBmpManifest]],
+        dict[str | bytes, tuple[Any, ResolvedBmpManifest]],
     ] = {}
     for lineage, _, manifest in ordered:
         factors = {
             key: value
             for key, value in manifest.metadata.factors.items()
-            if key not in {"subject", "experiment.subject", "order_position"}
+            if key
+            not in {
+                "subject",
+                "experiment.subject",
+                "order_position",
+                factor_path,
+            }
         }
         factors["__case_id"] = lineage.case_id
         pair = pairs.setdefault(_canonical_key(factors), {})
-        if manifest.subject.id in pair:
+        arm = _verification_arm_key(lineage, manifest, factor_path=factor_path)
+        if arm in pair:
             return False
-        pair[manifest.subject.id] = (lineage, manifest)
+        pair[arm] = (lineage, manifest)
     if not pairs or any(
-        set(pair) != {control_id, treatment_id} for pair in pairs.values()
+        set(pair) != {control_key, treatment_key} for pair in pairs.values()
     ):
         return False
 
@@ -2121,8 +3083,8 @@ def _statistics_are_substantiated(
     directions: dict[bytes, set[bool]] = {}
     counts: Counter[bytes] = Counter()
     for pair in pairs.values():
-        control_lineage, control = pair[control_id]
-        treatment_lineage, treatment = pair[treatment_id]
+        control_lineage, control = pair[control_key]
+        treatment_lineage, treatment = pair[treatment_key]
         outer_factors = {
             key: value
             for key, value in control.metadata.factors.items()
@@ -2132,6 +3094,7 @@ def _statistics_are_substantiated(
                 "experiment.subject",
                 "order_position",
                 "repetition",
+                factor_path,
             }
         }
         # The case is part of the independent paired unit.  Keeping it in the
@@ -2279,6 +3242,30 @@ def _network_policy_binding_reasons(
     return errors
 
 
+def _model_activation_isolation_reasons(
+    lineage: Any,
+    bundle: EvidenceBundle,
+    manifest: ResolvedBmpManifest,
+) -> list[str]:
+    """Recompute honest provider/model activation blockers from lineage."""
+
+    model = manifest.execution.model
+    if model in {"none", "none/deterministic", "none/echo"}:
+        return []
+    errors: list[str] = []
+    if manifest.execution.provider_binding is None:
+        errors.append(f"{lineage.case_id}: real-model ProviderBinding is missing")
+    receipt = bundle.provenance.model_activation
+    if receipt is None:
+        errors.append(f"{lineage.case_id}: ModelActivationReceipt is missing")
+    elif receipt.status != "matched":
+        reasons = "; ".join(receipt.reason) or "native activation did not match"
+        errors.append(
+            f"{lineage.case_id}: model activation is {receipt.status}: {reasons}"
+        )
+    return errors
+
+
 def _network_isolation_reasons(
     lineage: Any,
     bundle: EvidenceBundle,
@@ -2341,6 +3328,23 @@ def _verify_report_semantics(
         )
 
     if isinstance(report, ClaimReport):
+        analysis_plan, plan_errors = _statistical_plan_for_lineage(
+            lineage_entries, manifest_by_run
+        )
+        analysis_result: StatisticalAnalysisResult | None = None
+        plan_counterbalanced = False
+        if analysis_plan is not None:
+            analysis_result, plan_counterbalanced, _ = _replay_statistical_plan(
+                lineage_entries, manifest_by_run, analysis_plan
+            )
+        expected_statistics_receipt = (
+            None if analysis_result is None else analysis_result.receipt
+        )
+        if report.statistics_receipt != expected_statistics_receipt:
+            mismatches.append(
+                "claim statistics_receipt does not match the replayed "
+                "StatisticalAnalysisPlan"
+            )
         expected_gate_evidence = _expected_gate_evidence(lineage_entries)
         for gate_name, gate in report.gates.items():
             if gate.valid and gate.evidence_refs != expected_gate_evidence[gate_name]:
@@ -2364,6 +3368,9 @@ def _verify_report_semantics(
                 ),
                 manifest_by_run[lineage.run_id],
                 active_digests=active_schedule_digests,
+                case_set_receipt=case_set_receipts.get(
+                    (lineage.run_id, lineage.attempt_id, lineage.case_id)
+                ),
             )
             for lineage, _ in lineage_entries
         )
@@ -2393,6 +3400,13 @@ def _verify_report_semantics(
             if bundle is None or lineage.run_id not in manifest_by_run:
                 continue
             isolation_reasons.extend(
+                _model_activation_isolation_reasons(
+                    lineage,
+                    bundle,
+                    manifest_by_run[lineage.run_id],
+                )
+            )
+            isolation_reasons.extend(
                 _network_isolation_reasons(
                     lineage,
                     bundle,
@@ -2405,10 +3419,21 @@ def _verify_report_semantics(
         isolation_gate = report.gates[GateName.isolation_valid]
         isolation_expected = bool(lineage_entries) and not isolation_reasons
         if isolation_gate.valid != isolation_expected:
-            mismatches.append("claim isolation_valid does not match verified network evidence")
-        statistics_expected = _statistics_are_substantiated(
-            lineage_entries, manifest_by_run
-        )
+            mismatches.append(
+                "claim isolation_valid does not match verified isolation evidence"
+            )
+        if plan_errors:
+            statistics_expected = False
+        elif analysis_plan is not None:
+            statistics_expected = bool(
+                plan_counterbalanced
+                and analysis_result is not None
+                and analysis_result.valid
+            )
+        else:
+            statistics_expected = _statistics_are_substantiated(
+                lineage_entries, manifest_by_run
+            )
         statistics_gate = report.gates[GateName.statistics_valid]
         if statistics_gate.valid != statistics_expected:
             mismatches.append(
@@ -2435,6 +3460,29 @@ def _verify_report_semantics(
         metric_scores.append((metric, named_score, (lineage.run_id, lineage.case_id)))
 
     if isinstance(report, ObservationReport):
+        expected_protocol_reasons: list[str] = []
+        for lineage, _ in lineage_entries:
+            schedule = schedules.get(
+                (lineage.run_id, lineage.attempt_id, lineage.case_id)
+            )
+            if schedule is None:
+                expected_protocol_reasons.append(
+                    f"{lineage.case_id}: ScheduleActivationReceipt missing"
+                )
+            elif not schedule.schedule_valid:
+                reasons = "; ".join(schedule.mismatch_reasons) or "unspecified mismatch"
+                expected_protocol_reasons.append(
+                    f"{lineage.case_id}: schedule receipt is invalid: {reasons}"
+                )
+        expected_protocol_reasons = sorted(set(expected_protocol_reasons))
+        if report.protocol_valid != (not expected_protocol_reasons):
+            mismatches.append(
+                "report protocol_valid does not match verified schedule evidence"
+            )
+        if tuple(report.protocol_reasons) != tuple(expected_protocol_reasons):
+            mismatches.append(
+                "report protocol_reasons do not match verified schedule evidence"
+            )
         if not lineage_entries:
             if report.isolation_valid:
                 mismatches.append(
@@ -2450,6 +3498,13 @@ def _verify_report_semantics(
                     continue
                 key = (lineage.run_id, lineage.attempt_id, lineage.case_id)
                 expected_isolation_reasons.extend(
+                    _model_activation_isolation_reasons(
+                        lineage,
+                        bundle,
+                        manifest,
+                    )
+                )
+                expected_isolation_reasons.extend(
                     _network_isolation_reasons(
                         lineage,
                         bundle,
@@ -2460,11 +3515,11 @@ def _verify_report_semantics(
             expected_isolation_reasons = sorted(set(expected_isolation_reasons))
             if report.isolation_valid != (not expected_isolation_reasons):
                 mismatches.append(
-                    "report isolation_valid does not match verified network evidence"
+                    "report isolation_valid does not match verified isolation evidence"
                 )
             if tuple(report.isolation_reasons) != tuple(expected_isolation_reasons):
                 mismatches.append(
-                    "report isolation_reasons do not match verified network evidence"
+                    "report isolation_reasons do not match verified isolation evidence"
                 )
         metrics = {metric for metric, _, _ in metric_scores}
         if len(metrics) > 1:
@@ -2508,7 +3563,23 @@ def _verify_report_semantics(
     scores_by_lineage = {
         lineage_key: score for _, score, lineage_key in metric_scores
     }
-    if authoritative_metric is None or len(scores_by_lineage) != len(lineage_entries):
+    if analysis_plan is not None:
+        # A registered statistical plan owns the estimand and interval method.
+        # Reuse the independently replayed receipt instead of falling back to
+        # the historical exploratory min/max interval.
+        receipt = None if analysis_result is None else analysis_result.receipt
+        expected_effect = (
+            None
+            if receipt is None or receipt.confidence_interval is None
+            else {
+                "metric": receipt.metric,
+                "point_estimate": receipt.point_estimate,
+                "confidence_interval": tuple(receipt.confidence_interval),
+                "n_runs": len(lineage_entries),
+                "n_pairs": receipt.observed_pair_count,
+            }
+        )
+    elif authoritative_metric is None or len(scores_by_lineage) != len(lineage_entries):
         expected_effect = None
     else:
         first_manifest = next(iter(manifest_by_run.values()), None)
@@ -2516,11 +3587,12 @@ def _verify_report_semantics(
         if contrast is None:
             expected_effect = None
         else:
-            control_id = contrast.control_id or first_manifest.subject.id
-            treatment_id = contrast.treatment_id or next(
-                iter(manifest_by_run.values())
-            ).subject.id
-            groups: dict[bytes, dict[str, tuple[tuple[str, str], float]]] = {}
+            control_key, treatment_key = _verification_expected_arms(contrast)
+            factor_path = contrast.factor_path
+            groups: dict[
+                bytes,
+                dict[str | bytes, tuple[tuple[str, str], float]],
+            ] = {}
             for lineage, _, manifest in (
                 (lineage, bundle, manifest_by_run[lineage.run_id])
                 for lineage, bundle in lineage_entries
@@ -2528,11 +3600,21 @@ def _verify_report_semantics(
                 factors = {
                     key: value
                     for key, value in manifest.metadata.factors.items()
-                    if key not in {"subject", "experiment.subject", "order_position"}
+                    if key
+                    not in {
+                        "subject",
+                        "experiment.subject",
+                        "order_position",
+                        factor_path,
+                    }
                 }
                 factors["__case_id"] = lineage.case_id
                 groups.setdefault(_canonical_key(factors), {})[
-                    manifest.subject.id
+                    _verification_arm_key(
+                        lineage,
+                        manifest,
+                        factor_path=factor_path,
+                    )
                 ] = (
                     (lineage.run_id, lineage.case_id),
                     scores_by_lineage.get(
@@ -2541,11 +3623,11 @@ def _verify_report_semantics(
                 )
             differences: list[float] = []
             for pair in groups.values():
-                if control_id not in pair or treatment_id not in pair:
+                if control_key not in pair or treatment_key not in pair:
                     differences = []
                     break
-                control_score = pair[control_id][1]
-                treatment_score = pair[treatment_id][1]
+                control_score = pair[control_key][1]
+                treatment_score = pair[treatment_key][1]
                 if control_score != control_score or treatment_score != treatment_score:
                     differences = []
                     break
@@ -2798,6 +3880,9 @@ def _verify_report(
                 if protocol is not None and protocol.case_order == "seeded_random"
                 else None
             ),
+            expected_custom_order=(
+                None if protocol is None else protocol.custom_order
+            ),
             expected_source_content_digest=(
                 None
                 if manifest is None
@@ -3039,17 +4124,69 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def probe_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Verify a BMP integration probe and all retained artifacts"
+    )
+    parser.add_argument("record", help="Path to integration_probe.json")
+    parser.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="Relocate an absolute recorded path prefix",
+    )
+    args = parser.parse_args(argv)
+    try:
+        verified = verify_integration_probe(
+            args.record, path_map=_parse_path_maps(args.map)
+        )
+    except (ReportVerificationError, argparse.ArgumentTypeError) as exc:
+        parser.exit(1, f"{exc}\n")
+    print(f"verified: {verified.record_path}")
+    return 0
+
+
+def authority_main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Verify an external protocol authority receipt"
+    )
+    parser.add_argument("receipt", help="Path to authority receipt JSON")
+    parser.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="Relocate an absolute recorded path prefix",
+    )
+    args = parser.parse_args(argv)
+    try:
+        verified = verify_external_protocol_authority(
+            args.receipt, path_map=_parse_path_maps(args.map)
+        )
+    except (ReportVerificationError, argparse.ArgumentTypeError) as exc:
+        parser.exit(1, f"{exc}\n")
+    print(f"verified: {verified.receipt_path}")
+    return 0
+
+
 __all__ = [
     "ReportVerificationError",
     "VerifiedClaimReport",
     "VerifiedEvolutionRunEvidence",
+    "VerifiedIntegrationProbeRecord",
+    "VerifiedExternalProtocolAuthorityReceipt",
     "VerifiedObservationReport",
     "VerifiedRunReport",
     "verify_claim_report",
     "verify_evolution_run_evidence",
+    "verify_integration_probe",
+    "verify_external_protocol_authority",
     "verify_observation_report",
     "verify_run_report",
     "main",
+    "probe_main",
+    "authority_main",
 ]
 
 

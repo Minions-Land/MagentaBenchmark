@@ -1,0 +1,19 @@
+[experiment]
+id = "terminal-bench-regex-smoke"
+benchmark = "terminal-bench-2.1"
+subject = "terminal-bench.nop"
+protocol = "terminal-bench.regex-probe.v1"
+
+[experiment.design]
+scope = "whole_harness"
+purpose = "exploratory"
+vary = []
+
+[execution]
+backend = "harbor.0.20.0.terminal-bench"
+model = "none/echo"
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 300.0
+max_cost = 0.0

@@ -18,6 +18,21 @@
           "title": "Adapter Kind",
           "type": "string"
         },
+        "backend_default_read_set": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Default Read Set"
+        },
         "bmp_version": {
           "const": "0.1",
           "default": "0.1",
@@ -52,6 +67,37 @@
           "title": "Kind",
           "type": "string"
         },
+        "model_activation_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "provider_response",
+                "runtime_manifest",
+                "native_result",
+                "adapter_receipt"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Activation Source"
+        },
+        "none_model_sentinels": {
+          "default": [],
+          "items": {
+            "enum": [
+              "none",
+              "none/deterministic",
+              "none/echo"
+            ],
+            "type": "string"
+          },
+          "title": "None Model Sentinels",
+          "type": "array"
+        },
         "source": {
           "default": ".",
           "title": "Source",
@@ -79,6 +125,27 @@
             "type": "string"
           },
           "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_state_reset_policies": {
+          "default": [],
+          "items": {
+            "enum": [
+              "per_case",
+              "per_rollout",
+              "never"
+            ],
+            "type": "string"
+          },
+          "title": "Supported State Reset Policies",
+          "type": "array"
+        },
+        "supported_subject_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Adapters",
           "type": "array"
         },
         "supported_subject_interfaces": {

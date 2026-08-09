@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -15,8 +17,17 @@ from MagentaBench.runner.backend.fake import FakeBackend
 from MagentaBench.runner.gates import _receipt_binding_errors, evaluate_run_report
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.runner.scheduler import Scheduler, SchedulerError
-from MagentaBench.schemas import GateName, ProtocolSpec, RunPurpose
-from MagentaBench.schemas.verification import _verify_schedule_manifest_binding
+from MagentaBench.schemas import (
+    CustomCaseOrderSpec,
+    GateName,
+    ProtocolSpec,
+    RunPurpose,
+)
+from MagentaBench.schemas.verification import (
+    _active_schedule_digests,
+    _schedule_substantiates_protocol,
+    _verify_schedule_manifest_binding,
+)
 from MagentaBench.adapters.fake import FakeTask
 
 
@@ -29,13 +40,30 @@ def _custom_project(tmp_path: Path, ids: tuple[str, ...]) -> tuple[Path, Path]:
     shutil.copytree(ROOT / "registries", project / "registries")
     shutil.copytree(ROOT / "MagentaBench/conformance", project / "MagentaBench/conformance")
     protocol = project / "registries/protocols/fake-deterministic.toml"
+    order_bytes = (
+        json.dumps(
+            {
+                "schema_version": "bmp.case-order.v1",
+                "ordered_case_ids": list(ids),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    order_path = project / "case_orders/custom.json"
+    order_path.parent.mkdir(parents=True)
+    order_path.write_bytes(order_bytes)
     protocol_text = protocol.read_text(encoding="utf-8")
     protocol_text = protocol_text.replace('case_order = "fixed"', 'case_order = "custom"')
     protocol_text = protocol_text.replace(
         "\n[protocol.budget]",
-        "\nexplicit_case_ids = "
-        + repr(list(ids)).replace("'", '"')
-        + "\n\n[protocol.budget]",
+        "\n[protocol.custom_order]\n"
+        'adapter = "magentabench.case-order.json.v1"\n'
+        'source = "case_orders/custom.json"\n'
+        f'sha256 = "{hashlib.sha256(order_bytes).hexdigest()}"\n'
+        f"size_bytes = {len(order_bytes)}\n\n"
+        "[protocol.budget]",
     )
     protocol.write_text(protocol_text, encoding="utf-8")
     tasks = project / "MagentaBench/conformance/fixtures/fake_benchmark/tasks.toml"
@@ -48,7 +76,7 @@ def _custom_project(tmp_path: Path, ids: tuple[str, ...]) -> tuple[Path, Path]:
 
 
 def test_protocol_explicit_case_ids_are_nonempty_unique_and_identity_bearing() -> None:
-    with pytest.raises(ValueError, match="non-empty"):
+    with pytest.raises(ValueError, match="custom_order is required"):
         ProtocolSpec(
             id="explicit",
             kind="mechanism_validation",
@@ -79,10 +107,20 @@ def test_protocol_explicit_case_ids_are_nonempty_unique_and_identity_bearing() -
         kind="mechanism_validation",
         adapter="magentabench.scheduler",
         case_order="custom",
-        explicit_case_ids=("case-1", "case-2"),
+        custom_order=CustomCaseOrderSpec(
+            source="case_orders/first.json",
+            sha256="a" * 64,
+            size_bytes=10,
+        ),
         candidate_selection="single",
     )
-    second = first.model_copy(update={"explicit_case_ids": ("case-2", "case-1")})
+    second = first.model_copy(
+        update={
+            "custom_order": first.custom_order.model_copy(
+                update={"sha256": "b" * 64}
+            )
+        }
+    )
     assert first != second
 
 
@@ -91,24 +129,46 @@ def test_fake_loader_selects_exact_declared_order(tmp_path: Path) -> None:
     run = Compiler(project).compile(experiment)[0]
     loader = AdapterRegistry.production().benchmark_loader(run)
     resolved = loader.resolve(run, tmp_path / "case-set")
-    assert resolved.artifact.selection_method == "explicit_case_ids"
+    assert resolved.artifact.selection_method == "custom_order_artifact"
+    assert resolved.artifact.order_strategy_adapter == (
+        "magentabench.case-order.json.v1"
+    )
+    assert resolved.artifact.order_strategy_ref is not None
     assert resolved.artifact.ordered_case_ids == ("case-002", "case-001")
     loaded = loader.load(run, resolved)
     assert tuple(case.task_id for case in loaded.cases) == ("case-002", "case-001")
     protocol = run.manifest.execution.protocol
     assert protocol is not None
+    assert protocol.custom_order is not None
     reversed_manifest = run.manifest.model_copy(
         update={
             "execution": run.manifest.execution.model_copy(
                 update={
                     "protocol": protocol.model_copy(
-                        update={"explicit_case_ids": ("case-001", "case-002")}
+                        update={
+                            "custom_order": protocol.custom_order.model_copy(
+                                update={"sha256": "0" * 64}
+                            )
+                        }
                     )
                 }
             )
         }
     )
     assert replace(run, manifest=reversed_manifest).manifest_digest != run.manifest_digest
+
+
+def test_custom_order_source_is_rechecked_after_compilation(tmp_path: Path) -> None:
+    project, experiment = _custom_project(tmp_path, ("case-002", "case-001"))
+    run = Compiler(project).compile(experiment)[0]
+    order_path = project / "case_orders/custom.json"
+    order_path.write_text(
+        '{"schema_version":"bmp.case-order.v1","ordered_case_ids":["case-001"]}\n',
+        encoding="utf-8",
+    )
+    loader = AdapterRegistry.production().benchmark_loader(run)
+    with pytest.raises(AdapterRegistryError, match="differs from declaration"):
+        loader.resolve(run, tmp_path / "case-set")
 
 
 def test_fake_loader_rejects_unknown_declared_id(tmp_path: Path) -> None:
@@ -160,12 +220,12 @@ def test_scheduler_preserves_explicit_order_and_rejects_extra_case(tmp_path: Pat
         receipt_path=tmp_path / "receipt.json",
     )
     assert result.receipt.observed_case_order == ("case-002", "case-001")
-    with pytest.raises(SchedulerError, match="outside explicit_case_ids"):
+    with pytest.raises(SchedulerError, match="outside selected case ids"):
         Scheduler._ordered_cases(
             cases + [replace(task, task_id="case-003")],
             "custom",
             None,
-            protocol.explicit_case_ids,
+            ("case-002", "case-001"),
         )
     with pytest.raises(SchedulerError, match="must be unique"):
         Scheduler._ordered_cases(
@@ -186,13 +246,25 @@ def test_pipeline_and_gate_bind_explicit_case_order(tmp_path: Path) -> None:
         and item.schedule_receipt.observed_case_order == ("case-002", "case-001")
         for item in result.runs
     )
+    first = result.runs[0]
+    assert _schedule_substantiates_protocol(
+        first.schedule_receipt,
+        first.plan.manifest,
+        active_digests=_active_schedule_digests(),
+        case_set_receipt=first.case_set_receipt,
+    )
+    assert not _schedule_substantiates_protocol(
+        first.schedule_receipt,
+        first.plan.manifest,
+        active_digests=_active_schedule_digests(),
+    )
     forged = result.runs[0].schedule_receipt.model_copy(
         update={"observed_case_order": ("case-001", "case-002")}
     )
     errors = _receipt_binding_errors(
         replace(result.runs[0], schedule_receipt=forged)
     )
-    assert "observed_case_order does not match explicit_case_ids" in errors
+    assert "observed_case_order does not match custom order artifact" in errors
     verification_errors: list[str] = []
     _verify_schedule_manifest_binding(
         forged,
@@ -201,7 +273,7 @@ def test_pipeline_and_gate_bind_explicit_case_order(tmp_path: Path) -> None:
         label="schedule",
         mismatches=verification_errors,
     )
-    assert any("explicit_case_ids" in item for item in verification_errors)
+    assert any("activated custom order" in item for item in verification_errors)
 
 
 def test_multicase_claim_evidence_refs_are_unique(tmp_path: Path) -> None:

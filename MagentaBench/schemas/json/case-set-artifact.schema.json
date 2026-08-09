@@ -118,6 +118,30 @@
       "default": null,
       "title": "Order Seed"
     },
+    "order_strategy_adapter": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Order Strategy Adapter"
+    },
+    "order_strategy_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "ordered_case_ids": {
       "items": {
         "type": "string"
@@ -129,7 +153,8 @@
       "default": "all_cases",
       "enum": [
         "all_cases",
-        "explicit_case_ids"
+        "explicit_case_ids",
+        "custom_order_artifact"
       ],
       "title": "Selection Method",
       "type": "string"

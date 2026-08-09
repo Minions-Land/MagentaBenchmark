@@ -1,0 +1,161 @@
+{
+  "$defs": {
+    "ModelActivationUsage": {
+      "additionalProperties": false,
+      "description": "Provider-reported usage carried by the same native activation evidence.\n\nWall time is intentionally excluded: BMP measures it at the scheduler\nboundary, while token and monetary usage must be replayed from the provider\nor harness evidence that identified the active model.",
+      "properties": {
+        "cache_read_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Read Tokens"
+        },
+        "cache_write_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cache Write Tokens"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "input_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Tokens"
+        },
+        "output_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Output Tokens"
+        },
+        "total_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Tokens"
+        }
+      },
+      "title": "ModelActivationUsage",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Closed JSON projection replayed to derive a model activation receipt.\n\n``runtime_manifest`` evidence is the native JSONL trace itself and is\nreplayed separately. Other activation sources use this envelope so an\narbitrary file or caller-supplied scalar cannot substantiate activation.",
+  "properties": {
+    "activation_source": {
+      "enum": [
+        "provider_response",
+        "native_result",
+        "adapter_receipt"
+      ],
+      "title": "Activation Source",
+      "type": "string"
+    },
+    "base_url": {
+      "minLength": 1,
+      "title": "Base Url",
+      "type": "string"
+    },
+    "credential_name": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Credential Name",
+      "type": "string"
+    },
+    "credential_value_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Credential Value Sha256",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-model-activation-evidence-v1",
+      "default": "bmp-model-activation-evidence-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Provider Id",
+      "type": "string"
+    },
+    "usage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelActivationUsage"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "wire_api": {
+      "minLength": 1,
+      "title": "Wire Api",
+      "type": "string"
+    }
+  },
+  "required": [
+    "activation_source",
+    "provider_id",
+    "base_url",
+    "wire_api",
+    "model_id",
+    "credential_name",
+    "credential_value_sha256"
+  ],
+  "title": "ModelActivationEvidence",
+  "type": "object"
+}

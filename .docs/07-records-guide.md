@@ -1,6 +1,8 @@
 # 07 · 如何读 `records/`
 
-`records/` 是 43 个文件、135KB。**里面每一个产物都通不过当前的门，并且是有意原样保留的。**
+`records/` 同时保存两类东西：历史 AOSE 反例，以及后来加入的真实 exploratory
+integration probe。历史反例通不过当前的门，并且必须原样保留；probe 可以通过
+`bmp-verify-probe`，但只证明真实接触与失败分类，不能充当 Agent 分数或 claim。
 
 如果你"修复"这些产物让它们通过新门，你就毁掉了它们唯一的用途。
 
@@ -8,6 +10,8 @@
 
 ```
 records/
+├── swebench-astropy-6938-probe/       # 真实 API-backed exploratory contact
+├── terminal-bench-regex-probe/        # 真实 Docker/verifier contact；verifier failure
 ├── aose-zero-cost-dryrun-summary.json
 ├── aose-zero-cost-run-a/
 │   ├── 328da78fb3e49b07.../cases/da-1-3/attempt-0001/{container_receipt,evidence_bundle,observation_report,status}.json + container.std{out,err}.log
@@ -103,13 +107,15 @@ AOSE 的 `claim_report` 在**三个独立理由**上被当前门拒绝：
 
 ## 保留策略
 
-**这些文件不得修改。** 它们的用途是对门本身的反证：
+**这些历史 AOSE 文件不得修改。** 它们的用途是对门本身的反证：
 
 > 如果新的门接受了这些产物，说明新的门是坏的。
 
 这是一个可重复的检验。任何改动门的变更，都可以拿这批产物验证门没有退化。若有人为了"清理"而修好它们，这个检验就永久消失了。
 
-同理，`records/` 下**没有任何**产物可以被当作 MagentaBench 已能产出真实 benchmark 结果的证据。**从未有任何真实证据包走通过整条链路。**
+同理，`records/` 下仍然**没有任何 claim-ready 产物**。两份新 probe 证明 SWE-bench
+和 Terminal-Bench 的真实 integration contact，但都没有走通带完整 activation、隔离、
+评分、统计与 standalone report replay 的 claim 链路。
 
 ## 关于其他早期实验
 
@@ -129,7 +135,8 @@ AOSE 的 `claim_report` 在**三个独立理由**上被当前门拒绝：
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-find records -type f | sort          # 43 个文件
-du -sh records                       # 135K
-git ls-files records                 # 只有 .gitkeep 被跟踪（端到端运行条件 B）
+find records -type f | sort
+git ls-files records
+uv run bmp-verify-probe records/swebench-astropy-6938-probe/probe.json
+uv run bmp-verify-probe records/terminal-bench-regex-probe/probe.json
 ```

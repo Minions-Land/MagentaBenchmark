@@ -1,44 +1,48 @@
 # 04 · 架构与契约链路
 
-> 本页的行号和提交引用是 Planner 基线（`db9a171`）。当前实现已增加
-> `RecordIndex`/standalone verifier、父 run/子 attempt lineage、显式 exploratory
-> isolation 结果及 checkpoint save 字节验证；不要把基线行号当作当前源码定位。
+> 本页下半部保留了一份 `db9a171` Planner 基线，供理解设计演化使用；其中的源码
+> 行号、文件数、测试数和提交号都不是当前事实，也不能作为验证命令。当前实现请以
+> 本页“当前链路”段、`.docs/05-current-state.md`、类型化 Schema 和测试为准；定位源码
+> 请使用符号名与 `rg`，不要复用历史行号。
 
 本文档适用于要动代码的人。
 
-## 目录结构（15,516 行 Python，37 个模块文件）
+## 当前结构导航（不以行数或文件数为契约）
 
 ```
 MagentaBench/
-├── schemas/              # 契约模型，11 个 schema 模块
+├── schemas/              # 核心、统计、演化与 evidence 契约；生成公开 JSON Schema
 │   ├── models.py         # ClaimScope / RunPurpose / RunStatus / ScoringKind ...
 │   ├── manifest.py       # ExperimentManifest 等
 │   ├── evidence.py       # ObservationReport / ClaimReport
 │   ├── execution.py      # TrialResult / JobResult
 │   └── ...
-├── runner/               # 执行与编译，9 个模块
+├── runner/               # 编译、调度、执行、统计、model activation 与 evolution runtime
 │   ├── compiler.py       # ManifestCompiler（入口，_ACTIVE_SCOPES 在此）
 │   ├── pipeline.py       # Pipeline（调度 backend、resume）
 │   ├── scheduler.py      # 预算与计划分配（Phase 3b，刚完成审计）
 │   ├── gates.py          # evaluate_run_report 与六个门
-│   ├── backend/          # 四个 backend（fake / subprocess / aose / harbor）
+│   ├── backend/          # fake / subprocess / aose / harbor
 │   ├── env/              # EnvManager（内容寻址 venv 缓存）
 │   └── adapter_registry.py  # 内容寻址 case-set 与 adapter 注册（db9a171）
-├── adapters/             # benchmark / subject / task / verifier 适配层
-│   ├── benchmarks/       # aosebench.py
+├── adapters/             # 内建 benchmark / subject / task / verifier 适配层
+│   ├── benchmarks/       # aosebench.py / swebench.py
 │   ├── subjects/         # cli_agent.py
 │   └── fake/             # 用于自检的 fake 适配
-├── conformance/          # Phase 0 conformance fixture
-└── tests/                # 20 个测试文件，全 pytest
+├── conformance/          # fake、Terminal-Bench 与 deterministic evolution fixtures
+└── tests/                # pytest；精确集合以 `rg --files tests` 为准
+
+plugins/                  # TOML 激活的外部 adapter entrypoints
 
 registries/               # TOML 声明（backend / benchmark / protocol / subject）
-├── backends/             # fake / subprocess / aose / harbor / harbor-shim
-├── benchmarks/           # aosebench-biomnibench-da / fake-exact
-├── protocols/            # fake-deterministic / subprocess-deterministic / harbor-shim-conformance / ...
-└── subjects/             # fake-control / fake-treatment / aose-dryrun-true / ...
+├── adapters/             # capability declaration + implementation/source-closure identity
+├── backends/             # fake / subprocess / aose / Harbor variants
+├── benchmarks/           # fake / AOSE / SWE-bench / Terminal-Bench / evolution
+├── protocols/            # benchmark、custom-order 与 evolution protocols
+└── subjects/             # fake、CLI、Terminal-Bench 与 deterministic evolver subjects
 
-records/                  # 运行产物（135KB / 43 文件），见 07-records-guide.md
-docs/governance/          # bmp-boundary-law.md（246 行）
+records/                  # 历史反例与 exploratory integration probes，见 07-records-guide.md
+docs/governance/          # BMP/HCP boundary law 与 configuration governance
 ```
 
 ## 核心链路：从 manifest 到 report
@@ -89,7 +93,7 @@ docs/governance/          # bmp-boundary-law.md（246 行）
 | `protocol_valid` | 执行符合声明的方法学 | 检查 receipt binding、case-set binding，并绑定每个 case 的 selected attempt | `gates.py` `_receipt_binding_errors` |
 | `isolation_valid` | 网络隔离可验证 | 需要 **每个 item** 都有类型化 `NetworkObservation`；绑定到 policy digest；当前在 `exploratory` 上会看有无 observation，`claim` 上严格要求 | `gates.py:579` `_network_policy_errors` |
 | `scoring_valid` | 评分真实且与声明一致 | **L1**：从 `manifest.benchmark.authoritative_reward_metric` 获取；**L2**：所有 run 一致同意；**L3**：有 `verifier_evidence.metrics` 时，`metrics[key] == score` 精确相等（不用 `isclose`）；**空集拒绝**（曾经在 `output_refs=[]` 上空过） | `gates.py:135` `_exploratory_metric_scores` |
-| `statistics_valid` | 统计推断支持因果主张 | **结构性不可达** —— `gates.py:516` 的 `else` 分支在 `deterministic_conformance=False` 时必然触发，记录 "full real-experiment statistics are not implemented by the fake gate"。这是正确的关门，且在其他所有 claim 工作上游 | `gates.py:651` |
+| `statistics_valid` | 统计推断支持因果主张 | 有 `StatisticalAnalysisPlan` 时，runner 和 standalone verifier 重算配对单位、样本方差、标准误、CI、holdout 与 multiple-comparison 修正；没有计划的非确定性运行仍 fail closed | `gates.py` / `schemas/statistics.py` |
 | `claim_eligible` | 前五个门全绿 + `purpose=claim` | 逻辑合取 | `gates.py:833` |
 
 **关键设计**：`_score()` 返回裸 `evidence.score`（`gates.py:122-124`），不做任何变换。`_exploratory_metric_scores()` 是唯一读 `verifier_evidence.metrics` 的地方，且在 L3 用 `metrics[auth_key] == derived_score` 精确检查 —— 如果 backend 产出的 metric 与从 reward 推导的分数不等，**必须拒绝**。
@@ -98,9 +102,10 @@ docs/governance/          # bmp-boundary-law.md（246 行）
 
 ## 编译期归因门（`compiler.py:600-626`）
 
-`ClaimScope` 与 `RunPurpose` 有一个编译期矩阵。`evolver` 与
-`meta_evolver` 已有中性的 `EvolutionRunEvidence` 契约并进入 active scope；
-其它研究 scope 仍会触发：
+`ClaimScope` 与 `RunPurpose` 有一个编译期矩阵。`model`、`evolver` 与
+`meta_evolver` 已进入 active scope：`model` 必须有 provider binding、声明了 activation
+source 的 execution capability，并在运行时保留 `ModelActivationReceipt`；后两者必须有
+中性的 `EvolutionRunEvidence` 与 external execution capability。其它研究 scope 仍会触发：
 
 ```python
 raise CompilationError(
@@ -144,7 +149,7 @@ ledger、或运行时 provenance reference 时，运行和 claim gate 都 fail c
 parent manifest。checkpoint ledger 的旧 completion map 仍以 parent run 为键，因此
 checkpoint 多 case 在 schema 扩展前会在 activation 处明确拒绝。
 
-## configuration registry（当前代码 HEAD `73f4706`）
+## configuration registry
 
 `runner/configuration.py` 提供名字到不可变 TOML 对象的 CRUD：`index.json` 只保存
 名字、digest 和大小，实际内容位于 digest 命名的 `objects/`。编译器把
@@ -160,6 +165,9 @@ tree，同时复用 BMP 的调度、lineage、证据和 gate。生产运行要�
 配置支持 envelope/raw TOML、CLI overlay、JSON Schema 和可重放 composition。未知
 adapter tuple 仍然 fail closed。
 
+`case_order=custom` 使用项目内的 content-addressed JSON order artifact；编译、loader、
+scheduler、case-set receipt 和 standalone verifier 都重新校验其摘要与有序 ID。
+
 演化与 meta-evolution 不在 BMP core 内硬编码算法。适配器可以把候选生成、反馈、修订、
 拒绝候选、搜索状态和嵌套元控制器作为外部治理的 lineage 记录；BMP 统一负责 budget、
 ordering、隔离、评估器和 claim gate。`EvolutionRunEvidence` 保留每个
@@ -168,11 +176,19 @@ generation parent、transition 顺序、evaluator/budget/adapter digest；meta-e
 通过 content-addressed parent evidence 递归验证。没有正向 evidence 的运行仍不会
 获得 claim eligibility。
 
+`runner/evolution.py` 现已提供算法中立的执行边界：策略只接收公开输入与 search
+feedback，sealed holdout evaluator 只在 `select` transition 固化后调用；
+`EvolutionRuntimeReceipt` 记录每个 evaluator request/result、对应 budget event、剩余
+额度和 transition sequence。`deterministic_evolution` registry adapter 已让 evolver 与
+meta-evolver 走通 Pipeline；meta ledger 的首笔 debit 必须与递归父 receipt 的 token/cost
+完全一致。该本地 adapter 只用于 conformance，报告仍因进程隔离不可观测而明确为
+`isolation_valid=false`。
+
 ## EnvManager（Phase 2）
 
 `runner/env/manager.py`。内容寻址 venv 缓存：给定 `requirements.txt` 或 lockfile，返回 digest 与已准备好的 venv 路径。避免重复创建。
 
-## 关键文件行号参考（截至 `db9a171`）
+## 历史行号参考（仅 `db9a171`，不可用于当前定位）
 
 | 位置 | 内容 |
 | --- | --- |
@@ -201,7 +217,7 @@ generation parent、transition 顺序、evaluator/budget/adapter digest；meta-e
 | `harbor.py:418` | `metrics=_verifier_rewards(verifier)` |
 | `harbor.py:808` | 传 `authoritative_reward_key` |
 
-## 测试组织（20 个文件）
+## 历史测试组织（`db9a171` 快照）
 
 ```
 test_schemas.py                 986 行，schema 验证
@@ -221,10 +237,9 @@ test_aose_docker_dryrun.py      10/10 AOSE 零成本观测
 
 ```bash
 cd /mnt/aliyunsb/aralacai/MagentaBench
-uv run pytest -q                    # 当前 HEAD 的精确计数见最后一次输出
+uv run --extra test pytest -q       # 当前工作树；精确计数以本次命令输出为准
 ```
 
-**必须用 `.venv311/bin/python`**，系统 `python3` 是 3.6.8。
-
-`171 passed` 是历史基线快照；当前树的验证命令是 `uv run pytest -q`，提交前必须重新记录
+不要依赖系统 Python 版本；项目命令统一经由 `uv run`。`171 passed` 是历史基线快照，
+提交前必须重新运行当前命令，并将真实输出记录到交接中。
 精确输出，不得复用旧数字。

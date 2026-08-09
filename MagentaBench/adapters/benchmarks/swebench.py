@@ -16,6 +16,11 @@ from MagentaBench.runner.adapter_registry import (
     write_immutable_json,
 )
 from MagentaBench.runner.compiler import CompiledRun
+from MagentaBench.runner.case_order import (
+    CaseOrderError,
+    custom_order_binding,
+    selected_case_ids,
+)
 from MagentaBench.runner.evidence import artifact_ref, sha256_file, source_closure_digest
 from MagentaBench.schemas import ArtifactRef, CaseArtifact, CaseSetArtifact
 
@@ -200,7 +205,11 @@ class SweBenchLoader:
         elif protocol.case_order == "random":
             random.SystemRandom().shuffle(ordered)
         elif protocol.case_order in {"custom", "explicit"}:
-            requested = tuple(protocol.explicit_case_ids)
+            try:
+                requested = selected_case_ids(protocol)
+            except CaseOrderError as exc:
+                raise AdapterRegistryError(str(exc)) from exc
+            assert requested is not None
             by_id = {str(row["instance_id"]): row for row in ordered}
             missing = [case_id for case_id in requested if case_id not in by_id]
             if missing:
@@ -333,15 +342,25 @@ class SweBenchLoader:
             benchmark_digest=run.manifest.benchmark.artifact_digest,
             loader_adapter=self.adapter,
             loader_digest=self.digest,
-            selection_method=(
-                "explicit_case_ids"
-                if protocol.case_order in {"custom", "explicit"}
-                else "all_cases"
-            ),
+            selection_method={
+                "custom": "custom_order_artifact",
+                "explicit": "explicit_case_ids",
+            }.get(protocol.case_order, "all_cases"),
             case_order=protocol.case_order,
             order_seed=(
                 run.manifest.execution.seed
                 if protocol.case_order == "seeded_random"
+                else None
+            ),
+            order_strategy_adapter=(
+                protocol.custom_order.adapter
+                if protocol.case_order == "custom"
+                and protocol.custom_order is not None
+                else None
+            ),
+            order_strategy_ref=(
+                custom_order_binding(protocol)[2]
+                if protocol.case_order == "custom"
                 else None
             ),
             source_content_digest=run.manifest.benchmark.source_content_digest,

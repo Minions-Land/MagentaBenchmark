@@ -68,6 +68,7 @@ from .configuration import (
     validate_json_schema_configuration,
     validate_json_schema_document,
 )
+from .case_order import CaseOrderError, load_custom_case_order
 from .adapter_source import (
     AdapterSourceError,
     closure_digest,
@@ -431,6 +432,36 @@ class Compiler:
         spec, registry_path = self._lookup("subject", entry_id)
         return _compile_subject_artifact(spec, base_dir=registry_path.parent)
 
+    def _resolved_protocol(self, entry_id: str) -> ProtocolSpec:
+        protocol, _ = self._lookup("protocol", entry_id)
+        if protocol.case_order != "custom":
+            return protocol
+        declaration = protocol.custom_order
+        if declaration is None:  # ProtocolSpec already rejects this.
+            raise CompilationError("custom protocol is missing custom_order")
+        relative = Path(declaration.source)
+        if (
+            relative.is_absolute()
+            or relative.as_posix() != declaration.source
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            raise CompilationError(
+                "custom order source must be a normalized project-relative path"
+            )
+        source = self._resolve_configuration_source(self.project_root / relative)
+        try:
+            source.relative_to(self.project_root)
+        except ValueError as exc:
+            raise CompilationError("custom order source escapes project root") from exc
+        resolved_declaration = declaration.model_copy(
+            update={"source": str(source)}
+        )
+        try:
+            load_custom_case_order(resolved_declaration)
+        except CaseOrderError as exc:
+            raise CompilationError(str(exc)) from exc
+        return protocol.model_copy(update={"custom_order": resolved_declaration})
+
     def _adapter_capability_artifact(
         self, adapter: str, adapter_kind: str
     ) -> AdapterCapabilityArtifact | None:
@@ -440,19 +471,30 @@ class Compiler:
         matches: list[tuple[AdapterCapability, Path]] = []
         for path in sorted(directory.glob("*.toml")):
             raw = self._load_toml(path)
+            declaration = raw.get("adapter")
+            if (
+                not isinstance(declaration, Mapping)
+                or declaration.get("adapter") != adapter
+                or declaration.get("adapter_kind") != adapter_kind
+            ):
+                continue
             if set(raw) != {"adapter"}:
                 raise CompilationError(
                     f"adapter registry {path} requires only [adapter]"
                 )
             try:
-                capability = AdapterCapability.model_validate(raw["adapter"])
+                capability = AdapterCapability.model_validate(declaration)
             except pydantic.ValidationError as exc:
+                if (
+                    adapter_kind == "execution"
+                    and "none_model_sentinels" in str(exc)
+                ):
+                    raise CompilationError(
+                        "execution capability declares a real model as a none "
+                        "sentinel; ModelActivationReceipt missing"
+                    ) from exc
                 raise CompilationError(f"invalid adapter registry {path}: {exc}") from exc
-            if (
-                capability.adapter == adapter
-                and capability.adapter_kind == adapter_kind
-            ):
-                matches.append((capability, path))
+            matches.append((capability, path))
         if not matches:
             return None
         if len(matches) > 1:
@@ -903,28 +945,27 @@ class Compiler:
         ClaimScope.conformance: "FakeConformanceEvidence",
         ClaimScope.whole_harness: "WholeHarnessArtifactEvidence",
     }
-    # Evolution scopes are reachable only through an explicitly declared
-    # external execution capability and a runtime EvolutionRunEvidence
-    # provenance reference. Other research scopes remain inactive.
+    # Model scope additionally requires a provider binding plus runtime
+    # ModelActivationReceipt. Evolution scopes are reachable only through an
+    # explicitly declared external execution capability and a runtime
+    # EvolutionRunEvidence provenance reference. Other research scopes remain
+    # inactive.
     _ACTIVE_SCOPES = frozenset(
         {
             ClaimScope.conformance,
             ClaimScope.evolver,
             ClaimScope.meta_evolver,
+            ClaimScope.model,
         }
     )
     _SCHEDULER_ADAPTER = "magentabench.scheduler"
-    _BACKEND_DEFAULT_KEYS = {
+    # Conservative core fallbacks for adapters shipped with MagentaBench.
+    # External adapters must carry these policies in their digest-bound TOML
+    # capability instead of adding another tuple or adapter name here.
+    _CORE_BACKEND_DEFAULT_READ_SETS = {
         "fake": frozenset(),
         "subprocess": frozenset(),
         "aose-docker": frozenset(),
-        "harbor": frozenset(
-            {
-                "agent_kwargs",
-                "agent_timeout_multiplier",
-                "environment_type",
-            }
-        ),
         "harbor-shim": frozenset(
             {
                 "agent_kwargs",
@@ -934,6 +975,25 @@ class Compiler:
             }
         ),
     }
+    _CORE_NONE_MODEL_SENTINELS = {
+        "fake": frozenset({"none/deterministic"}),
+        "subprocess": frozenset({"none/echo"}),
+        "aose-docker": frozenset({"none"}),
+        "harbor-shim": frozenset({"none/echo"}),
+    }
+    _CORE_STATE_RESET_POLICIES = {
+        "fake": frozenset({"never"}),
+        "subprocess": frozenset({"per_rollout"}),
+        "aose-docker": frozenset({"never"}),
+        "harbor-shim": frozenset({"never"}),
+    }
+    _CORE_SUBJECT_COMPATIBILITY = frozenset(
+        {
+            ("fake", "fake", None),
+            ("opaque_agent", "fake", "task_to_output"),
+            ("opaque_agent", "cli-agent", "aosebench-container-v1"),
+        }
+    )
     _NONE_MODELS = frozenset({"none", "none/deterministic", "none/echo"})
     _SCHEDULE_VARY_PATHS = frozenset(
         {
@@ -997,6 +1057,10 @@ class Compiler:
         if scope == ClaimScope.component and getattr(subject, "sidecar_ref", None) is None:
             raise CompilationError(
                 "claim scope 'component' requires missing evidence class AssemblySidecarRef"
+            )
+        if scope == ClaimScope.model and manifest.execution.model in self._NONE_MODELS:
+            raise CompilationError(
+                "claim scope 'model' requires a real model and ModelActivationReceipt"
             )
         if (
             scope == ClaimScope.conformance
@@ -1073,10 +1137,6 @@ class Compiler:
             execution = ExecutionSpec.model_validate(execution_raw)
         except pydantic.ValidationError as exc:
             raise CompilationError(f"invalid [execution]: {exc}") from exc
-        if execution.model not in self._NONE_MODELS:
-            raise CompilationError(
-                "execution model requires missing evidence class ModelActivationReceipt"
-            )
         unsupported_override_fields = sorted(
             set(execution.backend_overrides) - {"defaults"}
         )
@@ -1088,33 +1148,124 @@ class Compiler:
         benchmark = self._benchmark_artifact(str(experiment["benchmark"]))
         subject = self._subject_artifact(str(experiment["subject"]))
         backend, _ = self._lookup("backend", execution.backend)
-        protocol, _ = self._lookup("protocol", str(experiment["protocol"]))
+        protocol = self._resolved_protocol(str(experiment["protocol"]))
         subject_interface = (
             None if subject.kind == "fake" else getattr(subject, "interface", None)
         )
-        adapter_model = {
-            "fake": "none/deterministic",
-            "subprocess": "none/echo",
-            "aose-docker": "none",
-            "harbor": "none/echo",
-            "harbor-shim": "none/echo",
-        }.get(backend.adapter)
-        if execution.model != adapter_model:
+        subject_adapter = subject.adapter
+        subject_combo = (subject.kind, subject_adapter, subject_interface)
+        compatibility = (benchmark.adapter, backend.adapter, subject_interface)
+        requires_execution_capability = (
+            benchmark.kind == "custom"
+            or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
+            or subject.kind in {"evolver", "meta_evolver"}
+            or execution.model not in self._NONE_MODELS
+        )
+
+        capability_artifacts: dict[
+            tuple[str, str], AdapterCapabilityArtifact | None
+        ] = {}
+
+        def capability_artifact(
+            adapter: str, adapter_kind: str
+        ) -> AdapterCapabilityArtifact | None:
+            key = (adapter, adapter_kind)
+            if key not in capability_artifacts:
+                capability_artifacts[key] = self._adapter_capability_artifact(
+                    adapter, adapter_kind
+                )
+            return capability_artifacts[key]
+
+        # Prefer a selected external execution declaration when present.  The
+        # core policy is only a compatibility fallback for adapters shipped in
+        # this package; a new harness never needs a Compiler tuple.
+        execution_policy_artifact = None
+        if (
+            requires_execution_capability
+            or backend.adapter not in self._CORE_NONE_MODEL_SENTINELS
+            or subject_combo not in self._CORE_SUBJECT_COMPATIBILITY
+        ):
+            execution_policy_artifact = capability_artifact(
+                benchmark.adapter, "execution"
+            )
+        if execution_policy_artifact is not None:
+            execution_policy = execution_policy_artifact.capability
+            if not execution_policy.supported_subject_adapters:
+                raise CompilationError(
+                    f"execution capability {execution_policy.id!r} must declare "
+                    "supported_subject_adapters"
+                )
+            if (
+                execution.model in self._NONE_MODELS
+                and not execution_policy.none_model_sentinels
+            ):
+                raise CompilationError(
+                    f"execution capability {execution_policy.id!r} must declare "
+                    "none_model_sentinels"
+                )
+            if (
+                execution.model not in self._NONE_MODELS
+                and execution_policy.model_activation_source is None
+            ):
+                raise CompilationError(
+                    f"execution capability {execution_policy.id!r} must declare "
+                    "model_activation_source for real models; "
+                    "ModelActivationReceipt missing"
+                )
+            if not execution_policy.supported_state_reset_policies:
+                raise CompilationError(
+                    f"execution capability {execution_policy.id!r} must declare "
+                    "supported_state_reset_policies"
+                )
+            if not execution_policy.supports(
+                benchmark_kind=benchmark.kind,
+                subject_kind=subject.kind,
+                subject_adapter=subject_adapter,
+                backend_kind=backend.kind,
+                backend_adapter=backend.adapter,
+                subject_interface=subject_interface,
+            ):
+                raise CompilationError(
+                    f"execution capability {execution_policy.id!r} rejects the "
+                    "resolved benchmark/subject/backend tuple"
+                )
+            none_model_sentinels = frozenset(
+                execution_policy.none_model_sentinels
+            )
+            state_reset_policies = frozenset(
+                execution_policy.supported_state_reset_policies
+            )
+            subject_is_compatible = True
+        else:
+            none_model_sentinels = self._CORE_NONE_MODEL_SENTINELS.get(
+                backend.adapter, frozenset()
+            )
+            state_reset_policies = self._CORE_STATE_RESET_POLICIES.get(
+                backend.adapter, frozenset()
+            )
+            subject_is_compatible = (
+                subject_combo in self._CORE_SUBJECT_COMPATIBILITY
+            )
+
+        real_model = execution.model not in self._NONE_MODELS
+        if real_model and execution_policy_artifact is None:
+            raise CompilationError(
+                f"real model {execution.model!r} requires an execution capability "
+                "with ModelActivationReceipt provenance"
+            )
+
+        if (
+            execution.model in self._NONE_MODELS
+            and execution.model not in none_model_sentinels
+        ):
             raise CompilationError(
                 f"model sentinel {execution.model!r} is not activated by "
-                f"backend adapter {backend.adapter!r}; ModelActivationReceipt missing"
+                f"the selected execution adapter; ModelActivationReceipt missing"
             )
-        expected_reset_policy = {
-            "fake": "never",
-            "subprocess": "per_rollout",
-            "aose-docker": "never",
-            "harbor": "never",
-            "harbor-shim": "never",
-        }.get(backend.adapter)
-        if protocol.state_reset != expected_reset_policy:
+        if protocol.state_reset not in state_reset_policies:
             raise CompilationError(
                 f"state_reset {protocol.state_reset!r} is not activated by "
-                f"backend adapter {backend.adapter!r}; StateResetReceipt missing"
+                "the selected execution adapter; StateResetReceipt missing"
             )
 
         benchmark_pair = (benchmark.kind, benchmark.adapter)
@@ -1141,24 +1292,12 @@ class Compiler:
             or benchmark.evaluator != "aosebench.rubric-judge"
         ):
             raise CompilationError("AOSE benchmark native task contract mismatch")
-        if subject.kind == "fake":
-            subject_combo = (subject.kind, subject.adapter, None)
-        else:
-            subject_combo = (
-                subject.kind,
-                subject.adapter,
-                getattr(subject, "interface", None),
-            )
         if subject.kind in {"evolver", "meta_evolver"}:
             # Evolver subjects have no fixed wire interface.  A production
             # execution capability must bind their adapter/backend tuple below.
             if not subject.adapter:
                 raise CompilationError("evolver subject adapter is missing")
-        elif subject_combo not in {
-            ("fake", "fake", None),
-            ("opaque_agent", "fake", "task_to_output"),
-            ("opaque_agent", "cli-agent", "aosebench-container-v1"),
-        }:
+        elif not subject_is_compatible:
             raise CompilationError(
                 f"unknown subject adapter/interface combination: {subject_combo!r}"
             )
@@ -1205,6 +1344,10 @@ class Compiler:
             raise CompilationError(
                 f"claim scope {scope.value!r} requires missing evidence class "
                 f"{proof_type}; runtime support is not active"
+            )
+        if scope == ClaimScope.model and execution.model in self._NONE_MODELS:
+            raise CompilationError(
+                "claim scope 'model' requires a real model and ModelActivationReceipt"
             )
 
         kind_scope_matrix = {
@@ -1257,7 +1400,29 @@ class Compiler:
                 f"backend adapter {backend.adapter!r} requires missing "
                 "EnvironmentActivationReceipt"
             )
-        allowed_default_keys = self._BACKEND_DEFAULT_KEYS.get(backend.adapter)
+        backend_policy_artifact = None
+        if (
+            backend.adapter not in _BUILTIN_BACKEND_FACTORY_ADAPTERS
+            or backend.adapter not in self._CORE_BACKEND_DEFAULT_READ_SETS
+        ):
+            backend_policy_artifact = capability_artifact(
+                backend.adapter, "backend_factory"
+            )
+        if backend_policy_artifact is not None:
+            declared_read_set = (
+                backend_policy_artifact.capability.backend_default_read_set
+            )
+            if declared_read_set is None:
+                raise CompilationError(
+                    f"backend capability "
+                    f"{backend_policy_artifact.capability.id!r} does not declare "
+                    "backend_default_read_set"
+                )
+            allowed_default_keys = frozenset(declared_read_set)
+        else:
+            allowed_default_keys = self._CORE_BACKEND_DEFAULT_READ_SETS.get(
+                backend.adapter
+            )
         if allowed_default_keys is None:
             raise CompilationError(
                 f"backend adapter {backend.adapter!r} has no declared defaults read-set"
@@ -1348,7 +1513,6 @@ class Compiler:
         # remains strict: every non-built-in loader, backend factory, and
         # execution compatibility tuple must have an explicit capability.
         required_capability_keys: list[tuple[str, str]] = []
-        compatibility = (benchmark.adapter, backend.adapter, subject_interface)
         if not self.allow_test_override:
             if (
                 benchmark.kind == "custom"
@@ -1361,13 +1525,14 @@ class Compiler:
                 benchmark.kind == "custom"
                 or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
                 or subject.kind in {"evolver", "meta_evolver"}
+                or real_model
             ):
                 required_capability_keys.append((benchmark.adapter, "execution"))
         resolved_capabilities: list[AdapterCapabilityArtifact] = []
         missing_capabilities: list[tuple[str, str]] = []
         for capability_key in dict.fromkeys(required_capability_keys):
             adapter, adapter_kind = capability_key
-            artifact = self._adapter_capability_artifact(adapter, adapter_kind)
+            artifact = capability_artifact(adapter, adapter_kind)
             if artifact is None:
                 missing_capabilities.append(capability_key)
             else:
@@ -1382,6 +1547,7 @@ class Compiler:
             if not capability.supports(
                 benchmark_kind=benchmark.kind,
                 subject_kind=subject.kind,
+                subject_adapter=subject_adapter,
                 backend_kind=backend.kind,
                 backend_adapter=backend.adapter,
                 subject_interface=subject_interface,
@@ -1487,27 +1653,53 @@ class Compiler:
                         "declared vary paths require explicit comparison arms"
                     )
             return
-        control_id = contrast.control_id
-        treatment_id = contrast.treatment_id
-        if not control_id or not treatment_id:
-            raise CompilationError(
-                "one_factor experiment requires control and treatment subject ids"
-            )
-        by_pair: dict[bytes, dict[str, CompiledRun]] = {}
-        for run in runs:
-            subject_id = run.manifest.subject.id
-            if subject_id not in {control_id, treatment_id}:
+        factor_path = contrast.factor_path
+        if factor_path is None:
+            control_arm: str | bytes = contrast.control_id or ""
+            treatment_arm: str | bytes = contrast.treatment_id or ""
+            if not control_arm or not treatment_arm:
                 raise CompilationError(
-                    f"one_factor sweep contains undeclared subject {subject_id!r}"
+                    "one_factor experiment requires control and treatment subject ids"
                 )
-            by_pair.setdefault(self._pair_key(run), {})[subject_id] = run
+        else:
+            control_arm = canonical_json_bytes(contrast.control_value)
+            treatment_arm = canonical_json_bytes(contrast.treatment_value)
+
+        expected_arms = {control_arm, treatment_arm}
+
+        def arm_value(run: CompiledRun) -> str | bytes:
+            if factor_path is None:
+                return run.manifest.subject.id
+            if factor_path not in run.factor_values:
+                raise CompilationError(
+                    f"one_factor contrast factor {factor_path!r} is not activated"
+                )
+            return canonical_json_bytes(run.factor_values[factor_path])
+
+        by_pair: dict[bytes, dict[str | bytes, CompiledRun]] = {}
+        for run in runs:
+            arm = arm_value(run)
+            if arm not in expected_arms:
+                raise CompilationError(
+                    "one_factor sweep contains an undeclared comparison arm "
+                    f"{arm!r}"
+                )
+            factors = {
+                key: value
+                for key, value in run.factor_values.items()
+                if key not in {"order_position", factor_path or "subject"}
+            }
+            if factor_path is None:
+                factors.pop("subject", None)
+                factors.pop("experiment.subject", None)
+            by_pair.setdefault(canonical_json_bytes(factors), {})[arm] = run
         if not by_pair:
             raise CompilationError("one_factor sweep contains no control/treatment runs")
         for pair in by_pair.values():
-            if set(pair) != {control_id, treatment_id}:
+            if set(pair) != expected_arms:
                 raise CompilationError("one_factor sweep has an unpaired control/treatment")
-            control = pair[control_id].manifest
-            treatment = pair[treatment_id].manifest
+            control = pair[control_arm].manifest
+            treatment = pair[treatment_arm].manifest
             paths = enforce_allowed_diff(
                 control, treatment, control.metadata.allowed_diff
             )
@@ -1562,21 +1754,41 @@ class Compiler:
             raise CompilationError("claim design must be invariant across comparison arms")
         base = {key: value for key, value in declaration.items() if key != "factors"}
 
-        # A one-factor contrast may omit a redundant subject axis.
+        # A one-factor contrast may omit a redundant arm axis.  The legacy
+        # subject-id form injects ``subject``; the generic form injects the
+        # declared dotted factor path and binds its values in metadata.
         if contrast.mode == "one_factor":
-            if not contrast.control_id or not contrast.treatment_id:
-                raise CompilationError(
-                    "one_factor contrast requires control_id and treatment_id"
+            if contrast.factor_path is None:
+                if not contrast.control_id or not contrast.treatment_id:
+                    raise CompilationError(
+                        "one_factor contrast requires control_id and treatment_id"
+                    )
+                arm_path = "subject"
+                arm_values = [contrast.control_id, contrast.treatment_id]
+                has_arm_axis = isinstance(factors, dict) and any(
+                    key in {"subject", "experiment.subject"} for key in factors
                 )
-            has_subject_axis = isinstance(factors, dict) and any(
-                key in {"subject", "experiment.subject"} for key in factors
-            )
-            if not has_subject_axis:
+            else:
+                arm_path = contrast.factor_path
+                arm_values = [contrast.control_value, contrast.treatment_value]
+                has_arm_axis = isinstance(factors, dict) and arm_path in factors
+            if not has_arm_axis:
                 factors = dict(factors or {})
-                factors = {
-                    "subject": [contrast.control_id, contrast.treatment_id],
-                    **factors,
-                }
+                factors = {arm_path: arm_values, **factors}
+            else:
+                declared_values = factors[arm_path]
+                normalized_values = (
+                    list(declared_values)
+                    if isinstance(declared_values, list)
+                    else [declared_values]
+                )
+                if sorted(normalized_values, key=lambda value: str(value)) != sorted(
+                    arm_values, key=lambda value: str(value)
+                ):
+                    raise CompilationError(
+                        f"one_factor contrast factor {arm_path!r} must contain exactly "
+                        "control_value and treatment_value"
+                    )
 
         runs = [
             self._compile_expanded(
