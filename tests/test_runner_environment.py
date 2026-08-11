@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -45,15 +45,15 @@ def test_environment_manager_streams_partial_output_and_surfaces_timeout(tmp_pat
     with pytest.raises(EnvironmentBuildError) as caught:
         manager._run_streaming(
             (
-                "/usr/bin/python3.11",
+                sys.executable,
                 "-c",
-                "import time; print('partial-marker', flush=True); time.sleep(1)",
+                "import time; print('partial-marker', flush=True); time.sleep(5)",
             ),
-            timeout=0.02,
+            timeout=0.5,
             cwd=tmp_path,
         )
     error = caught.value
-    assert error.timeout_seconds == 0.02
+    assert error.timeout_seconds == 0.5
     assert "partial-marker" in error.partial_output
 
 

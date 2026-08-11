@@ -245,15 +245,27 @@ def test_deterministic_conformance_protocol_rejects_non_fake_subject() -> None:
         Compiler(ROOT).compile(EXPERIMENTS / "fake-protocol-real-subject.toml")
 
 
-def test_unobserved_model_activation_is_rejected(tmp_path: Path) -> None:
+def test_unobserved_model_activation_is_rejected(
+    tmp_path: Path, aosebench_source: Path, bind_registry_source
+) -> None:
     source = (EXPERIMENTS / "aose-zero-cost-run-a.toml").read_text(
         encoding="utf-8"
     )
     source = source.replace('model = "none"', 'model = "provider/model"')
     experiment = tmp_path / "unobserved-model.toml"
     experiment.write_text(source, encoding="utf-8")
+    compiler = Compiler(ROOT)
+    bind_registry_source(
+        compiler,
+        "dataset",
+        "dataset.aosebench.biomnibench-da.v1",
+        aosebench_source,
+    )
+    bind_registry_source(
+        compiler, "subject", "aose.dryrun.true", aosebench_source
+    )
     with pytest.raises(CompilationError, match="ModelActivationReceipt"):
-        Compiler(ROOT).compile(experiment)
+        compiler.compile(experiment)
 
 
 def test_unknown_claim_mode_is_rejected_without_fallback(tmp_path: Path) -> None:

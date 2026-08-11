@@ -115,9 +115,11 @@ def test_pass_at_1_cannot_shrink_the_planned_rollout_denominator() -> None:
 
 
 def test_repeated_sampling_pipeline_replays_groups_and_uncertainty(
-    tmp_path: Path,
+    tmp_path: Path, bind_host_subprocess_backend
 ) -> None:
-    completed = Pipeline(ROOT, tmp_path).run(REPEATED_EXPERIMENT)
+    pipeline = Pipeline(ROOT, tmp_path)
+    bind_host_subprocess_backend(pipeline.compiler)
+    completed = pipeline.run(REPEATED_EXPERIMENT)
     results = [
         item
         for item in completed.report.metric_results
