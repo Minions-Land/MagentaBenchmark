@@ -32,7 +32,9 @@ should be rebased and revalidated after every concurrent merge.
 
 Repository administrators should protect `main` with:
 
-- required pull request reviews, including CODEOWNERS;
+- pull requests and the always-present required status checks. This repository
+  currently requires zero general approvals so the author may merge after the
+  checks pass; an author must not manufacture an independent review;
 - dismissal of stale approvals after new commits;
 - the always-present required status checks `MagentaBench required gate`,
   `Protocol review required gate`, and `Execution profile required gate`;
@@ -41,9 +43,16 @@ Repository administrators should protect `main` with:
 - no force pushes or branch deletion;
 - conversation resolution before merge.
 
+The general branch rule does not remove the BMP protocol boundary. A pull
+request that changes a protected BMP path must still satisfy the dedicated
+`BMP protocol review gate`, which requires a current approval from one of the
+listed protocol owners. `CODEOWNERS` continues to route review requests and
+document path ownership; it is not a claim that every documentation or lab PR
+needs another person's approval.
+
 The current CODEOWNERS entries use the repository's active collaborators. Move
 them to dedicated GitHub teams when those teams are created, keeping the path
-split and review requirements unchanged.
+split and protocol review requirements unchanged.
 
 ## Secret and evidence rule
 
