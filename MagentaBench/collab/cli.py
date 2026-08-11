@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -73,6 +74,9 @@ def _parser() -> argparse.ArgumentParser:
     preflight.add_argument("experiment_id")
     preflight.add_argument(
         "--dry-run", action="store_true", help="print the command without executing it"
+    )
+    preflight.add_argument(
+        "--actor", required=True, help="lease holder identity authorizing the preflight"
     )
 
     changes = sub.add_parser(
@@ -306,21 +310,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "preflight":
-            report = repository.validate()
-            if not report.ok:
-                print(_validation_text(report), file=sys.stderr, end="")
-                return 1
-            matches = [item for item in report.bundles if item.id == args.experiment_id]
-            if len(matches) != 1:
-                raise CollaborationError(f"unknown experiment bundle: {args.experiment_id}")
-            bundle = repository.load_bundle(
-                root / "experiments" / args.experiment_id / "bundle.json"
+            bundle = repository.authorize_preflight(
+                args.experiment_id,
+                actor=args.actor,
+                environment=os.environ,
             )
             command = bundle.execution.preflight_argv
             if args.dry_run:
-                print(_json({"argv": command, "cwd": str(root), "executed": False}), end="")
+                print(
+                    _json(
+                        {
+                            "actor": args.actor,
+                            "argv": command,
+                            "cwd": str(root),
+                            "executed": False,
+                        }
+                    ),
+                    end="",
+                )
                 return 0
-            completed = subprocess.run(command, cwd=root, check=False)
+            completed = subprocess.run(
+                command,
+                cwd=root,
+                env={
+                    **os.environ,
+                    "BMP_LAB_ACTOR": args.actor,
+                    "BMP_LAB_ISSUE_ID": bundle.lab_issue,
+                },
+                check=False,
+            )
             return completed.returncode
         if args.command == "changes":
             paths = _git_changed_paths(root, args.base_ref, args.head_ref)

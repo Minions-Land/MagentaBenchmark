@@ -33,9 +33,11 @@ benchmark 的官方 verifier 仍由各自适配器负责。不要在 BMP 中复�
 
 1. 只修改 registry 或 experiment TOML，先运行 `bmp-compile`，保存输出的
    manifest digest。修改后不得复用旧 record root。
-   可先运行 `scripts/preflight_experiment.sh path/to/experiment.toml`，它会
-   fail closed 检查 registry lock、编译 manifest、`compileall` 和 patch whitespace，
-   并根据 manifest purpose 打印 claim/exploratory 警告。
+   执行前使用 bundle-aware preflight（必须由当前 lease holder 授权）：
+   `uv run --frozen bmp-collab preflight <experiment-id> --actor <lease-holder> --dry-run`。
+   它会 fail closed 检查主 issue 状态、依赖、必需环境变量、execution profile、
+   registry lock、编译 manifest、`compileall` 和 patch whitespace；底层 shell
+   检查也要求显式的 `BMP_LAB_ACTOR` 与 `BMP_LAB_ISSUE_ID` 绑定。
 2. 用新的 UTC 目录运行 `bmp-run`。记录 root 不得放入凭据、prompt secret
    或未授权的工作区文件。
 3. 用 `bmp-verify-report`（以及报告中声明的 verifier）从磁盘 bytes 重算

@@ -72,10 +72,19 @@ cannot be verified locally. A finished report available only through an
 external locator is an error, not a verified run. `bmp-lab status` is the
 collaboration board; it is neither an experiment claim gate nor evidence that a
 reported run occurred.
-`scripts/preflight_experiment.sh` also matches the experiment path against lab
-issues. A matching `open`, `planned`, or `blocked` issue, or active work without
-a live lease, stops preflight before execution. Resolve and review the recorded
-conditions; do not bypass the gate by deleting or editing ledger records.
+Use the bundle-aware preflight command before any execution:
+
+~~~bash
+uv run --frozen bmp-collab preflight <experiment-id> --actor <lease-holder> --dry-run
+~~~
+
+It requires the primary issue to be `running`, the named actor to hold its live
+lease, every dependency to be `done`, and every bundle `required_env` name to
+be present. Values are never printed. The underlying shell preflight also
+requires `BMP_LAB_ACTOR` and `BMP_LAB_ISSUE_ID`; invoke it through
+`bmp-collab preflight` so those bindings cannot be omitted. Resolve and review
+recorded conditions; do not bypass the gate by deleting or editing ledger
+records.
 
 Verify generated JSON schemas in a temporary directory and compare them to
 "MagentaBench/schemas/json". Verify the 104-entry registry lock from the

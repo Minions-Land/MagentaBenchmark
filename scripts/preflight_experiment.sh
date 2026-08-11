@@ -26,6 +26,10 @@ if [[ ! -f "$experiment_input" ]]; then
   printf '[preflight] experiment not found: %s\n' "$experiment_input" >&2
   exit 2
 fi
+if [[ -z "${BMP_LAB_ACTOR:-}" || -z "${BMP_LAB_ISSUE_ID:-}" ]]; then
+  printf '[preflight] BMP_LAB_ACTOR and BMP_LAB_ISSUE_ID are required; use bmp-collab preflight.\n' >&2
+  exit 2
+fi
 if ! EXPERIMENT="$(realpath -- "$experiment_input" 2>/dev/null)"; then
   printf '[preflight] cannot resolve experiment path: %s\n' "$experiment_input" >&2
   exit 2
@@ -49,9 +53,9 @@ printf '[preflight] project: %s\n' "$ROOT"
 printf '[preflight] experiment: %s\n' "$relative_experiment"
 
 printf '[preflight] validating recoverable lab ledger...\n'
-uv run bmp-lab --project-root "$ROOT" doctor
-uv run bmp-lab --project-root "$ROOT" status --format markdown
-uv run python - "$ROOT" "$relative_experiment" <<'PY'
+uv run --frozen bmp-lab --project-root "$ROOT" doctor
+uv run --frozen bmp-lab --project-root "$ROOT" status --format markdown
+uv run --frozen python - "$ROOT" "$relative_experiment" "$BMP_LAB_ACTOR" "$BMP_LAB_ISSUE_ID" <<'PY'
 from pathlib import Path
 import sys
 
@@ -60,43 +64,44 @@ from MagentaBench.lab.store import utc_now
 
 root = Path(sys.argv[1])
 experiment = sys.argv[2]
+actor = sys.argv[3]
+issue_id = sys.argv[4]
 matching = [
     state
     for state in LabStore(root).list()
-    if state.issue.experiment == experiment
+    if state.issue.issue_id == issue_id
 ]
-if not matching:
-    print(
-        "[preflight] WARNING: no lab issue binds this experiment; "
-        "record ownership before shared or expensive execution."
+if len(matching) != 1:
+    raise SystemExit("[preflight] explicit BMP_LAB_ISSUE_ID does not identify one lab issue")
+state = matching[0]
+if state.issue.experiment != experiment:
+    raise SystemExit("[preflight] lab issue is not bound to the requested experiment")
+if state.status != LabStatus.running:
+    raise SystemExit(
+        f"[preflight] BLOCKED by primary lab issue state: {state.status.value}"
     )
-    raise SystemExit(0)
-
-blocked: list[str] = []
-now = utc_now()
-for state in matching:
-    if state.status in {LabStatus.open, LabStatus.planned, LabStatus.blocked}:
-        blocked.append(f"{state.issue.issue_id}={state.status.value}")
-    elif state.status in {LabStatus.running, LabStatus.verifying}:
-        if state.active_lease(now) is None:
-            blocked.append(f"{state.issue.issue_id}={state.status.value}/no-live-lease")
-if blocked:
-    print(
-        "[preflight] BLOCKED by lab issue state: " + ", ".join(sorted(blocked)),
-        file=sys.stderr,
+if state.blockers:
+    raise SystemExit("[preflight] BLOCKED by primary lab issue blockers")
+lease = state.active_lease(utc_now())
+if lease is None or lease.owner != actor:
+    raise SystemExit("[preflight] BLOCKED: actor does not hold a live primary lease")
+all_states = {item.issue.issue_id: item for item in LabStore(root).list()}
+incomplete = [
+    dependency
+    for dependency in state.issue.dependencies
+    if all_states.get(dependency) is None
+    or all_states[dependency].status != LabStatus.done
+]
+if incomplete:
+    raise SystemExit(
+        "[preflight] BLOCKED by incomplete dependencies: " + ", ".join(sorted(incomplete))
     )
-    raise SystemExit(1)
-print(
-    "[preflight] lab issue gate OK: "
-    + ", ".join(
-        f"{state.issue.issue_id}={state.status.value}" for state in matching
-    )
-)
+print(f"[preflight] lab issue gate OK: {state.issue.issue_id}={state.status.value}")
 PY
 printf '[preflight] lab ledger OK\n'
 
 printf '[preflight] verifying registry lock...\n'
-uv run python - "$ROOT" <<'PY'
+uv run --frozen python - "$ROOT" <<'PY'
 from pathlib import Path
 import sys
 
@@ -109,8 +114,8 @@ PY
 printf '[preflight] compiling manifest...\n'
 compile_output="$(mktemp)"
 trap 'rm -f -- "$compile_output"' EXIT
-uv run bmp-compile "$EXPERIMENT" --project-root "$ROOT" >"$compile_output"
-uv run python - "$compile_output" <<'PY'
+uv run --frozen bmp-compile "$EXPERIMENT" --project-root "$ROOT" >"$compile_output"
+uv run --frozen python - "$compile_output" <<'PY'
 import json
 import sys
 
@@ -124,14 +129,14 @@ for run in runs:
 PY
 
 printf '[preflight] compiling Python sources...\n'
-uv run python -m compileall -q MagentaBench plugins tests
+uv run --frozen python -m compileall -q MagentaBench plugins tests
 printf '[preflight] compileall OK\n'
 
 printf '[preflight] checking patch whitespace...\n'
 git -C "$ROOT" diff --check
 printf '[preflight] git diff --check OK\n'
 
-purpose="$(uv run python - "$EXPERIMENT" <<'PY'
+purpose="$(uv run --frozen python - "$EXPERIMENT" <<'PY'
 import sys
 try:
     import tomllib

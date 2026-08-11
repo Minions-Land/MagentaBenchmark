@@ -20,7 +20,7 @@ try:  # Python 3.11+
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
-from MagentaBench.lab import LabStatus, LabStore
+from MagentaBench.lab import LabIssueState, LabStatus, LabStore
 from MagentaBench.lab.store import LabError, utc_now
 
 from .models import (
@@ -37,6 +37,46 @@ from .models import (
 
 class CollaborationError(ValueError):
     """A bundle or repository collaboration contract is invalid."""
+
+
+def _authorize_preflight(
+    bundle: ExperimentBundle,
+    summary: BundleSummary,
+    state: LabIssueState,
+    *,
+    actor: str,
+    environment: Mapping[str, str],
+    at: datetime,
+) -> None:
+    """Require an explicit live lease before any benchmark command runs."""
+
+    if not actor or "\x00" in actor or "\n" in actor or "\r" in actor:
+        raise CollaborationError("preflight actor must be a non-empty single-line identifier")
+    if summary.lab_status != LabStatus.running.value or state.status != LabStatus.running:
+        raise CollaborationError(
+            f"preflight requires the primary lab issue to be running; observed {state.status.value}"
+        )
+    if summary.blocker_count or state.blockers:
+        raise CollaborationError(
+            f"preflight is blocked by {summary.blocker_count or len(state.blockers)} lab blocker(s)"
+        )
+    if not summary.dependencies_complete:
+        raise CollaborationError("preflight requires every declared dependency to be done")
+    lease = state.active_lease(at)
+    if lease is None:
+        raise CollaborationError("preflight requires a live lease on the primary lab issue")
+    if lease.owner != actor:
+        raise CollaborationError(
+            f"preflight actor does not hold the primary lease (holder={lease.owner!r})"
+        )
+    missing = sorted(
+        name for name in bundle.execution.required_env if not environment.get(name)
+    )
+    if missing:
+        raise CollaborationError(
+            "preflight required environment variables are missing: "
+            + ", ".join(missing)
+        )
 
 
 @dataclass(frozen=True)
@@ -883,6 +923,42 @@ class ExperimentRepository:
             errors=tuple(errors),
             warnings=tuple(warnings),
         )
+
+    def authorize_preflight(
+        self,
+        experiment_id: str,
+        *,
+        actor: str,
+        environment: Mapping[str, str] | None = None,
+        at: datetime | None = None,
+    ) -> ExperimentBundle:
+        """Validate one bundle and authorize its lease-bound preflight."""
+
+        evaluated_at = at or utc_now()
+        report = self.validate(at=evaluated_at)
+        if not report.ok:
+            finding = report.errors[0]
+            raise CollaborationError(f"repository validation failed: {finding.message}")
+        matches = [item for item in report.bundles if item.id == experiment_id]
+        if len(matches) != 1:
+            raise CollaborationError(f"unknown experiment bundle: {experiment_id}")
+        bundle_path = self.experiments_root / experiment_id / "bundle.json"
+        bundle = self.load_bundle(bundle_path)
+        try:
+            state = LabStore(self.root).load(bundle.lab_issue)
+        except LabError as exc:
+            raise CollaborationError(
+                f"cannot load primary lab issue {bundle.lab_issue}: {exc}"
+            ) from exc
+        _authorize_preflight(
+            bundle,
+            matches[0],
+            state,
+            actor=actor,
+            environment=os.environ if environment is None else environment,
+            at=evaluated_at,
+        )
+        return bundle
 
     def scaffold(
         self,
