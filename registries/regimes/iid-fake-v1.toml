@@ -1,0 +1,27 @@
+[regime]
+id = "iid.fake.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "iid_evaluation"
+
+[[regime.stages]]
+id = "evaluate"
+role = "evaluate"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+state_policy = "reset"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

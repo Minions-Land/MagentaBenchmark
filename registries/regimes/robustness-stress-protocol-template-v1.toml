@@ -1,0 +1,97 @@
+[regime]
+id = "robustness-stress.protocol-template.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "robustness_stress"
+
+[[regime.stages]]
+id = "clean-reference"
+role = "evaluate"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["clean"]
+state_policy = "reset"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "perturbation-stress"
+role = "stress"
+predecessors = ["clean-reference"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["perturbed"]
+state_policy = "fork"
+feedback_visibility = "none"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "adversarial-stress"
+role = "stress"
+predecessors = ["clean-reference"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["adversarial"]
+state_policy = "fork"
+feedback_visibility = "none"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "paired-summary"
+role = "evaluate"
+predecessors = ["perturbation-stress", "adversarial-stress"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["clean", "perturbed", "adversarial"]
+state_policy = "read_only"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

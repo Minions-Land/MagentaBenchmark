@@ -21,10 +21,15 @@ from MagentaBench.runner.adapter_registry import AdapterRegistryError
 
 ROOT = Path(__file__).parents[1]
 REGEX_EXPERIMENT = ROOT / "MagentaBench/conformance/experiments/terminal-bench-regex-smoke.toml"
+MAGENTA_EXPERIMENT = ROOT / "MagentaBench/conformance/experiments/terminal-bench-magenta-smoke.toml"
 
 
 def _compiled():
     return Compiler(ROOT).compile(REGEX_EXPERIMENT)[0]
+
+
+def _magenta_compiled():
+    return Compiler(ROOT).compile(MAGENTA_EXPERIMENT)[0]
 
 
 def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(tmp_path: Path) -> None:
@@ -124,6 +129,22 @@ def test_terminal_bench_subject_selects_native_harbor_agent() -> None:
     config = build_job_config(run, task_path=ROOT)
     assert config["agents"][0]["name"] == "nop"
     assert "tasks" in config and "datasets" not in config
+
+
+def test_magenta_subject_selects_pinned_custom_agent_and_provider_env() -> None:
+    run = _magenta_compiled()
+    config = build_job_config(run)
+    agent = config["agents"][0]
+    assert agent["import_path"] == "plugins.terminal_bench.magenta_agent:MagentaAgent"
+    assert agent["kwargs"] == {
+        "release_version": "0.1.23",
+        "github_mirror": "https://ghfast.top",
+    }
+    assert agent["env"] == {
+        "OPENAI_API_KEY": "${OPENAI_API_KEY:-}",
+        "OPENAI_BASE_URL": "${OPENAI_BASE_URL:-}",
+    }
+    assert "name" not in agent
 
 
 def test_harbor_task_path_and_execution_identity_fail_closed(tmp_path: Path) -> None:

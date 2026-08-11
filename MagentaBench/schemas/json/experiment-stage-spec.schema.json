@@ -1,0 +1,181 @@
+{
+  "$defs": {
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "ExperimentStageRole": {
+      "enum": [
+        "train",
+        "adapt",
+        "search",
+        "validation",
+        "selection",
+        "evaluate",
+        "holdout",
+        "stress"
+      ],
+      "title": "ExperimentStageRole",
+      "type": "string"
+    },
+    "StageFeedbackVisibility": {
+      "enum": [
+        "none",
+        "aggregate_only",
+        "evaluator_feedback",
+        "full_trajectory"
+      ],
+      "title": "StageFeedbackVisibility",
+      "type": "string"
+    },
+    "StageStatePolicy": {
+      "enum": [
+        "reset",
+        "carry",
+        "fork",
+        "read_only"
+      ],
+      "title": "StageStatePolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One node in a pre-registered experiment-stage DAG.",
+  "properties": {
+    "benchmark_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Benchmark Id",
+      "type": "string"
+    },
+    "budget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Budget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "dataset_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "domains": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Domains",
+      "type": "array"
+    },
+    "evaluation_cadence": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Evaluation Cadence",
+      "type": "integer"
+    },
+    "evaluator_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Evaluator Id",
+      "type": "string"
+    },
+    "feedback_visibility": {
+      "$ref": "#/$defs/StageFeedbackVisibility"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "metric_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Metric Ids",
+      "type": "array"
+    },
+    "predecessors": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Predecessors",
+      "type": "array"
+    },
+    "protocol_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Protocol Id",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/ExperimentStageRole"
+    },
+    "sealed": {
+      "default": false,
+      "title": "Sealed",
+      "type": "boolean"
+    },
+    "state_policy": {
+      "$ref": "#/$defs/StageStatePolicy"
+    }
+  },
+  "required": [
+    "id",
+    "role",
+    "benchmark_id",
+    "dataset_id",
+    "evaluator_id",
+    "protocol_id",
+    "metric_ids",
+    "state_policy",
+    "feedback_visibility"
+  ],
+  "title": "ExperimentStageSpec",
+  "type": "object"
+}

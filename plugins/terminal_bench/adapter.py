@@ -16,7 +16,7 @@ import shutil
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import TYPE_CHECKING, Any, Mapping
 
 from MagentaBench.runner.adapter_registry import (
     AdapterRegistryError,
@@ -47,6 +47,12 @@ from MagentaBench.schemas import (
     NetworkBoundary,
     NetworkPolicySource,
 )
+
+# Keep the custom Harbor Agent in the statically audited source closure without
+# importing Harbor in BMP's lightweight compiler/test environment. Harbor loads
+# the class through the digest-bound ``AgentConfig.import_path`` at runtime.
+if TYPE_CHECKING:
+    from .magenta_agent import MagentaAgent
 
 
 _ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")

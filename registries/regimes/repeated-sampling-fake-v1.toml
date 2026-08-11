@@ -1,0 +1,32 @@
+[regime]
+id = "repeated-sampling.fake.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "repeated_sampling"
+
+[[regime.stages]]
+id = "sample"
+role = "evaluate"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.repeated-sampling.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.task-bootstrap.v1",
+  "pass-at-2.unbiased.v1",
+  "pass-power-2.reliability.v1",
+  "empirical-any-at-2.v1",
+  "empirical-all-at-2.v1",
+  "expected-max-at-2.v1",
+]
+state_policy = "reset"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 4.0
+max_cost = 0.0

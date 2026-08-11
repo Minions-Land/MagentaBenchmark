@@ -26,7 +26,11 @@ from MagentaBench.schemas import (
 
 from ..compiler import CompiledRun
 from ..evidence import artifact_ref, atomic_write_bytes, atomic_write_json, sha256_file
-from ..model_activation import is_none_model, make_model_activation_receipt
+from ..model_activation import (
+    declared_model_activation_source,
+    is_none_model,
+    make_model_activation_receipt,
+)
 from .fake import CaseExecution
 
 DEFAULT_HARBOR_EXECUTABLE = "/root/.local/share/uv/tools/harbor/bin/harbor"
@@ -58,6 +62,61 @@ def harbor_agent_name(subject: Any) -> str:
     raise HarborConfigurationError(
         f"subject adapter {adapter!r} has no Harbor built-in agent mapping"
     )
+
+
+_MODEL_PROVIDER_ENV: dict[str, tuple[str, ...]] = {
+    "amazon-bedrock": (
+        "AWS_ACCESS_KEY_ID",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AWS_REGION",
+    ),
+    "anthropic": ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
+    "azure": ("AZURE_RESOURCE_NAME", "AZURE_API_KEY"),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "google": (
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+    ),
+    "groq": ("GROQ_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY",),
+    "openai": ("OPENAI_API_KEY", "OPENAI_BASE_URL"),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+    "dashscope": ("DASHSCOPE_API_KEY",),
+}
+
+
+def _agent_environment_names(model_name: str | None, declared: Any) -> tuple[str, ...]:
+    """Select only provider variables relevant to the resolved model.
+
+    Missing values intentionally use Harbor's ``:-`` template default below;
+    this lets the provider report an authentication error instead of failing
+    during JobConfig construction because an unrelated provider variable is
+    absent from the host.
+    """
+
+    if not isinstance(declared, (list, tuple)):
+        raise HarborConfigurationError("backend.defaults.agent_env must be a list of names")
+    names = tuple(
+        item
+        for item in declared
+        if isinstance(item, str) and item.strip()
+    )
+    if len(set(names)) != len(names) or len(names) != len(declared):
+        raise HarborConfigurationError(
+            "backend.defaults.agent_env names must be unique non-empty strings"
+        )
+    provider = (model_name or "").partition("/")[0].casefold()
+    preferred = _MODEL_PROVIDER_ENV.get(provider)
+    if preferred is None:
+        return names
+    return tuple(item for item in names if item in preferred)
 
 
 def build_job_config(
@@ -98,9 +157,26 @@ def build_job_config(
     selected_agent = agent_name or (
         str(shim_override)
         if backend.adapter == "harbor-shim" and shim_override is not None
-        else harbor_agent_name(run.manifest.subject)
+        else (
+            harbor_agent_name(run.manifest.subject)
+            if (
+                run.manifest.subject.adapter != "magenta-cli"
+                or defaults.get("agent_import_path") is None
+            )
+            else ""
+        )
     )
-    if not selected_agent.strip():
+    # The backend is shared by the historical ``nop`` probe and the Magenta
+    # subject. Only the subject registration may activate the custom import
+    # path; otherwise this remains a native Harbor built-in projection.
+    agent_import_path = (
+        defaults.get("agent_import_path")
+        if run.manifest.subject.adapter == "magenta-cli"
+        else None
+    )
+    if agent_import_path is not None and not isinstance(agent_import_path, str):
+        raise HarborConfigurationError("backend.defaults.agent_import_path must be a string")
+    if not selected_agent.strip() and agent_import_path is None:
         raise HarborConfigurationError("Harbor agent name must not be empty")
     attempts = protocol.rollouts_per_case if attempts is None else attempts
     if attempts < 1 or max_retries < 0:
@@ -108,12 +184,27 @@ def build_job_config(
     kwargs = defaults.get("agent_kwargs", {})
     if not isinstance(kwargs, Mapping):
         raise HarborConfigurationError("backend.defaults.agent_kwargs must be a table")
-    agent_config: dict[str, Any] = {
-        "name": selected_agent,
-        "model_name": run.manifest.execution.model,
-    }
+    agent_config: dict[str, Any] = {"model_name": run.manifest.execution.model}
+    if agent_import_path is not None:
+        if backend.adapter == "harbor" and run.manifest.subject.adapter != "magenta-cli":
+            raise HarborConfigurationError(
+                "custom Harbor agent import paths must be bound to the Magenta subject"
+            )
+        agent_config["import_path"] = agent_import_path
+    else:
+        agent_config["name"] = selected_agent
     if kwargs:
         agent_config["kwargs"] = dict(kwargs)
+    env_names = (
+        _agent_environment_names(run.manifest.execution.model, defaults.get("agent_env", ()))
+        if agent_import_path is not None
+        else ()
+    )
+    if env_names:
+        # Harbor resolves ``${NAME:-}`` through its host environment and scopes
+        # the resulting values to the Agent phase. The JobConfig contains no
+        # secret and unrelated provider variables are not forwarded.
+        agent_config["env"] = {name: f"${{{name}:-}}" for name in env_names}
     config: dict[str, Any] = {
         "job_name": run.manifest.metadata.run_id,
         "n_concurrent_trials": protocol.parallelism,
@@ -708,6 +799,20 @@ class HarborBackend:
         self.allow_test_shim = allow_test_shim
         self.runner_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
+    @staticmethod
+    def _runtime_environment() -> dict[str, str]:
+        """Expose the checked-out project to Harbor's import-path loader."""
+
+        environment = os.environ.copy()
+        project_root = Path(__file__).resolve().parents[3]
+        existing = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = (
+            str(project_root)
+            if not existing
+            else os.pathsep.join((str(project_root), existing))
+        )
+        return environment
+
     def run_directory(self, run: CompiledRun) -> Path:
         """Return the immutable parent directory used by Pipeline receipts."""
 
@@ -800,7 +905,7 @@ class HarborBackend:
         if unknown:
             raise HarborConfigurationError(f"generated JobConfig has unknown fields: {sorted(unknown)}")
         for agent in config.get("agents", []):
-            if set(agent) - {"name", "model_name", "kwargs"}:
+            if set(agent) - {"name", "import_path", "model_name", "kwargs", "env"}:
                 raise HarborConfigurationError("generated AgentConfig has unknown fields")
         try:
             checked = subprocess.run(
@@ -811,6 +916,7 @@ class HarborBackend:
                 errors="replace",
                 timeout=60,
                 check=False,
+                env=self._runtime_environment(),
             )
         except OSError as exc:
             raise HarborConfigurationError(f"cannot validate Harbor JobConfig: {exc}") from exc
@@ -839,6 +945,9 @@ class HarborBackend:
                         raise HarborConfigurationError(f"Harbor projection changed {path}")
                     for index, value in enumerate(expected):
                         assert_projection(value, actual[index], f"{path}[{index}]")
+                elif path.endswith(".env"):
+                    if not isinstance(actual, Mapping) or set(actual) != set(expected):
+                        raise HarborConfigurationError(f"Harbor projection changed {path}")
                 elif actual != expected:
                     raise HarborConfigurationError(
                         f"Harbor projection changed {path}: expected {expected!r}, got {actual!r}"
@@ -1020,16 +1129,11 @@ class HarborBackend:
         self._validate_generated_config(config_path)
         stdout_path = evidence_root / "harbor.stdout.log"
         stderr_path = evidence_root / "harbor.stderr.log"
-        command = [
-            self.harbor_executable,
-            "run",
-            "--agent",
-            config["agents"][0]["name"],
-            "--config",
-            str(config_path),
-            "--jobs-dir",
-            str(evidence_root),
-        ]
+        command = [self.harbor_executable, "run"]
+        agent = config["agents"][0]
+        if "name" in agent:
+            command.extend(("--agent", agent["name"]))
+        command.extend(("--config", str(config_path), "--jobs-dir", str(evidence_root)))
         try:
             completed = subprocess.run(
                 command,
@@ -1043,6 +1147,7 @@ class HarborBackend:
                     else max(0.001, min(self.timeout_seconds, float(timeout_seconds)))
                 ),
                 check=False,
+                env=self._runtime_environment(),
             )
             atomic_write_bytes(stdout_path, completed.stdout.encode("utf-8"))
             atomic_write_bytes(stderr_path, completed.stderr.encode("utf-8"))

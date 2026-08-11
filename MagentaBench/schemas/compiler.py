@@ -31,6 +31,7 @@ from .models import (
     EvolutionRunEvidence,
     ExecutionSpec,
     EvaluatorSpec,
+    ExperimentRegimeSpec,
     MetricSpec,
     MetaEvolutionMethodSpec,
     ProtocolSpec,
@@ -414,6 +415,13 @@ def load_metric_spec(path: str | Path) -> MetricSpec:
     return MetricSpec.model_validate(table)
 
 
+def load_experiment_regime_spec(path: str | Path) -> ExperimentRegimeSpec:
+    """Load one strict ``[regime]`` stage-DAG declaration from TOML."""
+
+    table = _required_table(_load_toml(path), "regime")
+    return ExperimentRegimeSpec.model_validate(table)
+
+
 def load_configuration_spec(path: str | Path) -> ConfigurationSpec:
     table = _required_table(_load_toml(path), "configuration")
     return ConfigurationSpec.model_validate(table)
@@ -588,6 +596,9 @@ __all__ = [
     "load_evolution_run_evidence",
     "load_evolution_method_spec",
     "load_execution_spec",
+    "load_experiment_regime_spec",
+    "load_evaluator_spec",
+    "load_metric_spec",
     "load_meta_evolution_method_spec",
     "load_protocol_spec",
     "load_subject_spec",

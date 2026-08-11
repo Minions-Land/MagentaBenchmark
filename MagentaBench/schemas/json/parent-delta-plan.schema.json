@@ -1,0 +1,58 @@
+{
+  "$defs": {
+    "ParentChildPair": {
+      "additionalProperties": false,
+      "properties": {
+        "child_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Child Id",
+          "type": "string"
+        },
+        "pair_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Pair Id",
+          "type": "string"
+        },
+        "parent_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Parent Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pair_id",
+        "parent_id",
+        "child_id"
+      ],
+      "title": "ParentChildPair",
+      "type": "object"
+    },
+    "ResearchMetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "ResearchMetricDirection",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "direction": {
+      "$ref": "#/$defs/ResearchMetricDirection",
+      "default": "maximize"
+    },
+    "pairs": {
+      "items": {
+        "$ref": "#/$defs/ParentChildPair"
+      },
+      "title": "Pairs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "pairs"
+  ],
+  "title": "ParentDeltaPlan",
+  "type": "object"
+}

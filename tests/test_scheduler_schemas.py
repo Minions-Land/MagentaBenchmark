@@ -54,6 +54,7 @@ def valid_payload() -> dict[str, object]:
                 attempt_id="attempt-0",
                 case_id="case-1",
                 case_allocation_id="case-allocation-1",
+                attempt_index=0,
                 allocated=BudgetAllocation(max_tokens=50, max_cost=5.0),
                 reservation_sequence=0,
                 launched=True,
@@ -63,6 +64,7 @@ def valid_payload() -> dict[str, object]:
                 attempt_id="attempt-1",
                 case_id="case-1",
                 case_allocation_id="case-allocation-1",
+                attempt_index=1,
                 allocated=BudgetAllocation(max_tokens=50, max_cost=5.0),
                 reservation_sequence=2,
                 launched=True,
@@ -170,6 +172,42 @@ def test_duplicate_or_missing_lineage_is_rejected() -> None:
     attempts[1] = attempts[1].model_copy(update={"attempt_id": "attempt-0"})
     payload["attempts"] = tuple(attempts)
     with pytest.raises(ValidationError, match="attempt"):
+        ScheduleActivationReceipt.model_validate(payload)
+
+
+def test_planned_attempt_indices_are_ordered_and_contiguous() -> None:
+    payload = valid_payload()
+    ledger = payload["budget_ledger"].model_dump(mode="python")  # type: ignore[union-attr]
+    ledger["attempt_allocations"][0]["attempt_index"] = 1
+    ledger["attempt_allocations"][1]["attempt_index"] = 0
+
+    with pytest.raises(ValidationError, match="ordered, contiguous planned indices"):
+        BudgetLedger.model_validate(ledger)
+
+
+def test_execution_attempt_index_swap_is_rejected() -> None:
+    payload = valid_payload()
+    attempts = list(payload["attempts"])  # type: ignore[arg-type]
+    attempts[0] = attempts[0].model_copy(update={"attempt_index": 1})
+    attempts[1] = attempts[1].model_copy(update={"attempt_index": 0})
+    payload["attempts"] = tuple(attempts)
+
+    with pytest.raises(ValidationError, match="index must match its allocation"):
+        ScheduleActivationReceipt.model_validate(payload)
+
+
+def test_allocation_and_execution_index_relabel_is_rejected() -> None:
+    payload = valid_payload()
+    ledger = payload["budget_ledger"].model_dump(mode="python")  # type: ignore[union-attr]
+    ledger["attempt_allocations"][0]["attempt_index"] = 1
+    ledger["attempt_allocations"][1]["attempt_index"] = 0
+    attempts = [item.model_dump(mode="python") for item in payload["attempts"]]  # type: ignore[union-attr]
+    attempts[0]["attempt_index"] = 1
+    attempts[1]["attempt_index"] = 0
+    payload["budget_ledger"] = ledger
+    payload["attempts"] = attempts
+
+    with pytest.raises(ValidationError, match="ordered, contiguous planned indices"):
         ScheduleActivationReceipt.model_validate(payload)
 
 

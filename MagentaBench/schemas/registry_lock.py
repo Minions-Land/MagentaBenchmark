@@ -38,6 +38,7 @@ _REGISTRY_SECTIONS = frozenset(
         "meta_evolver",
         "metric",
         "protocol",
+        "regime",
         "subject",
     }
 )

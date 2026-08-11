@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Candidate Ids",
+      "type": "array"
+    },
+    "yield_definition": {
+      "enum": [
+        "valid",
+        "eligible",
+        "archive_admitted",
+        "promoted"
+      ],
+      "title": "Yield Definition",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_ids",
+    "yield_definition"
+  ],
+  "title": "CandidateYieldPlan",
+  "type": "object"
+}

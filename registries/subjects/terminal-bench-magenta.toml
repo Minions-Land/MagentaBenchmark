@@ -1,0 +1,12 @@
+[subject]
+id = "terminal-bench.magenta"
+kind = "opaque_agent"
+comparison_kind = "coding_agent"
+adapter = "magenta-cli"
+bmp_version = "0.1"
+source = "../../MagentaBench"
+commit = "v0.1.23"
+entrypoint = "magenta"
+launch_argv = ["magenta"]
+interface = "terminal-bench-harbor-v1"
+emits_trace = true

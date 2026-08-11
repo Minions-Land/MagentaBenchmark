@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "const": "bmp-sealed-holdout-release-v1",
+      "default": "bmp-sealed-holdout-release-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "holdout_membership_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Holdout Membership Refs",
+      "type": "array"
+    },
+    "holdout_stage_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Holdout Stage Id",
+      "type": "string"
+    },
+    "regime_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Regime Digest",
+      "type": "string"
+    },
+    "released_at": {
+      "title": "Released At",
+      "type": "string"
+    },
+    "selection_closed_at": {
+      "title": "Selection Closed At",
+      "type": "string"
+    },
+    "selection_receipt_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "selection_stage_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Selection Stage Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "regime_digest",
+    "holdout_stage_id",
+    "selection_stage_id",
+    "selection_receipt_ref",
+    "holdout_membership_refs",
+    "selection_closed_at",
+    "released_at"
+  ],
+  "title": "SealedHoldoutReleaseReceipt",
+  "type": "object"
+}

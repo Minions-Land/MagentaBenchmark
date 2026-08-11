@@ -13,7 +13,8 @@
           "enum": [
             "benchmark_loader",
             "backend_factory",
-            "execution"
+            "execution",
+            "metric_source"
           ],
           "title": "Adapter Kind",
           "type": "string"
@@ -66,6 +67,24 @@
           "const": "adapter",
           "title": "Kind",
           "type": "string"
+        },
+        "metric_config_schema": {
+          "additionalProperties": true,
+          "title": "Metric Config Schema",
+          "type": "object"
+        },
+        "metric_config_schema_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Config Schema Digest"
         },
         "model_activation_source": {
           "anyOf": [
@@ -125,6 +144,27 @@
             "type": "string"
           },
           "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_metric_formulas": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Metric Formulas",
+          "type": "array"
+        },
+        "supported_metric_sources": {
+          "default": [],
+          "items": {
+            "enum": [
+              "regime",
+              "evolution",
+              "external"
+            ],
+            "type": "string"
+          },
+          "title": "Supported Metric Sources",
           "type": "array"
         },
         "supported_state_reset_policies": {
@@ -1533,6 +1573,212 @@
       "title": "ExperimentContrast",
       "type": "object"
     },
+    "ExperimentRegimeArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/RegimeDependencyArtifact"
+          },
+          "title": "Dependencies",
+          "type": "array"
+        },
+        "regime": {
+          "$ref": "#/$defs/ExperimentRegimeSpec"
+        }
+      },
+      "required": [
+        "regime",
+        "declaration_ref",
+        "dependencies",
+        "artifact_digest"
+      ],
+      "title": "ExperimentRegimeArtifact",
+      "type": "object"
+    },
+    "ExperimentRegimeKind": {
+      "description": "Research setting orthogonal to the four comparison subjects.",
+      "enum": [
+        "iid_evaluation",
+        "repeated_sampling",
+        "generalization",
+        "cross_domain_transfer",
+        "continual_learning",
+        "curriculum",
+        "online_adaptation",
+        "robustness_stress",
+        "evolutionary_search",
+        "meta_evolution"
+      ],
+      "title": "ExperimentRegimeKind",
+      "type": "string"
+    },
+    "ExperimentRegimeSpec": {
+      "additionalProperties": false,
+      "description": "TOML authority for multi-stage research settings.\n\nThe DAG expresses generalization, transfer, continual learning, curriculum,\nonline adaptation, robustness, evolution, and meta-evolution without\nintroducing another semantic comparison kind.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "regime",
+          "title": "Kind",
+          "type": "string"
+        },
+        "regime_kind": {
+          "$ref": "#/$defs/ExperimentRegimeKind"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/ExperimentStageSpec"
+          },
+          "title": "Stages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "regime_kind",
+        "stages"
+      ],
+      "title": "ExperimentRegimeSpec",
+      "type": "object"
+    },
+    "ExperimentStageRole": {
+      "enum": [
+        "train",
+        "adapt",
+        "search",
+        "validation",
+        "selection",
+        "evaluate",
+        "holdout",
+        "stress"
+      ],
+      "title": "ExperimentStageRole",
+      "type": "string"
+    },
+    "ExperimentStageSpec": {
+      "additionalProperties": false,
+      "description": "One node in a pre-registered experiment-stage DAG.",
+      "properties": {
+        "benchmark_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Benchmark Id",
+          "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dataset_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "domains": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Domains",
+          "type": "array"
+        },
+        "evaluation_cadence": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Evaluation Cadence",
+          "type": "integer"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "feedback_visibility": {
+          "$ref": "#/$defs/StageFeedbackVisibility"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "metric_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metric Ids",
+          "type": "array"
+        },
+        "predecessors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Predecessors",
+          "type": "array"
+        },
+        "protocol_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/ExperimentStageRole"
+        },
+        "sealed": {
+          "default": false,
+          "title": "Sealed",
+          "type": "boolean"
+        },
+        "state_policy": {
+          "$ref": "#/$defs/StageStatePolicy"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "benchmark_id",
+        "dataset_id",
+        "evaluator_id",
+        "protocol_id",
+        "metric_ids",
+        "state_policy",
+        "feedback_visibility"
+      ],
+      "title": "ExperimentStageSpec",
+      "type": "object"
+    },
     "FactorActivationEvidence": {
       "enum": [
         "subject_activation",
@@ -1947,6 +2193,14 @@
       "title": "MetaEvolverSubjectArtifact",
       "type": "object"
     },
+    "MetricAcrossGroupAggregation": {
+      "enum": [
+        "macro_mean",
+        "minimum"
+      ],
+      "title": "MetricAcrossGroupAggregation",
+      "type": "string"
+    },
     "MetricArtifact": {
       "additionalProperties": false,
       "properties": {
@@ -1984,12 +2238,78 @@
         "direct_v1",
         "mean_v1",
         "sum_v1",
+        "minimum_v1",
+        "maximum_v1",
+        "median_v1",
+        "quantile_linear_v1",
+        "variance_population_v1",
+        "variance_sample_v1",
+        "standard_deviation_population_v1",
+        "standard_deviation_sample_v1",
         "pass_at_1_v1",
+        "pass_at_k_unbiased_v1",
+        "pass_power_k_v1",
+        "empirical_any_at_k_v1",
+        "empirical_all_at_k_v1",
+        "expected_max_at_k_v1",
         "ratio_v1",
+        "difference_v1",
         "successes_per_million_tokens_v1",
-        "completed_per_hour_v1"
+        "completed_per_hour_v1",
+        "external_adapter_v1"
       ],
       "title": "MetricFormula",
+      "type": "string"
+    },
+    "MetricFormulaParameters": {
+      "additionalProperties": false,
+      "description": "Typed parameters whose meaning is owned by ``MetricFormula``.",
+      "properties": {
+        "k": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "K"
+        },
+        "quantile": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantile"
+        }
+      },
+      "title": "MetricFormulaParameters",
+      "type": "object"
+    },
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
       "type": "string"
     },
     "MetricLevel": {
@@ -2016,13 +2336,56 @@
       "enum": [
         "evaluator_observations",
         "planned_rollouts",
+        "planned_tasks",
         "launched_rollouts",
         "completed_rollouts",
         "observed_rollouts",
+        "stages",
+        "domains",
+        "generations",
         "experiment_wall_clock"
       ],
       "title": "MetricPopulation",
       "type": "string"
+    },
+    "MetricSamplingDesign": {
+      "enum": [
+        "exchangeable_rollouts",
+        "ordered_prefix"
+      ],
+      "title": "MetricSamplingDesign",
+      "type": "string"
+    },
+    "MetricSamplingSpec": {
+      "additionalProperties": false,
+      "description": "Sampling assumptions required by a repeated-rollout estimand.",
+      "properties": {
+        "design": {
+          "$ref": "#/$defs/MetricSamplingDesign"
+        },
+        "exchangeability_keys": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Exchangeability Keys",
+          "type": "array"
+        },
+        "subset_policy": {
+          "enum": [
+            "uniform_without_replacement",
+            "first_k"
+          ],
+          "title": "Subset Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "subset_policy"
+      ],
+      "title": "MetricSamplingSpec",
+      "type": "object"
     },
     "MetricSource": {
       "enum": [
@@ -2030,6 +2393,9 @@
         "usage",
         "trajectory",
         "schedule",
+        "regime",
+        "evolution",
+        "external",
         "derived"
       ],
       "title": "MetricSource",
@@ -2039,6 +2405,17 @@
       "additionalProperties": false,
       "description": "Versioned metric semantics selected only through a TOML registry.\n\nThe formula, population, failure handling, unit, and dependency identities\nare all part of the metric digest. This prevents a familiar display name\nsuch as ``pass@1`` from silently changing denominator or exception policy.",
       "properties": {
+        "across_groups": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricAcrossGroupAggregation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "adapter": {
           "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
           "title": "Adapter",
@@ -2050,11 +2427,24 @@
           "title": "Bmp Version",
           "type": "string"
         },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
         "direction": {
           "$ref": "#/$defs/MetricDirection"
         },
         "formula": {
           "$ref": "#/$defs/MetricFormula"
+        },
+        "group_by": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Group By",
+          "type": "array"
         },
         "id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -2080,8 +2470,30 @@
         "missing_observation": {
           "$ref": "#/$defs/MetricMissingDisposition"
         },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricFormulaParameters"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "population": {
           "$ref": "#/$defs/MetricPopulation"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricSamplingSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "scale": {
           "default": 1.0,
@@ -2111,6 +2523,17 @@
           },
           "title": "Status Policy",
           "type": "object"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricUncertaintySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "unit": {
           "minLength": 1,
@@ -2146,6 +2569,102 @@
       ],
       "title": "MetricStatusDisposition",
       "type": "string"
+    },
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    },
+    "MetricUncertaintySpec": {
+      "additionalProperties": false,
+      "description": "Pre-registered deterministic uncertainty calculation.",
+      "properties": {
+        "cluster_by": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Cluster By",
+          "type": "array"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "degenerate_policy": {
+          "const": "point_interval",
+          "default": "point_interval",
+          "title": "Degenerate Policy",
+          "type": "string"
+        },
+        "estimand": {
+          "const": "mean",
+          "default": "mean",
+          "title": "Estimand",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/MetricUncertaintyMethod"
+        },
+        "resamples": {
+          "anyOf": [
+            {
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resamples"
+        },
+        "resampling_unit": {
+          "enum": [
+            "rollout",
+            "task"
+          ],
+          "title": "Resampling Unit",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "anyOf": [
+            {
+              "const": "sha256_counter_v1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Algorithm"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "method",
+        "resampling_unit"
+      ],
+      "title": "MetricUncertaintySpec",
+      "type": "object"
     },
     "MetricValueKind": {
       "enum": [
@@ -2483,6 +3002,43 @@
       "title": "ProviderBinding",
       "type": "object"
     },
+    "RegimeDependencyArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "registry_kind": {
+          "enum": [
+            "benchmark",
+            "dataset",
+            "evaluator",
+            "metric",
+            "protocol"
+          ],
+          "title": "Registry Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "registry_kind",
+        "id",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "RegimeDependencyArtifact",
+      "type": "object"
+    },
     "ResolvedExecutionSpec": {
       "additionalProperties": false,
       "description": "Execution contract with registry references inlined.\n\n``provider_binding`` is absent for the closed ``none/*`` execution modes.\nIt is optional for an exploratory real-model run so missing provider\nidentity can be recorded explicitly, but a positive runtime result requires\nit plus a matching :class:`ModelActivationReceipt`.",
@@ -2611,6 +3167,19 @@
           ],
           "default": null
         },
+        "regime_stage_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Regime Stage Id"
+        },
         "run_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Run Id",
@@ -2650,6 +3219,26 @@
         "continuous"
       ],
       "title": "ScoringKind",
+      "type": "string"
+    },
+    "StageFeedbackVisibility": {
+      "enum": [
+        "none",
+        "aggregate_only",
+        "evaluator_feedback",
+        "full_trajectory"
+      ],
+      "title": "StageFeedbackVisibility",
+      "type": "string"
+    },
+    "StageStatePolicy": {
+      "enum": [
+        "reset",
+        "carry",
+        "fork",
+        "read_only"
+      ],
+      "title": "StageStatePolicy",
       "type": "string"
     },
     "StatisticalAnalysisPlan": {
@@ -2960,6 +3549,17 @@
       ],
       "default": null,
       "title": "Record Root"
+    },
+    "regime": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ExperimentRegimeArtifact"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "resume_count": {
       "default": 0,

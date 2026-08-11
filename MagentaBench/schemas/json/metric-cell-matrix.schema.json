@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "ExperimentCellDisposition": {
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid"
+      ],
+      "title": "ExperimentCellDisposition",
+      "type": "string"
+    },
+    "MetricMatrixCell": {
+      "additionalProperties": false,
+      "properties": {
+        "column_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Column Id",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ExperimentCellDisposition"
+        },
+        "row_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Row Id",
+          "type": "string"
+        },
+        "source_cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Source Cell Id",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "row_id",
+        "column_id",
+        "source_cell_id",
+        "disposition"
+      ],
+      "title": "MetricMatrixCell",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cells": {
+      "items": {
+        "$ref": "#/$defs/MetricMatrixCell"
+      },
+      "title": "Cells",
+      "type": "array"
+    },
+    "column_axis": {
+      "enum": [
+        "task",
+        "domain",
+        "scenario",
+        "variant"
+      ],
+      "title": "Column Axis",
+      "type": "string"
+    },
+    "column_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Column Ids",
+      "type": "array"
+    },
+    "format": {
+      "const": "bmp-metric-cell-matrix-v1",
+      "default": "bmp-metric-cell-matrix-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "matrix_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Matrix Digest",
+      "type": "string"
+    },
+    "metric_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Metric Digest",
+      "type": "string"
+    },
+    "metric_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "row_axis": {
+      "enum": [
+        "checkpoint",
+        "stage",
+        "generation"
+      ],
+      "title": "Row Axis",
+      "type": "string"
+    },
+    "row_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Row Ids",
+      "type": "array"
+    },
+    "source_observation_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Observation Digest",
+      "type": "string"
+    },
+    "source_plan_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Plan Digest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_plan_digest",
+    "source_observation_digest",
+    "metric_id",
+    "metric_digest",
+    "row_axis",
+    "column_axis",
+    "row_ids",
+    "column_ids",
+    "cells",
+    "matrix_digest"
+  ],
+  "title": "MetricCellMatrix",
+  "type": "object"
+}

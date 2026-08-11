@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "checkpoint_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "coordinate": {
+      "minimum": 0.0,
+      "title": "Coordinate",
+      "type": "number"
+    }
+  },
+  "required": [
+    "checkpoint_id",
+    "coordinate"
+  ],
+  "title": "ProgressCheckpoint",
+  "type": "object"
+}

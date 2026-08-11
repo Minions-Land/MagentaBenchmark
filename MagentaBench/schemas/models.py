@@ -1011,7 +1011,7 @@ class AdapterCapability(RegistryEntry):
 
     kind: Literal["adapter"]
     adapter_kind: Literal[
-        "benchmark_loader", "backend_factory", "execution"
+        "benchmark_loader", "backend_factory", "execution", "metric_source"
     ]
     entrypoint: str = Field(min_length=1)
     source: str = "."
@@ -1046,6 +1046,15 @@ class AdapterCapability(RegistryEntry):
     supported_state_reset_policies: tuple[
         Literal["per_case", "per_rollout", "never"], ...
     ] = ()
+    supported_metric_sources: tuple[
+        Literal["regime", "evolution", "external"], ...
+    ] = ()
+    supported_metric_formulas: tuple[str, ...] = ()
+    metric_config_schema: Mapping[str, Any] = Field(default_factory=dict)
+    metric_config_schema_digest: str | None = Field(
+        default=None,
+        pattern=SHA256_PATTERN,
+    )
 
     @field_validator("source")
     @classmethod
@@ -1085,6 +1094,8 @@ class AdapterCapability(RegistryEntry):
         "supported_subject_interfaces",
         "none_model_sentinels",
         "supported_state_reset_policies",
+        "supported_metric_sources",
+        "supported_metric_formulas",
     )
     @classmethod
     def capability_values_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
@@ -1109,6 +1120,13 @@ class AdapterCapability(RegistryEntry):
             )
         return values
 
+    @field_validator("metric_config_schema", mode="before")
+    @classmethod
+    def metric_schema_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(
+            value, field_name="AdapterCapability.metric_config_schema"
+        )
+
     @model_validator(mode="after")
     def policy_fields_match_capability_kind(self) -> "AdapterCapability":
         if self.adapter_kind != "backend_factory" and (
@@ -1126,6 +1144,37 @@ class AdapterCapability(RegistryEntry):
                 "model activation policies and state-reset policies are allowed "
                 "only for execution"
             )
+        metric_fields_present = bool(
+            self.supported_metric_sources
+            or self.supported_metric_formulas
+            or self.metric_config_schema
+            or self.metric_config_schema_digest is not None
+        )
+        if self.adapter_kind != "metric_source" and metric_fields_present:
+            raise ValueError(
+                "metric source policies are allowed only for metric_source adapters"
+            )
+        if self.adapter_kind == "metric_source":
+            if not self.supported_metric_sources or not self.supported_metric_formulas:
+                raise ValueError(
+                    "metric_source adapters require supported sources and formulas"
+                )
+            observed_schema_digest = hashlib.sha256(
+                json.dumps(
+                    self.metric_config_schema,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            if self.metric_config_schema_digest != observed_schema_digest:
+                raise ValueError("metric adapter config schema digest drift")
+        object.__setattr__(
+            self,
+            "metric_config_schema",
+            _freeze_configuration_tree(self.metric_config_schema),
+        )
         return self
 
     def supports(
@@ -1805,6 +1854,9 @@ class MetricSource(str, Enum):
     usage = "usage"
     trajectory = "trajectory"
     schedule = "schedule"
+    regime = "regime"
+    evolution = "evolution"
+    external = "external"
     derived = "derived"
 
 
@@ -1812,19 +1864,162 @@ class MetricFormula(str, Enum):
     direct_v1 = "direct_v1"
     mean_v1 = "mean_v1"
     sum_v1 = "sum_v1"
+    minimum_v1 = "minimum_v1"
+    maximum_v1 = "maximum_v1"
+    median_v1 = "median_v1"
+    quantile_linear_v1 = "quantile_linear_v1"
+    variance_population_v1 = "variance_population_v1"
+    variance_sample_v1 = "variance_sample_v1"
+    standard_deviation_population_v1 = "standard_deviation_population_v1"
+    standard_deviation_sample_v1 = "standard_deviation_sample_v1"
     pass_at_1_v1 = "pass_at_1_v1"
+    pass_at_k_unbiased_v1 = "pass_at_k_unbiased_v1"
+    pass_power_k_v1 = "pass_power_k_v1"
+    empirical_any_at_k_v1 = "empirical_any_at_k_v1"
+    empirical_all_at_k_v1 = "empirical_all_at_k_v1"
+    expected_max_at_k_v1 = "expected_max_at_k_v1"
     ratio_v1 = "ratio_v1"
+    difference_v1 = "difference_v1"
     successes_per_million_tokens_v1 = "successes_per_million_tokens_v1"
     completed_per_hour_v1 = "completed_per_hour_v1"
+    external_adapter_v1 = "external_adapter_v1"
 
 
 class MetricPopulation(str, Enum):
     evaluator_observations = "evaluator_observations"
     planned_rollouts = "planned_rollouts"
+    planned_tasks = "planned_tasks"
     launched_rollouts = "launched_rollouts"
     completed_rollouts = "completed_rollouts"
     observed_rollouts = "observed_rollouts"
+    stages = "stages"
+    domains = "domains"
+    generations = "generations"
     experiment_wall_clock = "experiment_wall_clock"
+
+
+class MetricGroupKey(str, Enum):
+    """Identity keys available to an intermediate metric reduction.
+
+    A reducer first operates inside every declared group and the resulting
+    group values are macro-averaged unless the formula says otherwise.  The
+    task key is available from every schedule receipt; stage/domain/generation
+    keys require their corresponding typed receipt and therefore fail closed
+    when selected on a plain single-stage schedule.
+    """
+
+    task = "task"
+    stage = "stage"
+    checkpoint = "checkpoint"
+    domain = "domain"
+    scenario = "scenario"
+    variant = "variant"
+    candidate = "candidate"
+    generation = "generation"
+    time_window = "time_window"
+
+
+class MetricFormulaParameters(StrictModel):
+    """Typed parameters whose meaning is owned by ``MetricFormula``."""
+
+    k: int | None = Field(default=None, ge=1, strict=True)
+    quantile: float | None = Field(default=None, ge=0.0, le=1.0, strict=True)
+
+
+class MetricAcrossGroupAggregation(str, Enum):
+    macro_mean = "macro_mean"
+    minimum = "minimum"
+
+
+class MetricSamplingDesign(str, Enum):
+    exchangeable_rollouts = "exchangeable_rollouts"
+    ordered_prefix = "ordered_prefix"
+
+
+class MetricSamplingSpec(StrictModel):
+    """Sampling assumptions required by a repeated-rollout estimand."""
+
+    design: MetricSamplingDesign
+    subset_policy: Literal["uniform_without_replacement", "first_k"]
+    exchangeability_keys: tuple[str, ...] = ()
+
+    @field_validator("exchangeability_keys")
+    @classmethod
+    def exchangeability_keys_are_closed(
+        cls, values: tuple[str, ...]
+    ) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("exchangeability keys must be unique")
+        if any(
+            re.fullmatch(r"^[A-Za-z_][A-Za-z0-9_.-]*$", value) is None
+            for value in values
+        ):
+            raise ValueError("exchangeability keys must be normalized paths")
+        return values
+
+    @model_validator(mode="after")
+    def sampling_design_matches_subset_policy(self) -> "MetricSamplingSpec":
+        if self.design == MetricSamplingDesign.exchangeable_rollouts:
+            if self.subset_policy != "uniform_without_replacement":
+                raise ValueError(
+                    "exchangeable rollouts require uniform_without_replacement"
+                )
+            if "task" not in self.exchangeability_keys:
+                raise ValueError("exchangeable rollouts must bind the task key")
+        else:
+            if self.subset_policy != "first_k":
+                raise ValueError("ordered prefix requires subset_policy='first_k'")
+            if self.exchangeability_keys:
+                raise ValueError("ordered prefix forbids exchangeability claims")
+        return self
+
+
+class MetricUncertaintyMethod(str, Enum):
+    wilson_score_v1 = "wilson_score_v1"
+    bootstrap_percentile_v1 = "bootstrap_percentile_v1"
+
+
+class MetricUncertaintySpec(StrictModel):
+    """Pre-registered deterministic uncertainty calculation."""
+
+    method: MetricUncertaintyMethod
+    estimand: Literal["mean"] = "mean"
+    confidence_level: float = Field(default=0.95, gt=0.5, lt=1.0, strict=True)
+    resampling_unit: Literal["rollout", "task"]
+    cluster_by: tuple[MetricGroupKey, ...] = ()
+    resamples: int | None = Field(default=None, ge=100, strict=True)
+    seed: int | None = None
+    rng_algorithm: Literal["sha256_counter_v1"] | None = None
+    degenerate_policy: Literal["point_interval"] = "point_interval"
+
+    @model_validator(mode="after")
+    def uncertainty_parameters_match_method(self) -> "MetricUncertaintySpec":
+        if self.method == MetricUncertaintyMethod.wilson_score_v1:
+            if self.resampling_unit != "rollout":
+                raise ValueError("Wilson uncertainty requires rollout units")
+            if (
+                self.cluster_by
+                or self.resamples is not None
+                or self.seed is not None
+                or self.rng_algorithm is not None
+            ):
+                raise ValueError("Wilson uncertainty forbids bootstrap parameters")
+        else:
+            if (
+                self.resamples is None
+                or self.seed is None
+                or self.rng_algorithm is None
+            ):
+                raise ValueError(
+                    "bootstrap uncertainty requires deterministic resamples, seed, and RNG"
+                )
+            if self.resampling_unit == "task" and self.cluster_by != (
+                MetricGroupKey.task,
+            ):
+                raise ValueError("task bootstrap requires cluster_by=['task']")
+            if self.resampling_unit == "rollout" and self.cluster_by:
+                raise ValueError("rollout bootstrap forbids cluster_by")
+        return self
 
 
 class MetricStatusDisposition(str, Enum):
@@ -1857,6 +2052,12 @@ class MetricSpec(RegistryEntry):
     source_field: str | None = Field(default=None, min_length=1)
     formula: MetricFormula
     population: MetricPopulation
+    group_by: tuple[MetricGroupKey, ...] = ()
+    across_groups: MetricAcrossGroupAggregation | None = None
+    parameters: MetricFormulaParameters | None = None
+    sampling: MetricSamplingSpec | None = None
+    uncertainty: MetricUncertaintySpec | None = None
+    config: Mapping[str, Any] = Field(default_factory=dict)
     inputs: tuple[str, ...] = ()
     scale: float = Field(default=1.0, gt=0, strict=True)
     missing_observation: MetricMissingDisposition
@@ -1871,6 +2072,15 @@ class MetricSpec(RegistryEntry):
             raise ValueError("metric input ids must be valid BMP ids")
         return values
 
+    @field_validator("group_by")
+    @classmethod
+    def group_keys_are_unique(
+        cls, values: tuple[MetricGroupKey, ...]
+    ) -> tuple[MetricGroupKey, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("metric group_by keys must be unique")
+        return values
+
     @field_validator("status_policy", mode="before")
     @classmethod
     def status_policy_is_closed(cls, value: Any) -> Any:
@@ -1881,6 +2091,11 @@ class MetricSpec(RegistryEntry):
             raise ValueError(f"metric status_policy contains unknown statuses: {unknown}")
         return dict(value)
 
+    @field_validator("config", mode="before")
+    @classmethod
+    def metric_config_is_json_compatible(cls, value: Any) -> Any:
+        return _validate_json_configuration(value, field_name="MetricSpec.config")
+
     @model_validator(mode="after")
     def metric_contract_is_coherent(self) -> "MetricSpec":
         direct_sources = {
@@ -1888,6 +2103,9 @@ class MetricSpec(RegistryEntry):
             MetricSource.usage,
             MetricSource.trajectory,
             MetricSource.schedule,
+            MetricSource.regime,
+            MetricSource.evolution,
+            MetricSource.external,
         }
         if self.source in direct_sources and self.source_field is None:
             raise ValueError("direct metric sources require source_field")
@@ -1899,6 +2117,7 @@ class MetricSpec(RegistryEntry):
             raise ValueError("non-derived metrics forbid input metric ids")
         expected_input_count = {
             MetricFormula.ratio_v1: 2,
+            MetricFormula.difference_v1: 2,
             MetricFormula.successes_per_million_tokens_v1: 2,
         }.get(self.formula)
         if expected_input_count is not None and len(self.inputs) != expected_input_count:
@@ -1908,10 +2127,126 @@ class MetricSpec(RegistryEntry):
             )
         if self.formula in {
             MetricFormula.ratio_v1,
+            MetricFormula.difference_v1,
             MetricFormula.successes_per_million_tokens_v1,
         } and self.source != MetricSource.derived:
-            raise ValueError("ratio formulas require source='derived'")
+            raise ValueError("multi-input formulas require source='derived'")
+        parameterized_k_formulas = {
+            MetricFormula.pass_at_k_unbiased_v1,
+            MetricFormula.pass_power_k_v1,
+            MetricFormula.empirical_any_at_k_v1,
+            MetricFormula.empirical_all_at_k_v1,
+            MetricFormula.expected_max_at_k_v1,
+        }
+        if self.formula in parameterized_k_formulas:
+            if self.parameters is None or self.parameters.k is None:
+                raise ValueError(f"{self.formula.value} requires parameters.k")
+            if self.parameters.quantile is not None:
+                raise ValueError(f"{self.formula.value} forbids parameters.quantile")
+            if self.group_by != (MetricGroupKey.task,):
+                raise ValueError(
+                    f"{self.formula.value} requires group_by=['task']"
+                )
+            if self.population != MetricPopulation.planned_tasks:
+                raise ValueError(
+                    f"{self.formula.value} requires population='planned_tasks'"
+                )
+            if self.across_groups != MetricAcrossGroupAggregation.macro_mean:
+                raise ValueError(
+                    f"{self.formula.value} requires across_groups='macro_mean'"
+                )
+        elif self.formula == MetricFormula.quantile_linear_v1:
+            if self.parameters is None or self.parameters.quantile is None:
+                raise ValueError("quantile_linear_v1 requires parameters.quantile")
+            if self.parameters.k is not None:
+                raise ValueError("quantile_linear_v1 forbids parameters.k")
+        elif self.parameters is not None:
+            raise ValueError(
+                f"metric formula {self.formula.value!r} forbids parameters"
+            )
+        if self.group_by and self.across_groups is None:
+            raise ValueError("grouped metrics require across_groups")
+        if not self.group_by and self.across_groups is not None:
+            raise ValueError("ungrouped metrics forbid across_groups")
+        combinatorial_formulas = {
+            MetricFormula.pass_at_k_unbiased_v1,
+            MetricFormula.pass_power_k_v1,
+            MetricFormula.expected_max_at_k_v1,
+        }
+        prefix_formulas = {
+            MetricFormula.empirical_any_at_k_v1,
+            MetricFormula.empirical_all_at_k_v1,
+        }
+        if self.formula in combinatorial_formulas:
+            if (
+                self.sampling is None
+                or self.sampling.design
+                != MetricSamplingDesign.exchangeable_rollouts
+            ):
+                raise ValueError(
+                    f"{self.formula.value} requires an exchangeable sampling design"
+                )
+        elif self.formula in prefix_formulas:
+            if (
+                self.sampling is None
+                or self.sampling.design != MetricSamplingDesign.ordered_prefix
+            ):
+                raise ValueError(
+                    f"{self.formula.value} requires an ordered-prefix sampling design"
+                )
+        elif self.sampling is not None:
+            raise ValueError(
+                f"metric formula {self.formula.value!r} forbids sampling assumptions"
+            )
+        binary_k_formulas = {
+            MetricFormula.pass_at_k_unbiased_v1,
+            MetricFormula.pass_power_k_v1,
+            MetricFormula.empirical_any_at_k_v1,
+            MetricFormula.empirical_all_at_k_v1,
+        }
+        if self.formula in binary_k_formulas:
+            if self.scale != 1.0:
+                raise ValueError("binary k-success formulas require scale=1")
+            if self.source != MetricSource.evaluator:
+                raise ValueError(
+                    f"{self.formula.value} requires evaluator reward evidence"
+                )
+            expected_statuses = {status.value for status in RunStatus}
+            if set(self.status_policy) != expected_statuses:
+                raise ValueError(
+                    f"{self.formula.value} requires an explicit policy for every "
+                    "rollout status"
+                )
+            if any(
+                disposition
+                not in {MetricStatusDisposition.observe, MetricStatusDisposition.zero}
+                for disposition in self.status_policy.values()
+            ) or self.missing_observation != MetricMissingDisposition.zero:
+                raise ValueError(
+                    f"{self.formula.value} requires a value for every planned slot"
+                )
+        if self.formula == MetricFormula.expected_max_at_k_v1:
+            if self.source != MetricSource.evaluator:
+                raise ValueError(
+                    "expected_max_at_k_v1 requires evaluator reward evidence"
+                )
+            expected_statuses = {status.value for status in RunStatus}
+            if set(self.status_policy) != expected_statuses:
+                raise ValueError(
+                    "expected_max_at_k_v1 requires an explicit policy for every "
+                    "rollout status"
+                )
+            if any(
+                disposition
+                not in {MetricStatusDisposition.observe, MetricStatusDisposition.zero}
+                for disposition in self.status_policy.values()
+            ) or self.missing_observation != MetricMissingDisposition.zero:
+                raise ValueError(
+                    "expected_max_at_k_v1 requires a value for every planned slot"
+                )
         if self.formula == MetricFormula.pass_at_1_v1:
+            if self.scale != 1.0:
+                raise ValueError("pass_at_1_v1 requires scale=1")
             if self.source != MetricSource.evaluator:
                 raise ValueError("pass_at_1_v1 requires evaluator reward evidence")
             if self.population != MetricPopulation.planned_rollouts:
@@ -1921,8 +2256,58 @@ class MetricSpec(RegistryEntry):
                 raise ValueError(
                     "pass_at_1_v1 requires an explicit policy for every rollout status"
                 )
+            if any(
+                disposition
+                not in {MetricStatusDisposition.observe, MetricStatusDisposition.zero}
+                for disposition in self.status_policy.values()
+            ) or self.missing_observation != MetricMissingDisposition.zero:
+                raise ValueError(
+                    "pass_at_1_v1 requires a value for every planned rollout slot"
+                )
+        if self.uncertainty is not None:
+            if self.source == MetricSource.derived:
+                raise ValueError(
+                    "derived metric uncertainty requires a covariance receipt and is "
+                    "not supported by this formula version"
+                )
+            if self.formula == MetricFormula.direct_v1:
+                raise ValueError("direct metrics cannot compute aggregate uncertainty")
+            if (
+                self.uncertainty.method
+                == MetricUncertaintyMethod.wilson_score_v1
+                and self.formula != MetricFormula.pass_at_1_v1
+            ):
+                raise ValueError("Wilson uncertainty is defined only for pass_at_1_v1")
+            if (
+                self.uncertainty.resampling_unit == "task"
+                and self.group_by != (MetricGroupKey.task,)
+            ):
+                raise ValueError(
+                    "task bootstrap uncertainty requires group_by=['task']"
+                )
+            if (
+                self.uncertainty.resampling_unit == "rollout"
+                and self.group_by
+            ):
+                raise ValueError(
+                    "rollout uncertainty forbids intermediate grouping"
+                )
         if self.source == MetricSource.derived and self.status_policy:
             raise ValueError("derived metrics inherit inputs and forbid status_policy")
+        if self.formula == MetricFormula.external_adapter_v1:
+            if self.source not in {
+                MetricSource.regime,
+                MetricSource.evolution,
+                MetricSource.external,
+            }:
+                raise ValueError(
+                    "external_adapter_v1 requires regime/evolution/external source"
+                )
+            if self.adapter == "magentabench.measurement":
+                raise ValueError("external adapter metric requires a plugin adapter id")
+        elif self.config:
+            raise ValueError("built-in metric formulas forbid adapter config")
+        object.__setattr__(self, "config", _freeze_configuration_tree(self.config))
         return self
 
 
@@ -3117,6 +3502,251 @@ class CustomCaseOrderSpec(StrictModel):
     size_bytes: int = Field(ge=0)
 
 
+class ExperimentRegimeKind(str, Enum):
+    """Research setting orthogonal to the four comparison subjects."""
+
+    iid_evaluation = "iid_evaluation"
+    repeated_sampling = "repeated_sampling"
+    generalization = "generalization"
+    cross_domain_transfer = "cross_domain_transfer"
+    continual_learning = "continual_learning"
+    curriculum = "curriculum"
+    online_adaptation = "online_adaptation"
+    robustness_stress = "robustness_stress"
+    evolutionary_search = "evolutionary_search"
+    meta_evolution = "meta_evolution"
+
+
+class ExperimentStageRole(str, Enum):
+    train = "train"
+    adapt = "adapt"
+    search = "search"
+    validation = "validation"
+    selection = "selection"
+    evaluate = "evaluate"
+    holdout = "holdout"
+    stress = "stress"
+
+
+class StageStatePolicy(str, Enum):
+    reset = "reset"
+    carry = "carry"
+    fork = "fork"
+    read_only = "read_only"
+
+
+class StageFeedbackVisibility(str, Enum):
+    none = "none"
+    aggregate_only = "aggregate_only"
+    evaluator_feedback = "evaluator_feedback"
+    full_trajectory = "full_trajectory"
+
+
+class ExperimentStageSpec(StrictModel):
+    """One node in a pre-registered experiment-stage DAG."""
+
+    id: str = Field(pattern=ID_PATTERN)
+    role: ExperimentStageRole
+    predecessors: tuple[str, ...] = ()
+    benchmark_id: str = Field(pattern=ID_PATTERN)
+    dataset_id: str = Field(pattern=ID_PATTERN)
+    evaluator_id: str = Field(pattern=ID_PATTERN)
+    protocol_id: str = Field(pattern=ID_PATTERN)
+    metric_ids: tuple[str, ...]
+    domains: tuple[str, ...] = ()
+    state_policy: StageStatePolicy
+    feedback_visibility: StageFeedbackVisibility
+    sealed: bool = False
+    budget: Budget | None = None
+    evaluation_cadence: int = Field(default=1, ge=1, strict=True)
+
+    @field_validator("predecessors", "metric_ids", "domains")
+    @classmethod
+    def stage_lists_are_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("experiment stage lists must contain unique values")
+        if any(not value.strip() for value in values):
+            raise ValueError("experiment stage list values must be non-empty")
+        return values
+
+    @model_validator(mode="after")
+    def stage_boundary_is_coherent(self) -> "ExperimentStageSpec":
+        if not self.metric_ids:
+            raise ValueError("experiment stage requires metric_ids")
+        if self.id in self.predecessors:
+            raise ValueError("experiment stage cannot depend on itself")
+        if self.sealed:
+            if self.role != ExperimentStageRole.holdout:
+                raise ValueError("only holdout stages may be sealed")
+            if self.feedback_visibility != StageFeedbackVisibility.none:
+                raise ValueError("sealed holdout forbids feedback visibility")
+            if self.state_policy != StageStatePolicy.read_only:
+                raise ValueError("sealed holdout must use read_only state")
+        if self.role == ExperimentStageRole.holdout and not self.sealed:
+            raise ValueError("holdout stages must be sealed")
+        if self.state_policy == StageStatePolicy.fork and len(self.predecessors) != 1:
+            raise ValueError("fork state requires exactly one predecessor")
+        if self.state_policy in {StageStatePolicy.carry, StageStatePolicy.read_only} and (
+            not self.predecessors
+        ):
+            raise ValueError("carry/read_only state requires a predecessor")
+        return self
+
+
+class ExperimentRegimeSpec(RegistryEntry):
+    """TOML authority for multi-stage research settings.
+
+    The DAG expresses generalization, transfer, continual learning, curriculum,
+    online adaptation, robustness, evolution, and meta-evolution without
+    introducing another semantic comparison kind.
+    """
+
+    kind: Literal["regime"]
+    regime_kind: ExperimentRegimeKind
+    stages: tuple[ExperimentStageSpec, ...]
+
+    @model_validator(mode="after")
+    def regime_dag_is_closed(self) -> "ExperimentRegimeSpec":
+        if not self.stages:
+            raise ValueError("experiment regime requires at least one stage")
+        stage_by_id = {stage.id: stage for stage in self.stages}
+        if len(stage_by_id) != len(self.stages):
+            raise ValueError("experiment regime stage ids must be unique")
+        position = {stage.id: index for index, stage in enumerate(self.stages)}
+        for stage in self.stages:
+            unknown = sorted(set(stage.predecessors) - set(stage_by_id))
+            if unknown:
+                raise ValueError(
+                    f"experiment stage {stage.id!r} has unknown predecessors: {unknown}"
+                )
+            if any(position[parent] >= position[stage.id] for parent in stage.predecessors):
+                raise ValueError(
+                    "experiment stages must be topologically ordered by predecessors"
+                )
+        holdout_indexes = [
+            index
+            for index, stage in enumerate(self.stages)
+            if stage.role == ExperimentStageRole.holdout
+        ]
+        if holdout_indexes and any(
+            later.role in {
+                ExperimentStageRole.train,
+                ExperimentStageRole.adapt,
+                ExperimentStageRole.search,
+                ExperimentStageRole.selection,
+                ExperimentStageRole.validation,
+            }
+            for index in holdout_indexes
+            for later in self.stages[index + 1 :]
+        ):
+            raise ValueError(
+                "sealed holdout must not precede train/adapt/search/selection/validation"
+            )
+        if self.regime_kind in {
+            ExperimentRegimeKind.generalization,
+            ExperimentRegimeKind.cross_domain_transfer,
+        } and not holdout_indexes:
+            raise ValueError("generalization/transfer regimes require a sealed holdout")
+        if self.regime_kind == ExperimentRegimeKind.continual_learning:
+            learning_stages = [
+                stage
+                for stage in self.stages
+                if stage.role
+                in {ExperimentStageRole.train, ExperimentStageRole.adapt}
+            ]
+            if len(learning_stages) < 2 or not any(stage.domains for stage in self.stages):
+                raise ValueError(
+                    "continual learning requires at least two learning stages and domains"
+                )
+        if self.regime_kind == ExperimentRegimeKind.evolutionary_search and not any(
+            stage.role == ExperimentStageRole.search for stage in self.stages
+        ):
+            raise ValueError("evolutionary search requires a search stage")
+        if self.regime_kind == ExperimentRegimeKind.meta_evolution and not any(
+            stage.role == ExperimentStageRole.search for stage in self.stages
+        ):
+            raise ValueError("meta-evolution requires a search stage")
+        return self
+
+
+class RegimeDependencyArtifact(StrictModel):
+    registry_kind: Literal[
+        "benchmark", "dataset", "evaluator", "metric", "protocol"
+    ]
+    id: str = Field(pattern=ID_PATTERN)
+    declaration_ref: ArtifactRef
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+
+class ExperimentRegimeArtifact(StrictModel):
+    regime: ExperimentRegimeSpec
+    declaration_ref: ArtifactRef
+    dependencies: tuple[RegimeDependencyArtifact, ...]
+    artifact_digest: str = Field(pattern=SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def dependency_closure_matches_stages(self) -> "ExperimentRegimeArtifact":
+        expected = {
+            ("benchmark", stage.benchmark_id)
+            for stage in self.regime.stages
+        } | {
+            ("dataset", stage.dataset_id)
+            for stage in self.regime.stages
+        } | {
+            ("evaluator", stage.evaluator_id)
+            for stage in self.regime.stages
+        } | {
+            ("metric", metric_id)
+            for stage in self.regime.stages
+            for metric_id in stage.metric_ids
+        } | {
+            ("protocol", stage.protocol_id)
+            for stage in self.regime.stages
+        }
+        observed = {
+            (dependency.registry_kind, dependency.id)
+            for dependency in self.dependencies
+        }
+        if observed != expected:
+            raise ValueError(
+                "experiment regime dependency closure differs from stage references"
+            )
+        if len(observed) != len(self.dependencies):
+            raise ValueError("experiment regime dependencies must be unique")
+        dependency_keys = [
+            (dependency.registry_kind, dependency.id)
+            for dependency in self.dependencies
+        ]
+        if dependency_keys != sorted(dependency_keys):
+            raise ValueError("experiment regime dependencies must be sorted")
+        return self
+
+    def identity_data(self) -> dict[str, Any]:
+        return {
+            "regime": self.regime.model_dump(mode="json"),
+            "declaration_ref": self.declaration_ref.identity_data(),
+            "dependencies": [
+                {
+                    "registry_kind": dependency.registry_kind,
+                    "id": dependency.id,
+                    "declaration_ref": dependency.declaration_ref.identity_data(),
+                    "artifact_digest": dependency.artifact_digest,
+                }
+                for dependency in self.dependencies
+            ],
+        }
+
+    def canonical_digest(self) -> str:
+        encoded = json.dumps(
+            self.identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+
 class ProtocolSpec(RegistryEntry):
     """Execution schedule defaults resolved before local execution overrides."""
 
@@ -3159,6 +3789,24 @@ class ProtocolSpec(RegistryEntry):
         if self.case_order != "custom" and self.custom_order is not None:
             raise ValueError("custom_order is forbidden unless case_order is custom")
         return self
+
+    def identity_data(self) -> dict[str, Any]:
+        """Return a relocatable protocol identity projection.
+
+        A custom-order source path is provenance, while its declared adapter,
+        byte digest, and size are protocol identity.  Compilation may resolve
+        the source to an absolute path without changing the registered
+        protocol's identity.
+        """
+
+        data = self.model_dump(mode="json")
+        if self.custom_order is not None:
+            data["custom_order"] = {
+                "adapter": self.custom_order.adapter,
+                "sha256": self.custom_order.sha256,
+                "size_bytes": self.custom_order.size_bytes,
+            }
+        return data
 
 
 class ExecutionSpec(StrictModel):
@@ -3768,6 +4416,7 @@ class TestOverrideReceipt(StrictModel):
 class ResolvedManifestMetadata(StrictModel):
     experiment_id: str = Field(pattern=ID_PATTERN)
     run_id: str = Field(pattern=ID_PATTERN)
+    regime_stage_id: str | None = Field(default=None, pattern=ID_PATTERN)
     allowed_diff: tuple[str, ...] = ()
     factors: Mapping[str, Any] = Field(default_factory=dict)
     factor_artifacts: tuple[FactorArtifact, ...] = ()
@@ -3820,6 +4469,7 @@ class ResolvedBmpManifest(StrictModel):
     dataset: DatasetArtifact
     evaluator: EvaluatorArtifact
     metrics: tuple[MetricArtifact, ...]
+    regime: ExperimentRegimeArtifact | None = None
     subject: SubjectArtifact
     execution: ResolvedExecutionSpec
     claim_design: ClaimDesign
@@ -3831,6 +4481,94 @@ class ResolvedBmpManifest(StrictModel):
     record_root: str | None = None
     resume_count: int = Field(default=0, ge=0)
     runner_invocation_id: str | None = None
+
+    @model_validator(mode="after")
+    def active_regime_stage_matches_manifest(self) -> "ResolvedBmpManifest":
+        stage_id = self.metadata.regime_stage_id
+        if self.regime is None:
+            if stage_id is not None:
+                raise ValueError("regime_stage_id requires a resolved regime artifact")
+            return self
+        if self.regime.canonical_digest() != self.regime.artifact_digest:
+            raise ValueError("resolved regime artifact digest drift")
+        if stage_id is None:
+            raise ValueError("resolved regime artifact requires regime_stage_id")
+        try:
+            stage = next(
+                item for item in self.regime.regime.stages if item.id == stage_id
+            )
+        except StopIteration as exc:
+            raise ValueError("regime_stage_id is absent from the resolved regime") from exc
+        protocol = self.execution.protocol
+        if protocol is None:
+            raise ValueError("an active regime stage requires a resolved protocol")
+        observed = {
+            "benchmark": self.benchmark.id,
+            "dataset": self.dataset.id,
+            "evaluator": self.evaluator.evaluator.id,
+            "protocol": protocol.id,
+        }
+        expected = {
+            "benchmark": stage.benchmark_id,
+            "dataset": stage.dataset_id,
+            "evaluator": stage.evaluator_id,
+            "protocol": stage.protocol_id,
+        }
+        if observed != expected:
+            raise ValueError("active manifest registry ids differ from regime stage")
+        if tuple(artifact.metric.id for artifact in self.metrics) != stage.metric_ids:
+            raise ValueError(
+                "active manifest metric order differs from the regime stage declaration"
+            )
+        dependencies = {
+            (dependency.registry_kind, dependency.id): dependency
+            for dependency in self.regime.dependencies
+        }
+        protocol_dependency = dependencies[("protocol", stage.protocol_id)]
+        if stage.budget is None or self.execution.budget != stage.budget:
+            raise ValueError(
+                "active execution budget must equal the registered regime stage budget"
+            )
+        registered_protocol_projection = protocol.model_copy(
+            update={"budget": stage.budget}
+        )
+        protocol_identity = {
+            "protocol": registered_protocol_projection.identity_data(),
+            "declaration_ref": protocol_dependency.declaration_ref.identity_data(),
+        }
+        protocol_digest = hashlib.sha256(
+            json.dumps(
+                protocol_identity,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        active_dependency_digests = {
+            ("benchmark", self.benchmark.id): self.benchmark.artifact_digest,
+            ("dataset", self.dataset.id): self.dataset.artifact_digest,
+            (
+                "evaluator",
+                self.evaluator.evaluator.id,
+            ): self.evaluator.artifact_digest,
+            ("protocol", protocol.id): protocol_digest,
+            **{
+                ("metric", artifact.metric.id): artifact.artifact_digest
+                for artifact in self.metrics
+            },
+        }
+        drifted_dependencies = sorted(
+            key
+            for key, digest in active_dependency_digests.items()
+            if dependencies[key].artifact_digest != digest
+        )
+        if drifted_dependencies:
+            raise ValueError(
+                "active manifest artifacts differ from regime dependencies: "
+                f"{drifted_dependencies}"
+            )
+        return self
 
     @model_validator(mode="after")
     def measurement_registry_is_closed(self) -> "ResolvedBmpManifest":
@@ -3859,6 +4597,32 @@ class ResolvedBmpManifest(StrictModel):
         )
         if missing_inputs:
             raise ValueError(f"manifest omits metric dependencies: {missing_inputs}")
+        if self.execution.protocol is not None:
+            repeated_wilson = [
+                artifact.metric.id
+                for artifact in self.metrics
+                if artifact.metric.uncertainty is not None
+                and artifact.metric.uncertainty.method
+                == MetricUncertaintyMethod.wilson_score_v1
+                and self.execution.protocol.rollouts_per_case != 1
+            ]
+            if repeated_wilson:
+                raise ValueError(
+                    "rollout-level Wilson uncertainty requires exactly one rollout "
+                    f"per task; use task-cluster bootstrap instead: {repeated_wilson}"
+                )
+            too_large = [
+                (artifact.metric.id, artifact.metric.parameters.k)
+                for artifact in self.metrics
+                if artifact.metric.parameters is not None
+                and artifact.metric.parameters.k is not None
+                and artifact.metric.parameters.k
+                > self.execution.protocol.rollouts_per_case
+            ]
+            if too_large:
+                raise ValueError(
+                    f"metric k exceeds planned rollouts per task: {too_large}"
+                )
         return self
 
     @model_validator(mode="after")
@@ -4504,6 +5268,7 @@ class AttemptAllocation(StrictModel):
     attempt_id: str = Field(pattern=ID_PATTERN)
     case_allocation_id: str = Field(pattern=ID_PATTERN)
     case_id: str = Field(pattern=ID_PATTERN)
+    attempt_index: int = Field(ge=0, strict=True)
     allocated: BudgetAllocation
     reservation_sequence: int = Field(ge=0, strict=True)
     launched: bool
@@ -4639,6 +5404,11 @@ class BudgetLedger(StrictModel):
                 tuple(child.allocated for child in children),
             ):
                 raise ValueError("attempt allocations must exactly divide the case allocation")
+            planned_indices = tuple(child.attempt_index for child in children)
+            if planned_indices != tuple(range(parent.attempt_count)):
+                raise ValueError(
+                    "attempt allocations must bind ordered, contiguous planned indices"
+                )
         unlaunched_attempt_ids = {
             item.attempt_id for item in self.attempt_allocations if not item.launched
         }
@@ -4797,6 +5567,8 @@ class ScheduleActivationReceipt(StrictModel):
             allocation = allocation_by_id[attempt.attempt_id]
             if allocation.case_id != attempt.case_id:
                 raise ValueError("attempt execution case must match its allocation")
+            if allocation.attempt_index != attempt.attempt_index:
+                raise ValueError("attempt execution index must match its allocation")
             if attempt.debit is None:
                 raise ValueError("launched attempt execution requires a debit")
             child_run_ids.append(attempt.debit.child_run_id)
@@ -5136,11 +5908,122 @@ class MetricComputationState(str, Enum):
     invalid = "invalid"
 
 
+class MetricGroupResult(StrictModel):
+    """Replayable intermediate reduction for one registered group."""
+
+    group: Mapping[MetricGroupKey, str]
+    state: MetricComputationState
+    value: float | None = None
+    reason: str | None = Field(default=None, min_length=1)
+    attempt_ids: tuple[str, ...]
+    included_count: int = Field(ge=0, strict=True)
+    numerator: float | None = None
+    denominator: float | None = None
+    population_count: int | None = Field(default=None, ge=1, strict=True)
+    success_count: int | None = Field(default=None, ge=0, strict=True)
+    subset_size: int | None = Field(default=None, ge=1, strict=True)
+
+    @field_validator("group", mode="before")
+    @classmethod
+    def group_identity_is_non_empty(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping) or not value:
+            raise ValueError("metric group identity must be a non-empty mapping")
+        if any(not str(item).strip() for item in value.values()):
+            raise ValueError("metric group identity values must be non-empty")
+        return dict(value)
+
+    @field_validator("attempt_ids")
+    @classmethod
+    def group_attempt_ids_are_closed(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if not values or len(set(values)) != len(values):
+            raise ValueError("metric group attempt ids must be non-empty and unique")
+        if any(re.fullmatch(ID_PATTERN, value) is None for value in values):
+            raise ValueError("metric group attempt ids must be valid BMP ids")
+        return values
+
+    @model_validator(mode="after")
+    def group_result_is_coherent(self) -> "MetricGroupResult":
+        if self.included_count > len(self.attempt_ids):
+            raise ValueError("metric group included_count exceeds its sample count")
+        if self.state == MetricComputationState.complete:
+            if self.value is None or self.reason is not None:
+                raise ValueError(
+                    "complete metric group requires value and forbids reason"
+                )
+        elif self.value is not None or self.reason is None:
+            raise ValueError(
+                "unavailable/invalid metric group requires reason and no value"
+            )
+        if (self.population_count is None) != (self.subset_size is None):
+            raise ValueError(
+                "metric group population_count and subset_size are all-or-none"
+            )
+        if self.population_count is not None:
+            if self.included_count != self.population_count:
+                raise ValueError(
+                    "metric group population_count must equal included_count"
+                )
+            assert self.subset_size is not None
+            if self.subset_size > self.population_count:
+                raise ValueError("metric group subset_size exceeds its population")
+        if self.success_count is not None:
+            if self.population_count is None:
+                raise ValueError(
+                    "metric group success_count requires population_count"
+                )
+            if self.success_count > self.population_count:
+                raise ValueError("metric group success_count exceeds its population")
+        return self
+
+
+class MetricUncertaintyResult(StrictModel):
+    """Realized interval bound to a registered uncertainty specification."""
+
+    method: MetricUncertaintyMethod
+    estimand: Literal["mean"] = "mean"
+    confidence_level: float = Field(gt=0.5, lt=1.0, strict=True)
+    resampling_unit: Literal["rollout", "task"]
+    unit_count: int = Field(ge=1, strict=True)
+    lower: float
+    upper: float
+    standard_error: float | None = Field(default=None, ge=0, strict=True)
+    resamples: int | None = Field(default=None, ge=100, strict=True)
+    seed: int | None = None
+    rng_algorithm: Literal["sha256_counter_v1"] | None = None
+    replicate_distribution_digest: str | None = Field(
+        default=None,
+        pattern=SHA256_PATTERN,
+    )
+    degenerate: bool = False
+
+    @model_validator(mode="after")
+    def interval_is_ordered_and_replayable(self) -> "MetricUncertaintyResult":
+        if self.lower > self.upper:
+            raise ValueError("metric uncertainty interval bounds are reversed")
+        if self.method == MetricUncertaintyMethod.wilson_score_v1:
+            if (
+                self.resamples is not None
+                or self.seed is not None
+                or self.rng_algorithm is not None
+                or self.replicate_distribution_digest is not None
+            ):
+                raise ValueError("Wilson result forbids bootstrap evidence")
+        elif (
+            self.resamples is None
+            or self.seed is None
+            or self.rng_algorithm is None
+            or self.replicate_distribution_digest is None
+        ):
+            raise ValueError("bootstrap result requires RNG and replicate digest")
+        return self
+
+
 class MetricResult(StrictModel):
     """Replayable metric output over one resolved configuration/run arm."""
 
     metric_id: str = Field(pattern=ID_PATTERN)
     metric_digest: str = Field(pattern=SHA256_PATTERN)
+    sample_ledger_digest: str = Field(pattern=SHA256_PATTERN)
     manifest_digest: str = Field(pattern=SHA256_PATTERN)
     parent_run_id: str = Field(pattern=ID_PATTERN)
     schedule_receipt_ref: ArtifactRef
@@ -5160,9 +6043,36 @@ class MetricResult(StrictModel):
     input_metric_ids: tuple[str, ...] = ()
     status_counts: Mapping[RunStatus, int]
     samples: tuple[MetricSample, ...]
+    groups: tuple[MetricGroupResult, ...] = ()
+    uncertainty: MetricUncertaintyResult | None = None
+
+    def sample_ledger_identity_data(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "attempt_id": sample.attempt_id,
+                "case_id": sample.case_id,
+                "attempt_index": sample.attempt_index,
+                "status": sample.status.value,
+                "disposition": sample.disposition.value,
+                "value": sample.value,
+            }
+            for sample in self.samples
+        ]
+
+    def canonical_sample_ledger_digest(self) -> str:
+        encoded = json.dumps(
+            self.sample_ledger_identity_data(),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @model_validator(mode="after")
     def metric_result_reconciles(self) -> "MetricResult":
+        if self.sample_ledger_digest != self.canonical_sample_ledger_digest():
+            raise ValueError("metric sample ledger digest drift")
         if self.state == MetricComputationState.complete:
             if self.reason is not None:
                 raise ValueError("complete metric result forbids a failure reason")
@@ -5189,6 +6099,24 @@ class MetricResult(StrictModel):
             raise ValueError("metric task and rollout counts do not match population")
         if len(set(self.input_metric_ids)) != len(self.input_metric_ids):
             raise ValueError("metric input ids must be unique")
+        grouped_attempt_ids = [
+            attempt_id
+            for group in self.groups
+            for attempt_id in group.attempt_ids
+        ]
+        if self.groups:
+            if len(set(grouped_attempt_ids)) != len(grouped_attempt_ids):
+                raise ValueError("metric groups must not overlap")
+            if set(grouped_attempt_ids) != set(attempt_ids):
+                raise ValueError("metric groups must partition every planned rollout")
+            group_keys = [
+                tuple(sorted((key.value, value) for key, value in group.group.items()))
+                for group in self.groups
+            ]
+            if len(set(group_keys)) != len(group_keys):
+                raise ValueError("metric group identities must be unique")
+        if self.uncertainty is not None and self.state != MetricComputationState.complete:
+            raise ValueError("metric uncertainty requires a complete aggregate")
         return self
 
 
@@ -5729,6 +6657,11 @@ __all__ = [
     "EvidenceBundle",
     "ExecutionSpec",
     "ExperimentContrast",
+    "ExperimentRegimeArtifact",
+    "ExperimentRegimeKind",
+    "ExperimentRegimeSpec",
+    "ExperimentStageRole",
+    "ExperimentStageSpec",
     "FactorActivationEvidence",
     "FactorArtifact",
     "FactorCategory",
@@ -5748,18 +6681,27 @@ __all__ = [
     "ModelActivationReceipt",
     "ModelActivationUsage",
     "MetricArtifact",
+    "MetricAcrossGroupAggregation",
     "MetricComputationState",
     "MetricDirection",
     "MetricFormula",
+    "MetricFormulaParameters",
+    "MetricGroupKey",
+    "MetricGroupResult",
     "MetricLevel",
     "MetricMissingDisposition",
     "MetricPopulation",
     "MetricResult",
     "MetricSample",
     "MetricSampleDisposition",
+    "MetricSamplingDesign",
+    "MetricSamplingSpec",
     "MetricSource",
     "MetricSpec",
     "MetricStatusDisposition",
+    "MetricUncertaintyMethod",
+    "MetricUncertaintyResult",
+    "MetricUncertaintySpec",
     "MetricValueKind",
     "MetaEvolutionMethodArtifact",
     "MetaEvolutionMethodSpec",
@@ -5777,6 +6719,7 @@ __all__ = [
     "ProviderBinding",
     "ProvenanceRecord",
     "RecordIndex",
+    "RegimeDependencyArtifact",
     "ResolvedBmpManifest",
     "ResolvedExecutionSpec",
     "ResolvedManifestMetadata",
@@ -5789,6 +6732,8 @@ __all__ = [
     "ScoringKind",
     "StatisticalAnalysisPlan",
     "StatisticalAnalysisReceipt",
+    "StageFeedbackVisibility",
+    "StageStatePolicy",
     "SubjectKind",
     "SUBJECT_KIND_COMPARISON_MATRIX",
     "SubjectArtifact",

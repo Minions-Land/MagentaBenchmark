@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ResearchMetricDisposition": {
+      "description": "Disposition of one unit in a pre-declared research population.",
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid",
+        "censored"
+      ],
+      "title": "ResearchMetricDisposition",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "disposition": {
+      "$ref": "#/$defs/ResearchMetricDisposition"
+    },
+    "probability": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Probability"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "disposition"
+  ],
+  "title": "SelectorProbabilityObservation",
+  "type": "object"
+}

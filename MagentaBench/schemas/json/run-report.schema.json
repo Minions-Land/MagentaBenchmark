@@ -471,6 +471,149 @@
       "title": "MetricComputationState",
       "type": "string"
     },
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
+      "type": "string"
+    },
+    "MetricGroupResult": {
+      "additionalProperties": false,
+      "description": "Replayable intermediate reduction for one registered group.",
+      "properties": {
+        "attempt_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attempt Ids",
+          "type": "array"
+        },
+        "denominator": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Denominator"
+        },
+        "group": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Group",
+          "type": "object"
+        },
+        "included_count": {
+          "minimum": 0,
+          "title": "Included Count",
+          "type": "integer"
+        },
+        "numerator": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Numerator"
+        },
+        "population_count": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Population Count"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "state": {
+          "$ref": "#/$defs/MetricComputationState"
+        },
+        "subset_size": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subset Size"
+        },
+        "success_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Count"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "group",
+        "state",
+        "attempt_ids",
+        "included_count"
+      ],
+      "title": "MetricGroupResult",
+      "type": "object"
+    },
     "MetricResult": {
       "additionalProperties": false,
       "description": "Replayable metric output over one resolved configuration/run arm.",
@@ -491,6 +634,14 @@
           "minimum": 0,
           "title": "Excluded Count",
           "type": "integer"
+        },
+        "groups": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupResult"
+          },
+          "title": "Groups",
+          "type": "array"
         },
         "input_metric_ids": {
           "default": [],
@@ -570,6 +721,11 @@
           "title": "Rollouts Per Task",
           "type": "integer"
         },
+        "sample_ledger_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sample Ledger Digest",
+          "type": "string"
+        },
         "samples": {
           "items": {
             "$ref": "#/$defs/MetricSample"
@@ -598,6 +754,17 @@
           "title": "Task Count",
           "type": "integer"
         },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricUncertaintyResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "value": {
           "anyOf": [
             {
@@ -619,6 +786,7 @@
       "required": [
         "metric_id",
         "metric_digest",
+        "sample_ledger_digest",
         "manifest_digest",
         "parent_run_id",
         "schedule_receipt_ref",
@@ -716,6 +884,135 @@
       ],
       "title": "MetricSampleDisposition",
       "type": "string"
+    },
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    },
+    "MetricUncertaintyResult": {
+      "additionalProperties": false,
+      "description": "Realized interval bound to a registered uncertainty specification.",
+      "properties": {
+        "confidence_level": {
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "degenerate": {
+          "default": false,
+          "title": "Degenerate",
+          "type": "boolean"
+        },
+        "estimand": {
+          "const": "mean",
+          "default": "mean",
+          "title": "Estimand",
+          "type": "string"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "method": {
+          "$ref": "#/$defs/MetricUncertaintyMethod"
+        },
+        "replicate_distribution_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replicate Distribution Digest"
+        },
+        "resamples": {
+          "anyOf": [
+            {
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resamples"
+        },
+        "resampling_unit": {
+          "enum": [
+            "rollout",
+            "task"
+          ],
+          "title": "Resampling Unit",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "anyOf": [
+            {
+              "const": "sha256_counter_v1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Algorithm"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        },
+        "standard_error": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Standard Error"
+        },
+        "unit_count": {
+          "minimum": 1,
+          "title": "Unit Count",
+          "type": "integer"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "confidence_level",
+        "resampling_unit",
+        "unit_count",
+        "lower",
+        "upper"
+      ],
+      "title": "MetricUncertaintyResult",
+      "type": "object"
     },
     "Observation": {
       "additionalProperties": false,

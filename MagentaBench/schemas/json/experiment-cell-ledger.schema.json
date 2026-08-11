@@ -1,0 +1,383 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ExperimentCellCoordinates": {
+      "additionalProperties": false,
+      "description": "Axes shared by IID, transfer, continual, evolution, and stress cells.",
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "domain_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain Id"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation"
+        },
+        "repetition": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Repetition",
+          "type": "integer"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "stage_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Stage Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "variant_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Id"
+        }
+      },
+      "required": [
+        "stage_id",
+        "checkpoint_id",
+        "task_id"
+      ],
+      "title": "ExperimentCellCoordinates",
+      "type": "object"
+    },
+    "ExperimentCellDisposition": {
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid"
+      ],
+      "title": "ExperimentCellDisposition",
+      "type": "string"
+    },
+    "ExperimentCellObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Cell Id",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ExperimentCellDisposition"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "metric_result_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "terminal_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "cell_id",
+        "disposition"
+      ],
+      "title": "ExperimentCellObservation",
+      "type": "object"
+    },
+    "ExperimentCellPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/PlannedMetricCell"
+          },
+          "title": "Cells",
+          "type": "array"
+        },
+        "format": {
+          "const": "bmp-experiment-cell-plan-v1",
+          "default": "bmp-experiment-cell-plan-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "membership_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Membership Refs",
+          "type": "array"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "regime_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Regime Digest",
+          "type": "string"
+        },
+        "regime_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Regime Id",
+          "type": "string"
+        },
+        "stage_manifest_digests": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Stage Manifest Digests",
+          "type": "object"
+        }
+      },
+      "required": [
+        "regime_id",
+        "regime_digest",
+        "stage_manifest_digests",
+        "membership_refs",
+        "cells",
+        "plan_digest"
+      ],
+      "title": "ExperimentCellPlan",
+      "type": "object"
+    },
+    "PlannedMetricCell": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Cell Id",
+          "type": "string"
+        },
+        "coordinates": {
+          "$ref": "#/$defs/ExperimentCellCoordinates"
+        },
+        "membership_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Membership Digest",
+          "type": "string"
+        },
+        "metric_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metric Digest",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cell_id",
+        "coordinates",
+        "metric_id",
+        "metric_digest",
+        "membership_digest"
+      ],
+      "title": "PlannedMetricCell",
+      "type": "object"
+    },
+    "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "excluded_count": {
+      "minimum": 0,
+      "title": "Excluded Count",
+      "type": "integer"
+    },
+    "format": {
+      "const": "bmp-experiment-cell-ledger-v1",
+      "default": "bmp-experiment-cell-ledger-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "invalid_count": {
+      "minimum": 0,
+      "title": "Invalid Count",
+      "type": "integer"
+    },
+    "missing_count": {
+      "minimum": 0,
+      "title": "Missing Count",
+      "type": "integer"
+    },
+    "observation_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Observation Digest",
+      "type": "string"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/ExperimentCellObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "observed_count": {
+      "minimum": 0,
+      "title": "Observed Count",
+      "type": "integer"
+    },
+    "plan": {
+      "$ref": "#/$defs/ExperimentCellPlan"
+    },
+    "zero_filled_count": {
+      "minimum": 0,
+      "title": "Zero Filled Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "plan",
+    "observations",
+    "observed_count",
+    "zero_filled_count",
+    "excluded_count",
+    "missing_count",
+    "invalid_count",
+    "observation_digest"
+  ],
+  "title": "ExperimentCellLedger",
+  "type": "object"
+}

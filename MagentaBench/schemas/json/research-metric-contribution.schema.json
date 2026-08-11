@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "description": "One replayable intermediate reduction retained in a metric receipt.",
+  "properties": {
+    "censored": {
+      "default": false,
+      "title": "Censored",
+      "type": "boolean"
+    },
+    "contribution_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Contribution Id",
+      "type": "string"
+    },
+    "source_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Source Ids",
+      "type": "array"
+    },
+    "value": {
+      "title": "Value",
+      "type": "number"
+    },
+    "weight": {
+      "default": 1.0,
+      "minimum": 0.0,
+      "title": "Weight",
+      "type": "number"
+    }
+  },
+  "required": [
+    "contribution_id",
+    "value"
+  ],
+  "title": "ResearchMetricContribution",
+  "type": "object"
+}

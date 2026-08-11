@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "description": "Registered checkpoint semantics for matrix-derived continual metrics.",
+  "properties": {
+    "baseline_checkpoint_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Baseline Checkpoint Id",
+      "type": "string"
+    },
+    "learned_checkpoint_by_task": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Learned Checkpoint By Task",
+      "type": "object"
+    },
+    "task_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Task Ids",
+      "type": "array"
+    },
+    "terminal_checkpoint_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Terminal Checkpoint Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_ids",
+    "baseline_checkpoint_id",
+    "terminal_checkpoint_id",
+    "learned_checkpoint_by_task"
+  ],
+  "title": "ContinualAnalysisPlan",
+  "type": "object"
+}

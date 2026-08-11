@@ -1,0 +1,30 @@
+[metric]
+id = "wall-time.p50-completed.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "duration"
+level = "configuration"
+direction = "minimize"
+unit = "seconds"
+source = "usage"
+source_field = "wall_clock_seconds"
+formula = "quantile_linear_v1"
+population = "completed_rollouts"
+missing_observation = "invalidate"
+
+[metric.parameters]
+quantile = 0.5
+
+[metric.status_policy]
+pass = "observe"
+verified_fail = "observe"
+scored = "observe"
+no_output = "observe"
+invalid_output = "observe"
+timeout = "exclude"
+agent_error = "observe"
+harness_fault = "exclude"
+verifier_error = "observe"
+infra_error = "exclude"
+unsupported = "exclude"

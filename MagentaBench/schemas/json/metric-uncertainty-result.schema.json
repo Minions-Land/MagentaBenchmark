@@ -1,0 +1,131 @@
+{
+  "$defs": {
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Realized interval bound to a registered uncertainty specification.",
+  "properties": {
+    "confidence_level": {
+      "exclusiveMaximum": 1.0,
+      "exclusiveMinimum": 0.5,
+      "title": "Confidence Level",
+      "type": "number"
+    },
+    "degenerate": {
+      "default": false,
+      "title": "Degenerate",
+      "type": "boolean"
+    },
+    "estimand": {
+      "const": "mean",
+      "default": "mean",
+      "title": "Estimand",
+      "type": "string"
+    },
+    "lower": {
+      "title": "Lower",
+      "type": "number"
+    },
+    "method": {
+      "$ref": "#/$defs/MetricUncertaintyMethod"
+    },
+    "replicate_distribution_digest": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Replicate Distribution Digest"
+    },
+    "resamples": {
+      "anyOf": [
+        {
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resamples"
+    },
+    "resampling_unit": {
+      "enum": [
+        "rollout",
+        "task"
+      ],
+      "title": "Resampling Unit",
+      "type": "string"
+    },
+    "rng_algorithm": {
+      "anyOf": [
+        {
+          "const": "sha256_counter_v1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rng Algorithm"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    },
+    "standard_error": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Standard Error"
+    },
+    "unit_count": {
+      "minimum": 1,
+      "title": "Unit Count",
+      "type": "integer"
+    },
+    "upper": {
+      "title": "Upper",
+      "type": "number"
+    }
+  },
+  "required": [
+    "method",
+    "confidence_level",
+    "resampling_unit",
+    "unit_count",
+    "lower",
+    "upper"
+  ],
+  "title": "MetricUncertaintyResult",
+  "type": "object"
+}

@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "ResearchMetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "ResearchMetricDirection",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pre-registered membership semantics for generalization reductions.",
+  "properties": {
+    "direction": {
+      "$ref": "#/$defs/ResearchMetricDirection",
+      "default": "maximize"
+    },
+    "distribution_axis": {
+      "default": "domain",
+      "enum": [
+        "task",
+        "domain",
+        "scenario",
+        "variant",
+        "generation"
+      ],
+      "title": "Distribution Axis",
+      "type": "string"
+    },
+    "group_axis": {
+      "enum": [
+        "task",
+        "domain",
+        "scenario",
+        "variant",
+        "generation"
+      ],
+      "title": "Group Axis",
+      "type": "string"
+    },
+    "in_distribution_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "In Distribution Values",
+      "type": "array"
+    },
+    "metric_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Metric Digest",
+      "type": "string"
+    },
+    "metric_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "out_of_distribution_values": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Out Of Distribution Values",
+      "type": "array"
+    }
+  },
+  "required": [
+    "metric_id",
+    "metric_digest",
+    "group_axis",
+    "in_distribution_values",
+    "out_of_distribution_values"
+  ],
+  "title": "GeneralizationAnalysisPlan",
+  "type": "object"
+}

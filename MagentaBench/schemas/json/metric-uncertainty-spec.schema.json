@@ -1,0 +1,114 @@
+{
+  "$defs": {
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
+      "type": "string"
+    },
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pre-registered deterministic uncertainty calculation.",
+  "properties": {
+    "cluster_by": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MetricGroupKey"
+      },
+      "title": "Cluster By",
+      "type": "array"
+    },
+    "confidence_level": {
+      "default": 0.95,
+      "exclusiveMaximum": 1.0,
+      "exclusiveMinimum": 0.5,
+      "title": "Confidence Level",
+      "type": "number"
+    },
+    "degenerate_policy": {
+      "const": "point_interval",
+      "default": "point_interval",
+      "title": "Degenerate Policy",
+      "type": "string"
+    },
+    "estimand": {
+      "const": "mean",
+      "default": "mean",
+      "title": "Estimand",
+      "type": "string"
+    },
+    "method": {
+      "$ref": "#/$defs/MetricUncertaintyMethod"
+    },
+    "resamples": {
+      "anyOf": [
+        {
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resamples"
+    },
+    "resampling_unit": {
+      "enum": [
+        "rollout",
+        "task"
+      ],
+      "title": "Resampling Unit",
+      "type": "string"
+    },
+    "rng_algorithm": {
+      "anyOf": [
+        {
+          "const": "sha256_counter_v1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rng Algorithm"
+    },
+    "seed": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Seed"
+    }
+  },
+  "required": [
+    "method",
+    "resampling_unit"
+  ],
+  "title": "MetricUncertaintySpec",
+  "type": "object"
+}

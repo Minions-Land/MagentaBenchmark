@@ -6,12 +6,14 @@ bmp_version = "0.1"
 adapter_kind = "backend_factory"
 source = "."
 entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchHarborFactory"
-digest = "b3776f57adb112a3406dde8db7210e8a9b41e7beb67dbceead59c6978fffd61a"
+digest = "cc3693b881cecf092b2247d8174bf2169b95e0609d3415b04e52b5385447088c"
 supported_benchmark_kinds = ["custom"]
 supported_backend_kinds = ["local"]
 supported_backend_adapters = ["harbor"]
 backend_default_read_set = [
   "agent_kwargs",
+  "agent_env",
+  "agent_import_path",
   "agent_timeout_multiplier",
   "environment_type",
 ]

@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "ResearchMetricDisposition": {
+      "description": "Disposition of one unit in a pre-declared research population.",
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid",
+        "censored"
+      ],
+      "title": "ResearchMetricDisposition",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checkpoint_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Checkpoint Id",
+      "type": "string"
+    },
+    "disposition": {
+      "$ref": "#/$defs/ResearchMetricDisposition"
+    },
+    "progress": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Progress"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "trajectory_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Trajectory Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "trajectory_id",
+    "checkpoint_id",
+    "disposition"
+  ],
+  "title": "TrajectoryProgressObservation",
+  "type": "object"
+}

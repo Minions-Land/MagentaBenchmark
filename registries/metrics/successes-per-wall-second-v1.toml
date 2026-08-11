@@ -1,0 +1,14 @@
+[metric]
+id = "successes-per-wall-second.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "efficiency"
+level = "configuration"
+direction = "maximize"
+unit = "successes/second"
+source = "derived"
+formula = "ratio_v1"
+population = "observed_rollouts"
+inputs = ["pass-at-1.infra-zero.v1", "wall-time.mean-completed.v1"]
+missing_observation = "invalidate"

@@ -24,6 +24,7 @@ bmp-config = "MagentaBench.runner.configuration_cli:main"
 [project.optional-dependencies]
 test = [
   "pytest>=8,<9",
+  "harbor==0.20.0; python_version >= '3.12'",
 ]
 
 [tool.hatch.build.targets.wheel]

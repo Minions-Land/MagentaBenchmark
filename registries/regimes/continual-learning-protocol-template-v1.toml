@@ -1,0 +1,120 @@
+[regime]
+id = "continual-learning.protocol-template.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "continual_learning"
+
+[[regime.stages]]
+id = "initial-evaluate"
+role = "evaluate"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["domain-a", "domain-b"]
+state_policy = "reset"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "learn-domain-a"
+role = "adapt"
+predecessors = ["initial-evaluate"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["domain-a"]
+state_policy = "carry"
+feedback_visibility = "evaluator_feedback"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "evaluate-after-a"
+role = "evaluate"
+predecessors = ["learn-domain-a"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["domain-a", "domain-b"]
+state_policy = "read_only"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "learn-domain-b"
+role = "adapt"
+predecessors = ["learn-domain-a", "evaluate-after-a"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["domain-b"]
+state_policy = "carry"
+feedback_visibility = "evaluator_feedback"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "evaluate-after-b"
+role = "evaluate"
+predecessors = ["learn-domain-b"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["domain-a", "domain-b"]
+state_policy = "read_only"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

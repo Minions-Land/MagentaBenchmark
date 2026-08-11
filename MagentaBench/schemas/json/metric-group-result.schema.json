@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "MetricComputationState": {
+      "enum": [
+        "complete",
+        "unavailable",
+        "invalid"
+      ],
+      "title": "MetricComputationState",
+      "type": "string"
+    },
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Replayable intermediate reduction for one registered group.",
+  "properties": {
+    "attempt_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Attempt Ids",
+      "type": "array"
+    },
+    "denominator": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Denominator"
+    },
+    "group": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/MetricGroupKey"
+      },
+      "title": "Group",
+      "type": "object"
+    },
+    "included_count": {
+      "minimum": 0,
+      "title": "Included Count",
+      "type": "integer"
+    },
+    "numerator": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Numerator"
+    },
+    "population_count": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Population Count"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "state": {
+      "$ref": "#/$defs/MetricComputationState"
+    },
+    "subset_size": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subset Size"
+    },
+    "success_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Success Count"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    }
+  },
+  "required": [
+    "group",
+    "state",
+    "attempt_ids",
+    "included_count"
+  ],
+  "title": "MetricGroupResult",
+  "type": "object"
+}

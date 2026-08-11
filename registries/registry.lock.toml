@@ -1,6 +1,13 @@
 [registry]
 format = "magentabench-registry-lock-v1"
-catalog_digest = "a90102566ebbc0b80bfe866c97a952ec5e0ac2476c6de2a7b70f99dbb92caa73"
+catalog_digest = "132adcb1e8252f2ca56afd5142459c8e62ae838a6f183a9106f7a648cb37203d"
+
+[[registry.entries]]
+path = "adapters/cell-metrics-source.toml"
+section = "adapter"
+id = "magentabench.cell-metrics.source"
+sha256 = "eb1acb36cb118bc1c2deb59c44c7734a4ab981f84cfe1cdbf058457acd367d5f"
+size_bytes = 1567
 
 [[registry.entries]]
 path = "adapters/deterministic-evolution-execution.toml"
@@ -27,21 +34,21 @@ size_bytes = 331
 path = "adapters/terminal-bench-backend.toml"
 section = "adapter"
 id = "harbor.terminal-bench.factory"
-sha256 = "abfe0836a0c4557b1559cf6b28d62d215038f97669cba8a03af7e48c6ed8e0bc"
-size_bytes = 517
+sha256 = "7dfd0617ee75e9cd924b1d91f53e6c14d4c0d48bbd9a52510337a0dabc8ed5a6"
+size_bytes = 555
 
 [[registry.entries]]
 path = "adapters/terminal-bench-execution.toml"
 section = "adapter"
 id = "terminal-bench.harbor.execution"
-sha256 = "ba74b7dfc56eda8a8aa15dff03c521f78e8e6d033aa426f7441726321c2787e4"
-size_bytes = 656
+sha256 = "54b20656fad707ed5d9cecbf9944f840aa68e95815aa5fe18d7a4c784ca8a66c"
+size_bytes = 716
 
 [[registry.entries]]
 path = "adapters/terminal-bench-loader.toml"
 section = "adapter"
 id = "terminal-bench.loader"
-sha256 = "a7ce1e6e3aebb8d4f2aa7cbd4cacff4170fbaed4b7c3c07b51b167afb22f0773"
+sha256 = "fd79808718dfb802e148fc8a10dc57a9e0f94d0216de90e76d4383f2252ea487"
 size_bytes = 374
 
 [[registry.entries]]
@@ -62,8 +69,8 @@ size_bytes = 80
 path = "backends/harbor-020-terminal-bench.toml"
 section = "backend"
 id = "harbor.0.20.0.terminal-bench"
-sha256 = "b8cbc83dc50975076079ef57ee9545df0993e3a082f80d17fd226d2be94acea4"
-size_bytes = 304
+sha256 = "1dc4e924691dd77a1650d56227e7a268031b848d3ba0bbb65d62336e4d66bdd9"
+size_bytes = 1031
 
 [[registry.entries]]
 path = "backends/harbor-020.toml"
@@ -269,11 +276,60 @@ sha256 = "297d01ba7bec8e0589a9245e9791e731174d6f3f93113a9a5d79e16cb042592d"
 size_bytes = 604
 
 [[registry.entries]]
+path = "metrics/cost-p95-completed-v1.toml"
+section = "metric"
+id = "cost.p95-completed.v1"
+sha256 = "4624d95483b9a3408fd6f767f7b747e0297e3628236de3d094add18c133a3293"
+size_bytes = 656
+
+[[registry.entries]]
+path = "metrics/cpu-seconds-mean-completed-v1.toml"
+section = "metric"
+id = "cpu-seconds.mean-completed.v1"
+sha256 = "20e06eebc48603f960fbc325eaea022fc267d6eb542a615389b736bf43646e1c"
+size_bytes = 622
+
+[[registry.entries]]
+path = "metrics/empirical-all-at-2-v1.toml"
+section = "metric"
+id = "empirical-all-at-2.v1"
+sha256 = "a25669c175e001f4fd69e1d17fc245c368d24cc5e00850350e2119a03439e2a3"
+size_bytes = 741
+
+[[registry.entries]]
+path = "metrics/empirical-any-at-2-v1.toml"
+section = "metric"
+id = "empirical-any-at-2.v1"
+sha256 = "e6a9fd01e8ba92a1beb50a9d266bde569d15b0083087a0dffdeedd86737c7cb4"
+size_bytes = 741
+
+[[registry.entries]]
+path = "metrics/expected-max-at-2-v1.toml"
+section = "metric"
+id = "expected-max-at-2.v1"
+sha256 = "e6d43c7287a3bbf57e98bc5956b027ca19c4ac62ee4566a3709ce453552bc5fc"
+size_bytes = 830
+
+[[registry.entries]]
 path = "metrics/input-tokens-mean-completed-v1.toml"
 section = "metric"
 id = "input-tokens.mean-completed.v1"
 sha256 = "f5976ecc98599143769e00f8533fa603797639df74d24bcbed74ab13c7a79d20"
 size_bytes = 621
+
+[[registry.entries]]
+path = "metrics/io-read-bytes-mean-completed-v1.toml"
+section = "metric"
+id = "io-read-bytes.mean-completed.v1"
+sha256 = "ef9c81d50001603947c22debbce95cd3ce010e72052f2cb5575afeb32c9e1947"
+size_bytes = 621
+
+[[registry.entries]]
+path = "metrics/io-write-bytes-mean-completed-v1.toml"
+section = "metric"
+id = "io-write-bytes.mean-completed.v1"
+sha256 = "34fbb8b382d75c55d97b8b5647a44c36891ae044ce4a3280bf34886b71b34864"
+size_bytes = 623
 
 [[registry.entries]]
 path = "metrics/model-calls-mean-completed-v1.toml"
@@ -283,6 +339,20 @@ sha256 = "bd606e4f0b7d44ee9efd1e3106f3e95d504258b3df957de2b63c4d133697de77"
 size_bytes = 622
 
 [[registry.entries]]
+path = "metrics/network-egress-bytes-mean-completed-v1.toml"
+section = "metric"
+id = "network-egress-bytes.mean-completed.v1"
+sha256 = "36d725ed4502dcf13a814539f525a31d9ee423637ffdda54e2c9e4b89ed37ca1"
+size_bytes = 635
+
+[[registry.entries]]
+path = "metrics/network-ingress-bytes-mean-completed-v1.toml"
+section = "metric"
+id = "network-ingress-bytes.mean-completed.v1"
+sha256 = "2f41d8cd6c33642a2053d0ed28bd10235c117900ba7c25e01236320aa5ec56f1"
+size_bytes = 637
+
+[[registry.entries]]
 path = "metrics/output-tokens-mean-completed-v1.toml"
 section = "metric"
 id = "output-tokens.mean-completed.v1"
@@ -290,11 +360,60 @@ sha256 = "94a7301752d8df0c97403630312f2129bf8da003015c73a6b50ae1ca0515c80f"
 size_bytes = 623
 
 [[registry.entries]]
+path = "metrics/pass-at-1-infra-zero-task-bootstrap-v1.toml"
+section = "metric"
+id = "pass-at-1.infra-zero.task-bootstrap.v1"
+sha256 = "d5aecec790b4c4042652ff7db71ccd6f2844268db7e39fa1ee09c90d5b73faca"
+size_bytes = 860
+
+[[registry.entries]]
 path = "metrics/pass-at-1-infra-zero-v1.toml"
 section = "metric"
 id = "pass-at-1.infra-zero.v1"
-sha256 = "83b692993014e08c2bc762891994351cd89987763277f0be5f62fd1c41063989"
-size_bytes = 599
+sha256 = "7b4a212eb83705da0855cf76d52e5502492fa355726ab03a97447125112f4838"
+size_bytes = 700
+
+[[registry.entries]]
+path = "metrics/pass-at-2-unbiased-v1.toml"
+section = "metric"
+id = "pass-at-2.unbiased.v1"
+sha256 = "2a74bc1bc8175b69d0971ff68e8d8baf4ebc643f10df142f1019d2f03be8c82b"
+size_bytes = 1025
+
+[[registry.entries]]
+path = "metrics/pass-power-2-reliability-v1.toml"
+section = "metric"
+id = "pass-power-2.reliability.v1"
+sha256 = "b81c6c9483b84a95ec2a806dfc48420394ed665aff24a4281a98fd11fb7aaeb1"
+size_bytes = 828
+
+[[registry.entries]]
+path = "metrics/peak-memory-bytes-mean-completed-v1.toml"
+section = "metric"
+id = "peak-memory-bytes.mean-completed.v1"
+sha256 = "f4a2a0b930c7b3878ec13109a064ee31d7b68a83fcd6075c958b2cb6c11c3b13"
+size_bytes = 629
+
+[[registry.entries]]
+path = "metrics/reasoning-tokens-mean-completed-v1.toml"
+section = "metric"
+id = "reasoning-tokens.mean-completed.v1"
+sha256 = "6f4734ef11a854eae7ca845409c6b95d921f769732db854126b2acd7cd5beb7d"
+size_bytes = 629
+
+[[registry.entries]]
+path = "metrics/retries-mean-completed-v1.toml"
+section = "metric"
+id = "retries.mean-completed.v1"
+sha256 = "533c7a80560acd0f4c1c3bf1cf92314663e8e6b97cabeddd818be0b451c1d098"
+size_bytes = 611
+
+[[registry.entries]]
+path = "metrics/retry-rate-per-model-call-v1.toml"
+section = "metric"
+id = "retry-rate.per-model-call.v1"
+sha256 = "a014633c713e0b3f9d26bae985c8d8b32c5dbe00779aca7ae332b26c4d450c6e"
+size_bytes = 393
 
 [[registry.entries]]
 path = "metrics/reward-authoritative-v1.toml"
@@ -304,11 +423,25 @@ sha256 = "61d3f3082beebfc852ec1eafd635f93283c994d9723cd1ed117b1e340106f275"
 size_bytes = 347
 
 [[registry.entries]]
+path = "metrics/successes-per-cost-v1.toml"
+section = "metric"
+id = "successes-per-cost.v1"
+sha256 = "2707f4ba1835a54dcdd9c52f43eaf9b6475ff9aee05359284dda82e8dc7cff4e"
+size_bytes = 383
+
+[[registry.entries]]
 path = "metrics/successes-per-million-tokens-v1.toml"
 section = "metric"
 id = "successes-per-million-tokens.v1"
 sha256 = "58733a093a99ef41833790cd34859362a24428facd1c08046ee0f63434cbadc5"
 size_bytes = 424
+
+[[registry.entries]]
+path = "metrics/successes-per-wall-second-v1.toml"
+section = "metric"
+id = "successes-per-wall-second.v1"
+sha256 = "a83018a67ba2a762a9064d77215f5bafbcc5d213f1ec019ada534bfdaf3e6359"
+size_bytes = 393
 
 [[registry.entries]]
 path = "metrics/throughput-completed-per-hour-v1.toml"
@@ -325,6 +458,20 @@ sha256 = "ba8a21a9a16c35f12983ef6ddb1eb0556a86c6142de7c1f0bc7f5e59acb4b70c"
 size_bytes = 615
 
 [[registry.entries]]
+path = "metrics/tokens-p50-completed-v1.toml"
+section = "metric"
+id = "tokens.p50-completed.v1"
+sha256 = "22235d428fd6dc0a1d6e2a73a70cd406c2751b9465651ad61501853aaa2f50c6"
+size_bytes = 661
+
+[[registry.entries]]
+path = "metrics/tokens-p95-completed-v1.toml"
+section = "metric"
+id = "tokens.p95-completed.v1"
+sha256 = "6354a3e4ab180bd35d2c0971bd7c523193478c6f66701372cd66f5110ae40b5b"
+size_bytes = 662
+
+[[registry.entries]]
 path = "metrics/tool-calls-mean-completed-v1.toml"
 section = "metric"
 id = "tool-calls.mean-completed.v1"
@@ -332,11 +479,39 @@ sha256 = "4e35b716ed23696da633e1deebe9a74f24509a0ba936ef9c2649675cf844b0ff"
 size_bytes = 620
 
 [[registry.entries]]
+path = "metrics/tool-error-rate-v1.toml"
+section = "metric"
+id = "tool-error-rate.v1"
+sha256 = "64aeb5023928d4e5c4c19337bf88a1822442b140ec827bba985080150a53cd06"
+size_bytes = 384
+
+[[registry.entries]]
+path = "metrics/tool-errors-mean-completed-v1.toml"
+section = "metric"
+id = "tool-errors.mean-completed.v1"
+sha256 = "29d11ae9f71b64f66c0bfe6897ed53d0c78b56715b68551da3915cadd0ac39ac"
+size_bytes = 618
+
+[[registry.entries]]
 path = "metrics/wall-time-mean-completed-v1.toml"
 section = "metric"
 id = "wall-time.mean-completed.v1"
 sha256 = "65c0b46d76e86627de957cece9ae1aa616baa7ef328b5499565c7b23afc04452"
 size_bytes = 627
+
+[[registry.entries]]
+path = "metrics/wall-time-p50-completed-v1.toml"
+section = "metric"
+id = "wall-time.p50-completed.v1"
+sha256 = "afa23d3264eeb8bcbd7ba0af62826d049370a4f5c28e50492bb8ebc3da146cbd"
+size_bytes = 673
+
+[[registry.entries]]
+path = "metrics/wall-time-p95-completed-v1.toml"
+section = "metric"
+id = "wall-time.p95-completed.v1"
+sha256 = "7578b372d572ee3925efd96341186219c7242bb1722bfa9473838eea99ed35f2"
+size_bytes = 674
 
 [[registry.entries]]
 path = "protocols/aose-zero-cost-dryrun.toml"
@@ -374,6 +549,13 @@ sha256 = "5a1304db8dcb565cd31aa79ea6587df9a37675dce28bdb008922ed8d988ec669"
 size_bytes = 397
 
 [[registry.entries]]
+path = "protocols/fake-repeated-sampling.toml"
+section = "protocol"
+id = "fake.repeated-sampling.v1"
+sha256 = "f6d774ad1960a86c115861fc97bf667eb32958fd72bd898553f6817b01da87ba"
+size_bytes = 408
+
+[[registry.entries]]
 path = "protocols/harbor-shim-conformance.toml"
 section = "protocol"
 id = "harbor.shim-conformance.v1"
@@ -407,6 +589,76 @@ section = "protocol"
 id = "terminal-bench.regex-probe.v1"
 sha256 = "79f72dbd12abbbad96e7c355150e9d1bc978a01a4b912f9aadfe245313941cb5"
 size_bytes = 445
+
+[[registry.entries]]
+path = "regimes/continual-learning-protocol-template-v1.toml"
+section = "regime"
+id = "continual-learning.protocol-template.v1"
+sha256 = "63e630146d391e3a73403a43da61753735cbf215bd3e8a6fa9e5a1c261ca5998"
+size_bytes = 2792
+
+[[registry.entries]]
+path = "regimes/cross-domain-transfer-protocol-template-v1.toml"
+section = "regime"
+id = "cross-domain-transfer.protocol-template.v1"
+sha256 = "1b05047ddd7f3c46e11118f400aa24042ea8a2f8cd25da7275da7c10356e2beb"
+size_bytes = 2262
+
+[[registry.entries]]
+path = "regimes/curriculum-protocol-template-v1.toml"
+section = "regime"
+id = "curriculum.protocol-template.v1"
+sha256 = "7a887515e84963d464c82dbc8a7451fd65a80ffb96a06f5899827beaaced430d"
+size_bytes = 2240
+
+[[registry.entries]]
+path = "regimes/evolutionary-search-protocol-template-v1.toml"
+section = "regime"
+id = "evolutionary-search.protocol-template.v1"
+sha256 = "4449d96406df162b812e3c640c6460e09c12de676e42d231d26db415a5db9aaf"
+size_bytes = 2274
+
+[[registry.entries]]
+path = "regimes/generalization-protocol-template-v1.toml"
+section = "regime"
+id = "generalization.protocol-template.v1"
+sha256 = "93ad0ca032f3c7281ec3242a4d427fd9ab79c3dba5d05e70ae31bea8264250b4"
+size_bytes = 1157
+
+[[registry.entries]]
+path = "regimes/iid-fake-v1.toml"
+section = "regime"
+id = "iid.fake.v1"
+sha256 = "46c2d18efd6429de99d08bef5339d406f7fa49c6bbbf191da9d516ed0cb25f64"
+size_bytes = 582
+
+[[registry.entries]]
+path = "regimes/meta-evolution-protocol-template-v1.toml"
+section = "regime"
+id = "meta-evolution.protocol-template.v1"
+sha256 = "f4673518c84eb73abd11dfe03b4a8ab725951ea5e7c33dc47a2dcb7b1b41bd2b"
+size_bytes = 2829
+
+[[registry.entries]]
+path = "regimes/online-adaptation-protocol-template-v1.toml"
+section = "regime"
+id = "online-adaptation.protocol-template.v1"
+sha256 = "4d919103f77e8cebe0fe574d9fd319882395345e3c532bdec6c54a1b73cd768b"
+size_bytes = 2822
+
+[[registry.entries]]
+path = "regimes/repeated-sampling-fake-v1.toml"
+section = "regime"
+id = "repeated-sampling.fake.v1"
+sha256 = "3047b0f2ca0f022ce924bce02179d54fc28b14770708d771dab3cb862f353123"
+size_bytes = 756
+
+[[registry.entries]]
+path = "regimes/robustness-stress-protocol-template-v1.toml"
+section = "regime"
+id = "robustness-stress.protocol-template.v1"
+sha256 = "1de8971fbb71c9c30650a0dcb1c626613040b62e34a8a6a5a4a96c220ed645b1"
+size_bytes = 2244
 
 [[registry.entries]]
 path = "subjects/aose-dryrun-echo.toml"
@@ -463,6 +715,13 @@ section = "subject"
 id = "fake.treatment"
 sha256 = "3c010824082e6dc6fa7f37a3fa845aad633dce509d5e30c5f48f87a8743a0db7"
 size_bytes = 127
+
+[[registry.entries]]
+path = "subjects/terminal-bench-magenta.toml"
+section = "subject"
+id = "terminal-bench.magenta"
+sha256 = "60354584dc0b667537fc772411c74c84ac3e03484c9b86b043c8d3aff399ab76"
+size_bytes = 295
 
 [[registry.entries]]
 path = "subjects/terminal-bench-nop.toml"

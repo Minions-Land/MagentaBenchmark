@@ -1,0 +1,124 @@
+[regime]
+id = "meta-evolution.protocol-template.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "meta_evolution"
+
+[[regime.stages]]
+id = "meta-method-search"
+role = "search"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["outer-method-space"]
+state_policy = "reset"
+feedback_visibility = "full_trajectory"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "inner-evolution-runs"
+role = "search"
+predecessors = ["meta-method-search"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["inner-evolution"]
+state_policy = "carry"
+feedback_visibility = "full_trajectory"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "meta-validation"
+role = "validation"
+predecessors = ["inner-evolution-runs"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["method-validation"]
+state_policy = "read_only"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "meta-selection"
+role = "selection"
+predecessors = [
+  "meta-method-search",
+  "inner-evolution-runs",
+  "meta-validation",
+]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["method-selection"]
+state_policy = "carry"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "sealed-meta-holdout"
+role = "holdout"
+predecessors = ["meta-selection"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["method-holdout"]
+state_policy = "read_only"
+feedback_visibility = "none"
+sealed = true
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

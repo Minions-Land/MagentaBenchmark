@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "bin_edges": {
+      "default": [
+        0.0,
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+        1.0
+      ],
+      "items": {
+        "type": "number"
+      },
+      "title": "Bin Edges",
+      "type": "array"
+    },
+    "log_loss_epsilon": {
+      "default": 1e-15,
+      "exclusiveMaximum": 0.5,
+      "exclusiveMinimum": 0.0,
+      "title": "Log Loss Epsilon",
+      "type": "number"
+    },
+    "prediction_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Prediction Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "prediction_ids"
+  ],
+  "title": "CalibrationAnalysisPlan",
+  "type": "object"
+}

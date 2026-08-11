@@ -1,0 +1,214 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ExternalMetricGroupResult": {
+      "additionalProperties": false,
+      "properties": {
+        "contributing_cell_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributing Cell Ids",
+          "type": "array"
+        },
+        "group_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Group Id",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "group_id",
+        "value",
+        "contributing_cell_ids"
+      ],
+      "title": "ExternalMetricGroupResult",
+      "type": "object"
+    },
+    "MetricComputationState": {
+      "enum": [
+        "complete",
+        "unavailable",
+        "invalid"
+      ],
+      "title": "MetricComputationState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_capability_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Adapter Capability Digest",
+      "type": "string"
+    },
+    "adapter_config_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Adapter Config Digest",
+      "type": "string"
+    },
+    "contributing_cell_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contributing Cell Ids",
+      "type": "array"
+    },
+    "contribution_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Contribution Digest",
+      "type": "string"
+    },
+    "excluded_count": {
+      "minimum": 0,
+      "title": "Excluded Count",
+      "type": "integer"
+    },
+    "format": {
+      "const": "bmp-external-metric-computation-v1",
+      "default": "bmp-external-metric-computation-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "groups": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ExternalMetricGroupResult"
+      },
+      "title": "Groups",
+      "type": "array"
+    },
+    "invalid_count": {
+      "minimum": 0,
+      "title": "Invalid Count",
+      "type": "integer"
+    },
+    "manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "metric_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Metric Digest",
+      "type": "string"
+    },
+    "metric_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Metric Id",
+      "type": "string"
+    },
+    "missing_count": {
+      "minimum": 0,
+      "title": "Missing Count",
+      "type": "integer"
+    },
+    "observed_count": {
+      "minimum": 0,
+      "title": "Observed Count",
+      "type": "integer"
+    },
+    "planned_cell_count": {
+      "minimum": 1,
+      "title": "Planned Cell Count",
+      "type": "integer"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "source_population_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Population Digest",
+      "type": "string"
+    },
+    "source_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Source Refs",
+      "type": "array"
+    },
+    "state": {
+      "$ref": "#/$defs/MetricComputationState"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    },
+    "zero_filled_count": {
+      "minimum": 0,
+      "title": "Zero Filled Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "manifest_digest",
+    "metric_id",
+    "metric_digest",
+    "adapter_capability_digest",
+    "adapter_config_digest",
+    "source_refs",
+    "source_population_digest",
+    "state",
+    "planned_cell_count",
+    "observed_count",
+    "zero_filled_count",
+    "excluded_count",
+    "missing_count",
+    "invalid_count",
+    "contributing_cell_ids",
+    "contribution_digest"
+  ],
+  "title": "ExternalMetricComputationReceipt",
+  "type": "object"
+}

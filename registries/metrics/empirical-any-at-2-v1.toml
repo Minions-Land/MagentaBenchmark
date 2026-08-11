@@ -1,0 +1,36 @@
+[metric]
+id = "empirical-any-at-2.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "rate"
+level = "task"
+direction = "maximize"
+unit = "fraction"
+source = "evaluator"
+source_field = "authoritative_reward"
+formula = "empirical_any_at_k_v1"
+population = "planned_tasks"
+group_by = ["task"]
+across_groups = "macro_mean"
+missing_observation = "zero"
+
+[metric.parameters]
+k = 2
+
+[metric.sampling]
+design = "ordered_prefix"
+subset_policy = "first_k"
+
+[metric.status_policy]
+pass = "observe"
+verified_fail = "observe"
+scored = "observe"
+no_output = "zero"
+invalid_output = "zero"
+timeout = "zero"
+agent_error = "zero"
+harness_fault = "zero"
+verifier_error = "zero"
+infra_error = "zero"
+unsupported = "zero"

@@ -1,0 +1,208 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ExperimentStageRole": {
+      "enum": [
+        "train",
+        "adapt",
+        "search",
+        "validation",
+        "selection",
+        "evaluate",
+        "holdout",
+        "stress"
+      ],
+      "title": "ExperimentStageRole",
+      "type": "string"
+    },
+    "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "StageFeedbackVisibility": {
+      "enum": [
+        "none",
+        "aggregate_only",
+        "evaluator_feedback",
+        "full_trajectory"
+      ],
+      "title": "StageFeedbackVisibility",
+      "type": "string"
+    },
+    "StageStatePolicy": {
+      "enum": [
+        "reset",
+        "carry",
+        "fork",
+        "read_only"
+      ],
+      "title": "StageStatePolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cell_ledger_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "cell_observation_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Cell Observation Digest",
+      "type": "string"
+    },
+    "cell_plan_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Cell Plan Digest",
+      "type": "string"
+    },
+    "cell_plan_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "feedback_visibility": {
+      "$ref": "#/$defs/StageFeedbackVisibility"
+    },
+    "finished_at": {
+      "title": "Finished At",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-experiment-stage-activation-v1",
+      "default": "bmp-experiment-stage-activation-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "holdout_release_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "input_state_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Input State Refs",
+      "type": "array"
+    },
+    "manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "output_state_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Output State Refs",
+      "type": "array"
+    },
+    "predecessor_receipt_refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Predecessor Receipt Refs",
+      "type": "array"
+    },
+    "regime_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Regime Digest",
+      "type": "string"
+    },
+    "regime_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Regime Id",
+      "type": "string"
+    },
+    "sealed": {
+      "title": "Sealed",
+      "type": "boolean"
+    },
+    "stage_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Stage Id",
+      "type": "string"
+    },
+    "stage_role": {
+      "$ref": "#/$defs/ExperimentStageRole"
+    },
+    "started_at": {
+      "title": "Started At",
+      "type": "string"
+    },
+    "state_policy": {
+      "$ref": "#/$defs/StageStatePolicy"
+    },
+    "terminal_status": {
+      "$ref": "#/$defs/RunStatus"
+    }
+  },
+  "required": [
+    "regime_id",
+    "regime_digest",
+    "stage_id",
+    "stage_role",
+    "manifest_digest",
+    "state_policy",
+    "feedback_visibility",
+    "sealed",
+    "cell_plan_ref",
+    "cell_plan_digest",
+    "cell_ledger_ref",
+    "cell_observation_digest",
+    "started_at",
+    "finished_at",
+    "terminal_status"
+  ],
+  "title": "ExperimentStageActivationReceipt",
+  "type": "object"
+}

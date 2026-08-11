@@ -9,3 +9,33 @@ digest = "998eb086b23784f317a336d2cf6d306896ea1cb6fc8998806b2ecacba2ebad7c"
 
 [backend.defaults]
 environment_type = "docker"
+agent_import_path = "plugins.terminal_bench.magenta_agent:MagentaAgent"
+agent_env = [
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "AZURE_RESOURCE_NAME",
+  "AZURE_API_KEY",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_REGION",
+  "DEEPSEEK_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_CLOUD_PROJECT",
+  "GOOGLE_CLOUD_LOCATION",
+  "GOOGLE_GENAI_USE_VERTEXAI",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "OPENROUTER_API_KEY",
+  "XAI_API_KEY",
+  "DASHSCOPE_API_KEY",
+]
+
+[backend.defaults.agent_kwargs]
+release_version = "0.1.23"
+github_mirror = "https://ghfast.top"

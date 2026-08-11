@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "EvolutionBudgetCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "budget": {
+          "exclusiveMinimum": 0.0,
+          "title": "Budget",
+          "type": "number"
+        },
+        "checkpoint_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "budget"
+      ],
+      "title": "EvolutionBudgetCheckpoint",
+      "type": "object"
+    },
+    "ResearchMetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "ResearchMetricDirection",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A common-horizon anytime curve fixed before observing candidate scores.",
+  "properties": {
+    "baseline_score": {
+      "title": "Baseline Score",
+      "type": "number"
+    },
+    "checkpoints": {
+      "items": {
+        "$ref": "#/$defs/EvolutionBudgetCheckpoint"
+      },
+      "title": "Checkpoints",
+      "type": "array"
+    },
+    "common_budget_limit": {
+      "exclusiveMinimum": 0.0,
+      "title": "Common Budget Limit",
+      "type": "number"
+    },
+    "direction": {
+      "$ref": "#/$defs/ResearchMetricDirection",
+      "default": "maximize"
+    }
+  },
+  "required": [
+    "checkpoints",
+    "common_budget_limit",
+    "baseline_score"
+  ],
+  "title": "EvolutionCurvePlan",
+  "type": "object"
+}

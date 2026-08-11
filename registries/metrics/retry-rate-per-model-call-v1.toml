@@ -1,0 +1,14 @@
+[metric]
+id = "retry-rate.per-model-call.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "rate"
+level = "configuration"
+direction = "minimize"
+unit = "retries/model-call"
+source = "derived"
+formula = "ratio_v1"
+population = "observed_rollouts"
+inputs = ["retries.mean-completed.v1", "model-calls.mean-completed.v1"]
+missing_observation = "invalidate"

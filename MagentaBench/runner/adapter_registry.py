@@ -148,6 +148,15 @@ class ExecutionAdapter(Protocol):
     ) -> Any: ...
 
 
+class MetricSourceAdapter(Protocol):
+    """Digest-bound adapter for cell/evolution/external metric receipts."""
+
+    adapter: str
+    digest: str
+
+    def compute(self, metric: Any, inputs: Any) -> Any: ...
+
+
 def _execution_capability_key(
     adapter: str, backend: str, interface: str | None
 ) -> tuple[str, str, str | None]:
@@ -706,6 +715,7 @@ class AdapterRegistry:
         execution_adapters: Mapping[
             tuple[str, str, str | None], ExecutionAdapter
         ],
+        metric_source_adapters: Mapping[str, MetricSourceAdapter] | None = None,
         capabilities: Mapping[
             str | tuple[str, str] | tuple[str, str, str | None], AdapterCapability
         ] | None = None,
@@ -733,9 +743,17 @@ class AdapterRegistry:
                 raise AdapterRegistryError(
                     f"ExecutionAdapter registry key mismatch: {key!r}"
                 )
+        for key, adapter in (metric_source_adapters or {}).items():
+            if key != adapter.adapter:
+                raise AdapterRegistryError(
+                    f"MetricSourceAdapter registry key mismatch: {key!r}"
+                )
         self._benchmark_loaders = MappingProxyType(dict(benchmark_loaders))
         self._backend_factories = MappingProxyType(dict(backend_factories))
         self._execution_adapters = MappingProxyType(dict(execution_adapters))
+        self._metric_source_adapters = MappingProxyType(
+            dict(metric_source_adapters or {})
+        )
         capability_values: dict[tuple[Any, ...], AdapterCapability] = {}
         for raw_key, capability in (capabilities or {}).items():
             # Accept the historical ``{adapter: capability}`` shape when a
@@ -806,6 +824,7 @@ class AdapterRegistry:
                     subprocess_executor.subject_interface,
                 ): subprocess_executor,
             },
+            metric_source_adapters={},
         )
 
     @staticmethod
@@ -842,6 +861,9 @@ class AdapterRegistry:
                 not in {"none", "none/deterministic", "none/echo"}
             ):
                 required.add((benchmark.adapter, "execution"))
+            for metric in run.manifest.metrics:
+                if metric.metric.formula.value == "external_adapter_v1":
+                    required.add((metric.metric.adapter, "metric_source"))
         return required
 
     @classmethod
@@ -968,10 +990,16 @@ class AdapterRegistry:
                     backend_factory=implementation,
                     source_closure_digest=observed_closure_digest,
                 )
-            else:
+            elif capability.adapter_kind == "execution":
                 registry = registry.extend(
                     capability=capability,
                     execution_adapter=implementation,
+                    source_closure_digest=observed_closure_digest,
+                )
+            else:
+                registry = registry.extend(
+                    capability=capability,
+                    metric_source_adapter=implementation,
                     source_closure_digest=observed_closure_digest,
                 )
         return registry
@@ -983,13 +1011,19 @@ class AdapterRegistry:
         benchmark_loader: BenchmarkLoader | None = None,
         backend_factory: BackendFactory | None = None,
         execution_adapter: ExecutionAdapter | None = None,
+        metric_source_adapter: MetricSourceAdapter | None = None,
         source_closure_digest: str | None = None,
     ) -> "AdapterRegistry":
         """Return a registry with one explicit plugin capability installed."""
 
         implementations = tuple(
             item
-            for item in (benchmark_loader, backend_factory, execution_adapter)
+            for item in (
+                benchmark_loader,
+                backend_factory,
+                execution_adapter,
+                metric_source_adapter,
+            )
             if item is not None
         )
         if len(implementations) != 1:
@@ -1023,10 +1057,23 @@ class AdapterRegistry:
                 )
         elif execution_adapter is not None:
             raise AdapterRegistryError("execution_adapter is forbidden for this capability kind")
+        if capability.adapter_kind == "metric_source":
+            if (
+                metric_source_adapter is None
+                or metric_source_adapter.adapter != capability.adapter
+            ):
+                raise AdapterRegistryError(
+                    "metric_source capability requires a matching metric adapter"
+                )
+        elif metric_source_adapter is not None:
+            raise AdapterRegistryError(
+                "metric_source_adapter is forbidden for this capability kind"
+            )
 
         benchmark_loaders = dict(self._benchmark_loaders)
         backend_factories = dict(self._backend_factories)
         execution_adapters = dict(self._execution_adapters)
+        metric_source_adapters = dict(self._metric_source_adapters)
         capabilities = dict(self._capabilities)
         source_closures = dict(self._source_closures)
         if capability.adapter_kind == "execution":
@@ -1068,10 +1115,20 @@ class AdapterRegistry:
                     f"execution adapter tuple {key!r} is already registered"
                 )
             execution_adapters[key] = execution_adapter
+        if metric_source_adapter is not None:
+            if metric_source_adapter.adapter in metric_source_adapters:
+                raise AdapterRegistryError(
+                    f"metric source adapter {metric_source_adapter.adapter!r} "
+                    "is already registered"
+                )
+            metric_source_adapters[
+                metric_source_adapter.adapter
+            ] = metric_source_adapter
         return type(self)(
             benchmark_loaders=benchmark_loaders,
             backend_factories=backend_factories,
             execution_adapters=execution_adapters,
+            metric_source_adapters=metric_source_adapters,
             capabilities=capabilities,
             source_closures=source_closures,
         )
@@ -1192,6 +1249,19 @@ class AdapterRegistry:
         key = self.compatibility_key(run)
         return self._capabilities.get(key)
 
+    def metric_source_adapter(self, adapter: str) -> MetricSourceAdapter:
+        try:
+            implementation = self._metric_source_adapters[adapter]
+        except KeyError as exc:
+            raise AdapterRegistryError(
+                f"no production MetricSourceAdapter for {adapter!r}"
+            ) from exc
+        if (adapter, "metric_source") not in self._capabilities:
+            raise AdapterRegistryError(
+                f"metric source adapter {adapter!r} lacks a capability"
+            )
+        return implementation
+
     def source_closure_digest(
         self, capability: AdapterCapability, run: CompiledRun | None = None
     ) -> str | None:
@@ -1213,6 +1283,7 @@ __all__ = [
     "BackendRuntime",
     "BenchmarkLoader",
     "ExecutionAdapter",
+    "MetricSourceAdapter",
     "LoadedCaseSet",
     "ResolvedCaseSet",
     "case_set_refs",

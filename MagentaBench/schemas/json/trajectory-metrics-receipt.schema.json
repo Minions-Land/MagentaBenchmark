@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "MetricComputationState": {
+      "enum": [
+        "complete",
+        "unavailable",
+        "invalid"
+      ],
+      "title": "MetricComputationState",
+      "type": "string"
+    },
+    "ResearchMetric": {
+      "enum": [
+        "generalization_group_macro.v1",
+        "generalization_worst_group.v1",
+        "generalization_id_minus_ood_gap.v1",
+        "generalization_scenario_goal_completion.v1",
+        "evolution_parent_delta_macro.v1",
+        "evolution_best_so_far_final.v1",
+        "evolution_final_gain.v1",
+        "evolution_candidate_yield.v1",
+        "evolution_aubc_common_budget_step.v1",
+        "meta_evolution_paired_delta_macro.v1",
+        "trajectory_final_progress_macro.v1",
+        "trajectory_aupc_trapezoid_macro.v1",
+        "trajectory_regression_mass_macro.v1",
+        "trajectory_time_to_threshold_rmst.v1",
+        "calibration_brier.v1",
+        "calibration_binary_nll_clipped.v1",
+        "calibration_ece.v1",
+        "calibration_confidence_coverage.v1",
+        "selector_entropy_nats.v1",
+        "selector_effective_sample_size.v1"
+      ],
+      "title": "ResearchMetric",
+      "type": "string"
+    },
+    "ResearchMetricContribution": {
+      "additionalProperties": false,
+      "description": "One replayable intermediate reduction retained in a metric receipt.",
+      "properties": {
+        "censored": {
+          "default": false,
+          "title": "Censored",
+          "type": "boolean"
+        },
+        "contribution_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Contribution Id",
+          "type": "string"
+        },
+        "source_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Ids",
+          "type": "array"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        },
+        "weight": {
+          "default": 1.0,
+          "minimum": 0.0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "contribution_id",
+        "value"
+      ],
+      "title": "ResearchMetricContribution",
+      "type": "object"
+    },
+    "ResearchMetricReceipt": {
+      "additionalProperties": false,
+      "description": "Content-addressed scalar result over a closed planned population.",
+      "properties": {
+        "censored_count": {
+          "minimum": 0,
+          "title": "Censored Count",
+          "type": "integer"
+        },
+        "contributing_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Contributing Ids",
+          "type": "array"
+        },
+        "contributions": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ResearchMetricContribution"
+          },
+          "title": "Contributions",
+          "type": "array"
+        },
+        "excluded_count": {
+          "minimum": 0,
+          "title": "Excluded Count",
+          "type": "integer"
+        },
+        "format": {
+          "const": "bmp-research-metric-receipt-v1",
+          "default": "bmp-research-metric-receipt-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "invalid_count": {
+          "minimum": 0,
+          "title": "Invalid Count",
+          "type": "integer"
+        },
+        "metric": {
+          "$ref": "#/$defs/ResearchMetric"
+        },
+        "missing_count": {
+          "minimum": 0,
+          "title": "Missing Count",
+          "type": "integer"
+        },
+        "observation_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Observation Digest",
+          "type": "string"
+        },
+        "observed_count": {
+          "minimum": 0,
+          "title": "Observed Count",
+          "type": "integer"
+        },
+        "parameters_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Parameters Digest",
+          "type": "string"
+        },
+        "planned_count": {
+          "minimum": 1,
+          "title": "Planned Count",
+          "type": "integer"
+        },
+        "planned_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Planned Ids",
+          "type": "array"
+        },
+        "population_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Population Digest",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "state": {
+          "$ref": "#/$defs/MetricComputationState"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "zero_filled_count": {
+          "minimum": 0,
+          "title": "Zero Filled Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "metric",
+        "state",
+        "planned_count",
+        "observed_count",
+        "zero_filled_count",
+        "excluded_count",
+        "missing_count",
+        "invalid_count",
+        "censored_count",
+        "planned_ids",
+        "contributing_ids",
+        "population_digest",
+        "observation_digest",
+        "parameters_digest"
+      ],
+      "title": "ResearchMetricReceipt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "aupc": {
+      "$ref": "#/$defs/ResearchMetricReceipt"
+    },
+    "final_progress": {
+      "$ref": "#/$defs/ResearchMetricReceipt"
+    },
+    "regression_mass": {
+      "$ref": "#/$defs/ResearchMetricReceipt"
+    },
+    "time_to_threshold": {
+      "$ref": "#/$defs/ResearchMetricReceipt"
+    }
+  },
+  "required": [
+    "final_progress",
+    "aupc",
+    "regression_mass",
+    "time_to_threshold"
+  ],
+  "title": "TrajectoryMetricsReceipt",
+  "type": "object"
+}

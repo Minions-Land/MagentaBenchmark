@@ -13,6 +13,11 @@ formula = "pass_at_1_v1"
 population = "planned_rollouts"
 missing_observation = "zero"
 
+[metric.uncertainty]
+method = "wilson_score_v1"
+confidence_level = 0.95
+resampling_unit = "rollout"
+
 [metric.status_policy]
 pass = "observe"
 verified_fail = "observe"

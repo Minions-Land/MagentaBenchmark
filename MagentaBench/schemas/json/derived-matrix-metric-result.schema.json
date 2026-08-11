@@ -1,0 +1,74 @@
+{
+  "$defs": {
+    "MetricComputationState": {
+      "enum": [
+        "complete",
+        "unavailable",
+        "invalid"
+      ],
+      "title": "MetricComputationState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "contributing_cell_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contributing Cell Ids",
+      "type": "array"
+    },
+    "metric": {
+      "enum": [
+        "average_accuracy_macro.v1",
+        "backward_transfer_macro.v1",
+        "forgetting_max_history_macro.v1",
+        "forward_transfer_macro.v1"
+      ],
+      "title": "Metric",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "source_matrix_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Source Matrix Digest",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/MetricComputationState"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    }
+  },
+  "required": [
+    "metric",
+    "state",
+    "source_matrix_digest",
+    "contributing_cell_ids"
+  ],
+  "title": "DerivedMatrixMetricResult",
+  "type": "object"
+}

@@ -1,0 +1,18 @@
+[protocol]
+id = "fake.repeated-sampling.v1"
+kind = "test_time_scaling"
+adapter = "magentabench.scheduler"
+bmp_version = "0.1"
+rollouts_per_case = 4
+parallelism = 2
+case_order = "fixed"
+adaptive_budget = false
+candidate_selection = "best_of_n"
+state_reset = "per_rollout"
+checkpoint_policy = "disabled"
+deterministic_conformance = false
+
+[protocol.budget]
+max_tokens = 0
+max_wall_seconds = 4.0
+max_cost = 0.0

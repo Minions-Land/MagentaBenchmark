@@ -1,0 +1,43 @@
+{
+  "$defs": {
+    "ResearchMetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "ResearchMetricDirection",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "control_arm_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Control Arm Id",
+      "type": "string"
+    },
+    "direction": {
+      "$ref": "#/$defs/ResearchMetricDirection",
+      "default": "maximize"
+    },
+    "pair_keys": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pair Keys",
+      "type": "array"
+    },
+    "treatment_arm_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Treatment Arm Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pair_keys",
+    "control_arm_id",
+    "treatment_arm_id"
+  ],
+  "title": "MetaEvolutionPairPlan",
+  "type": "object"
+}

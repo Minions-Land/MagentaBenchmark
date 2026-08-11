@@ -6,6 +6,7 @@ import argparse
 from collections import Counter
 import hashlib
 import json
+import os
 import random
 import copy
 import subprocess
@@ -26,6 +27,7 @@ from pydantic import ValidationError
 
 from .compiler import canonical_digest
 from .models import (
+    AdapterCapability,
     ArtifactRef,
     AttemptExecution,
     BenchmarkSpecAdapter,
@@ -44,13 +46,18 @@ from .models import (
     EvidenceBundle,
     EvolutionMethodSpec,
     EvolutionRunEvidence,
+    EvaluatorArtifact,
     EvaluatorSpec,
+    ExperimentRegimeSpec,
     FactorSpec,
     IntegrationProbeRecord,
     ExternalProtocolAuthorityReceipt,
     ObservationReport,
+    MetricArtifact,
+    MetricFormula,
     MetricSpec,
     MetaEvolutionMethodSpec,
+    ProtocolSpec,
     RecordIndex,
     ResolvedBmpManifest,
     RolloutTrajectory,
@@ -179,6 +186,31 @@ def _resolve_path(path: str, path_map: Mapping[str, str]) -> Path:
             f"mapped path suffix is not normalized and may traverse: {path!r}"
         )
     return Path(path_map[prefix]) / suffix
+
+
+def _relocate_dataset_spec_source(
+    spec: DatasetSpec,
+    *,
+    declaration_ref: ArtifactRef,
+    path_map: Mapping[str, str],
+) -> DatasetSpec:
+    """Resolve a recorded dataset root before applying explicit relocation.
+
+    A relocated declaration can still contain an absolute path into its old
+    checkout. Resolving relative declarations against the *recorded*
+    declaration location, normalizing lexically, and only then applying the
+    path map prevents verification from falling back to stale old-tree bytes.
+    No source path is dereferenced before relocation.
+    """
+
+    declared_source = Path(spec.source).expanduser()
+    if declared_source.is_absolute():
+        recorded_source = declared_source
+    else:
+        recorded_source = Path(declaration_ref.path).parent / declared_source
+    normalized_source = Path(os.path.abspath(os.fspath(recorded_source)))
+    relocated_source = _resolve_path(str(normalized_source), path_map)
+    return spec.model_copy(update={"source": str(relocated_source)})
 
 
 def _verify_ref(
@@ -988,6 +1020,11 @@ def _verify_manifest_measurement_registry(
         *(("metric", artifact.metric, artifact) for artifact in manifest.metrics),
         *(
             ()
+            if manifest.regime is None
+            else (("regime", manifest.regime.regime, manifest.regime),)
+        ),
+        *(
+            ()
             if manifest.metadata.evolver is None
             else (("evolver", manifest.metadata.evolver, manifest.metadata.evolver),)
         ),
@@ -1011,6 +1048,7 @@ def _verify_manifest_measurement_registry(
         "evolver": EvolutionMethodSpec,
         "metric": MetricSpec,
         "meta_evolver": MetaEvolutionMethodSpec,
+        "regime": ExperimentRegimeSpec,
     }
     for index, (section, spec, artifact) in enumerate(entries):
         artifact_label = f"{label}.{section}[{index}]"
@@ -1066,6 +1104,94 @@ def _verify_manifest_measurement_registry(
             matches = observed == spec
         if not matches:
             mismatches.append(f"{artifact_label}: declaration/spec drift")
+
+    if manifest.regime is None:
+        return
+    dependency_validators = {
+        "benchmark": BenchmarkSpecAdapter,
+        "dataset": DatasetSpec,
+        "evaluator": EvaluatorSpec,
+        "metric": MetricSpec,
+        "protocol": ProtocolSpec,
+    }
+    for index, dependency in enumerate(manifest.regime.dependencies):
+        dependency_label = f"{label}.regime.dependencies[{index}]"
+        resolved_path, content = _verify_ref(
+            dependency.declaration_ref,
+            label=f"{dependency_label}.declaration_ref",
+            path_map=path_map,
+            mismatches=mismatches,
+        )
+        if content is None or resolved_path is None:
+            continue
+        try:
+            document = tomllib.loads(content.decode("utf-8"))
+            section = dependency.registry_kind
+            if set(document) != {section} or not isinstance(
+                document.get(section), Mapping
+            ):
+                raise ValueError(f"declaration must contain only [{section}]")
+            validator = dependency_validators[section]
+            observed = (
+                validator.validate_python(document[section])
+                if hasattr(validator, "validate_python")
+                else validator.model_validate(document[section])
+            )
+            if observed.id != dependency.id:
+                raise ValueError("dependency declaration id drift")
+            from MagentaBench.schemas.compiler import (
+                _compile_benchmark_artifact,
+                _compile_dataset_artifact,
+            )
+            if section == "benchmark":
+                observed_digest = _compile_benchmark_artifact(
+                    observed, declaration_path=resolved_path
+                ).artifact_digest
+            elif section == "dataset":
+                relocated_spec = _relocate_dataset_spec_source(
+                    observed,
+                    declaration_ref=dependency.declaration_ref,
+                    path_map=path_map,
+                )
+                compiled_dataset = _compile_dataset_artifact(
+                    relocated_spec, declaration_path=resolved_path
+                )
+                # ArtifactRef paths are relocatable provenance, while their
+                # byte identity is recorded protocol state. Rebind the replay
+                # projection to that recorded identity explicitly rather than
+                # letting the relocated compiler path select the identity.
+                provisional = compiled_dataset.model_copy(
+                    update={
+                        "declaration_ref": dependency.declaration_ref,
+                        "artifact_digest": "0" * 64,
+                    }
+                )
+                observed_digest = provisional.canonical_digest()
+            elif section == "evaluator":
+                provisional = EvaluatorArtifact(
+                    evaluator=observed,
+                    declaration_ref=dependency.declaration_ref,
+                    artifact_digest="0" * 64,
+                )
+                observed_digest = provisional.canonical_digest()
+            elif section == "metric":
+                provisional = MetricArtifact(
+                    metric=observed,
+                    declaration_ref=dependency.declaration_ref,
+                    artifact_digest="0" * 64,
+                )
+                observed_digest = provisional.canonical_digest()
+            else:
+                protocol_identity = {
+                    "protocol": observed.identity_data(),
+                    "declaration_ref": dependency.declaration_ref.identity_data(),
+                }
+                observed_digest = _compact_json_digest(protocol_identity)
+        except (OSError, UnicodeDecodeError, ValueError, ValidationError) as exc:
+            mismatches.append(f"{dependency_label}: invalid dependency: {exc}")
+            continue
+        if observed_digest != dependency.artifact_digest:
+            mismatches.append(f"{dependency_label}: artifact_digest drift")
 
 
 def _verify_manifest_configuration(
@@ -1326,6 +1452,9 @@ def _verify_manifest_adapter_capabilities(
         not in {"none", "none/deterministic", "none/echo"}
     ):
         required.add((manifest.benchmark.adapter, "execution"))
+    for metric_artifact in manifest.metrics:
+        if metric_artifact.metric.formula == MetricFormula.external_adapter_v1:
+            required.add((metric_artifact.metric.adapter, "metric_source"))
 
     observed: dict[tuple[str, str], list[int]] = {}
     for index, artifact in enumerate(manifest.metadata.adapter_capabilities):
@@ -1410,12 +1539,75 @@ def _verify_manifest_adapter_capabilities(
                 mismatches.append(
                     f"{artifact_label}: state reset is outside declared policies"
                 )
-        _verify_ref(
+        elif capability.adapter_kind == "metric_source":
+            selected_metrics = [
+                artifact.metric
+                for artifact in manifest.metrics
+                if artifact.metric.adapter == capability.adapter
+                and artifact.metric.formula == MetricFormula.external_adapter_v1
+            ]
+            if not selected_metrics:
+                mismatches.append(
+                    f"{artifact_label}: metric capability has no selected metric"
+                )
+            metric_config_validator = None
+            try:
+                validator_cls = jsonschema.validators.validator_for(
+                    capability.metric_config_schema
+                )
+                validator_cls.check_schema(capability.metric_config_schema)
+                metric_config_validator = validator_cls(
+                    capability.metric_config_schema
+                )
+            except jsonschema.exceptions.SchemaError as exc:
+                mismatches.append(
+                    f"{artifact_label}: capability metric config JSON Schema "
+                    f"is invalid: {exc.message}"
+                )
+            for metric in selected_metrics:
+                if metric.source.value not in capability.supported_metric_sources:
+                    mismatches.append(
+                        f"{artifact_label}: metric source is outside capability"
+                    )
+                if metric.formula.value not in capability.supported_metric_formulas:
+                    mismatches.append(
+                        f"{artifact_label}: metric formula is outside capability"
+                    )
+                if metric_config_validator is not None:
+                    try:
+                        metric_config_validator.validate(metric.config)
+                    except jsonschema.exceptions.ValidationError as exc:
+                        mismatches.append(
+                            f"{artifact_label}: metric config fails capability "
+                            f"JSON Schema for {metric.id!r}: {exc.message}"
+                        )
+        _, declaration_content = _verify_ref(
             artifact.declaration_ref,
             label=f"{artifact_label}.declaration_ref",
             path_map=path_map,
             mismatches=mismatches,
         )
+        if declaration_content is not None:
+            try:
+                document = tomllib.loads(declaration_content.decode("utf-8"))
+                if set(document) != {"adapter"} or not isinstance(
+                    document.get("adapter"), Mapping
+                ):
+                    raise ValueError(
+                        "declaration must contain only [adapter]"
+                    )
+                declared_capability = AdapterCapability.model_validate(
+                    document["adapter"]
+                )
+            except (UnicodeDecodeError, ValueError, ValidationError) as exc:
+                mismatches.append(
+                    f"{artifact_label}: invalid capability declaration: {exc}"
+                )
+            else:
+                if declared_capability != capability:
+                    mismatches.append(
+                        f"{artifact_label}: capability declaration/spec drift"
+                    )
         _verify_ref(
             artifact.implementation_ref,
             label=f"{artifact_label}.implementation_ref",
@@ -1791,6 +1983,52 @@ def _verify_bundle_provenance(
         mismatches.append(f"{label}: container executable digest cross-link drift")
 
 
+def _schedule_attempt_allocation_mismatches(
+    schedule: ScheduleActivationReceipt,
+) -> tuple[str, ...]:
+    """Return identity drift between planned slots and launched executions.
+
+    Keep this check in the standalone verifier even though the receipt model
+    enforces the same invariant.  Verification must not rely on callers having
+    constructed ``ScheduleActivationReceipt`` through Pydantic validation.
+    """
+
+    mismatches: list[str] = []
+    allocations = schedule.budget_ledger.attempt_allocations
+    allocation_by_id = {item.attempt_id: item for item in allocations}
+    expected_slots = {
+        (case_id, attempt_index)
+        for case_id in schedule.observed_case_order
+        for attempt_index in range(schedule.declared_rollouts_per_case)
+    }
+    allocation_slots = {
+        (item.case_id, item.attempt_index) for item in allocations
+    }
+    if len(allocation_by_id) != len(allocations):
+        mismatches.append("attempt allocation ids are not unique")
+    if len(allocation_slots) != len(allocations):
+        mismatches.append("attempt allocation slots are not unique")
+    if allocation_slots != expected_slots:
+        mismatches.append("attempt allocations do not cover the planned slot matrix")
+
+    launched_ids = {item.attempt_id for item in allocations if item.launched}
+    execution_ids = {item.attempt_id for item in schedule.attempts}
+    if launched_ids != execution_ids:
+        mismatches.append("launched allocation/execution ids differ")
+    for attempt in schedule.attempts:
+        allocation = allocation_by_id.get(attempt.attempt_id)
+        if allocation is None:
+            continue
+        if (
+            allocation.case_id != attempt.case_id
+            or allocation.attempt_index != attempt.attempt_index
+        ):
+            mismatches.append(
+                f"attempt {attempt.attempt_id!r} allocation/execution slot drift"
+            )
+    return tuple(mismatches)
+
+
 def _verify_schedule_manifest_binding(
     schedule: ScheduleActivationReceipt,
     manifest: ResolvedBmpManifest,
@@ -1826,6 +2064,9 @@ def _verify_schedule_manifest_binding(
     )
     if schedule.order_seed != expected_seed:
         mismatches.append(f"{label}: order_seed does not match manifest protocol")
+
+    for reason in _schedule_attempt_allocation_mismatches(schedule):
+        mismatches.append(f"{label}: {reason}")
 
     allocated_case_ids = tuple(
         allocation.case_id
@@ -2818,6 +3059,7 @@ def _schedule_substantiates_protocol(
         )
         or schedule.observed_attempt_count != len(schedule.attempts)
         or schedule.observed_selection_policy != protocol.candidate_selection
+        or _schedule_attempt_allocation_mismatches(schedule)
     ):
         return False
 

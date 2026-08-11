@@ -1,0 +1,58 @@
+[adapter]
+id = "magentabench.cell-metrics.source"
+kind = "adapter"
+adapter = "magentabench.cell-metrics"
+bmp_version = "0.1"
+adapter_kind = "metric_source"
+source = "."
+entrypoint = "plugins/cell_metrics/adapter.py:CellLedgerMetricAdapter"
+digest = "b7ac9ca36a945973e31a185abeee427b3e3cbad90af690cb93f9a493bdd84a05"
+supported_metric_sources = ["regime"]
+supported_metric_formulas = ["external_adapter_v1"]
+metric_config_schema_digest = "8d8805d4320236b1290a672db4aaefaa82a3e1aa2f3e5c6e5370577223f94cac"
+
+[adapter.metric_config_schema]
+type = "object"
+additionalProperties = false
+required = [
+  "group_axis",
+  "member_axis",
+  "stage_id",
+  "checkpoint_id",
+  "members_by_group",
+  "within_group",
+  "across_groups",
+]
+
+[adapter.metric_config_schema.properties.group_axis]
+enum = ["domain", "scenario"]
+
+[adapter.metric_config_schema.properties.member_axis]
+enum = ["task", "variant"]
+
+[adapter.metric_config_schema.properties.stage_id]
+type = "string"
+minLength = 1
+
+[adapter.metric_config_schema.properties.checkpoint_id]
+type = "string"
+minLength = 1
+
+[adapter.metric_config_schema.properties.members_by_group]
+type = "object"
+minProperties = 1
+
+[adapter.metric_config_schema.properties.members_by_group.additionalProperties]
+type = "array"
+minItems = 1
+uniqueItems = true
+
+[adapter.metric_config_schema.properties.members_by_group.additionalProperties.items]
+type = "string"
+minLength = 1
+
+[adapter.metric_config_schema.properties.within_group]
+enum = ["mean", "minimum"]
+
+[adapter.metric_config_schema.properties.across_groups]
+enum = ["macro_mean", "minimum"]

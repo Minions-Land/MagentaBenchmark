@@ -1,0 +1,172 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "TraceConversionStatus": {
+      "enum": [
+        "complete",
+        "partial",
+        "failed"
+      ],
+      "title": "TraceConversionStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Raw provider trace to normalized trajectory conversion lineage.",
+  "properties": {
+    "attempt_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Attempt Id",
+      "type": "string"
+    },
+    "converter_closure_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Converter Closure Digest",
+      "type": "string"
+    },
+    "converter_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Converter Id",
+      "type": "string"
+    },
+    "converter_implementation_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "converter_version": {
+      "minLength": 1,
+      "title": "Converter Version",
+      "type": "string"
+    },
+    "dropped_record_count": {
+      "minimum": 0,
+      "title": "Dropped Record Count",
+      "type": "integer"
+    },
+    "error_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "error_type": {
+      "anyOf": [
+        {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error Type"
+    },
+    "format": {
+      "const": "bmp-trace-conversion-receipt-v1",
+      "default": "bmp-trace-conversion-receipt-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "lossy": {
+      "title": "Lossy",
+      "type": "boolean"
+    },
+    "mapped_record_count": {
+      "minimum": 0,
+      "title": "Mapped Record Count",
+      "type": "integer"
+    },
+    "mapping_ledger_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "normalized_trajectory_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "provider_mode": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Provider Mode",
+      "type": "string"
+    },
+    "provider_schema_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Provider Schema Digest",
+      "type": "string"
+    },
+    "raw_record_count": {
+      "minimum": 0,
+      "title": "Raw Record Count",
+      "type": "integer"
+    },
+    "raw_trace_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "status": {
+      "$ref": "#/$defs/TraceConversionStatus"
+    },
+    "unclassified_record_count": {
+      "minimum": 0,
+      "title": "Unclassified Record Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "attempt_id",
+    "converter_id",
+    "converter_version",
+    "converter_implementation_ref",
+    "converter_closure_digest",
+    "provider_mode",
+    "provider_schema_digest",
+    "raw_trace_ref",
+    "raw_record_count",
+    "mapped_record_count",
+    "dropped_record_count",
+    "unclassified_record_count",
+    "lossy",
+    "status",
+    "mapping_ledger_ref"
+  ],
+  "title": "TraceConversionReceipt",
+  "type": "object"
+}

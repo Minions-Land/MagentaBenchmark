@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "ResearchMetricDisposition": {
+      "description": "Disposition of one unit in a pre-declared research population.",
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid",
+        "censored"
+      ],
+      "title": "ResearchMetricDisposition",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "confidence": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "confidence_disposition": {
+      "$ref": "#/$defs/ResearchMetricDisposition"
+    },
+    "confidence_reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence Reason"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            0,
+            1
+          ],
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outcome"
+    },
+    "outcome_disposition": {
+      "$ref": "#/$defs/ResearchMetricDisposition"
+    },
+    "outcome_reason": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outcome Reason"
+    },
+    "prediction_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Prediction Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "prediction_id",
+    "outcome_disposition",
+    "confidence_disposition"
+  ],
+  "title": "CalibrationObservation",
+  "type": "object"
+}

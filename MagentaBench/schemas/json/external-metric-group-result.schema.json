@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "contributing_cell_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contributing Cell Ids",
+      "type": "array"
+    },
+    "group_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Group Id",
+      "type": "string"
+    },
+    "value": {
+      "title": "Value",
+      "type": "number"
+    }
+  },
+  "required": [
+    "group_id",
+    "value",
+    "contributing_cell_ids"
+  ],
+  "title": "ExternalMetricGroupResult",
+  "type": "object"
+}

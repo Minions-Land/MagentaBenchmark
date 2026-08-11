@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "CandidateGateCommandKind": {
+      "enum": [
+        "import_check",
+        "compile",
+        "schema",
+        "smoke",
+        "custom"
+      ],
+      "title": "CandidateGateCommandKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "argv": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Argv",
+      "type": "array"
+    },
+    "expected_exit_codes": {
+      "default": [
+        0
+      ],
+      "items": {
+        "type": "integer"
+      },
+      "title": "Expected Exit Codes",
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/CandidateGateCommandKind"
+    },
+    "timeout_seconds": {
+      "exclusiveMinimum": 0,
+      "title": "Timeout Seconds",
+      "type": "number"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "argv",
+    "timeout_seconds"
+  ],
+  "title": "CandidateGateCommandSpec",
+  "type": "object"
+}

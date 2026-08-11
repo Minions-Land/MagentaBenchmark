@@ -70,6 +70,7 @@ def test_scheduler_retains_three_rollouts_and_ordered_reservations(tmp_path: Pat
     assert len(result.receipt.attempts) == 3
     reservations = result.receipt.budget_ledger.attempt_allocations
     assert [item.reservation_sequence for item in reservations] == [0, 1, 2]
+    assert [item.attempt_index for item in reservations] == [0, 1, 2]
     assert all(item.launched for item in reservations)
     assert all(
         item.reservation_sequence < (item.launch_sequence or 0)

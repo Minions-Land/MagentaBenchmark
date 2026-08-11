@@ -1,0 +1,97 @@
+[regime]
+id = "evolutionary-search.protocol-template.v1"
+kind = "regime"
+adapter = "magentabench.stage-dag"
+bmp_version = "0.1"
+regime_kind = "evolutionary_search"
+
+[[regime.stages]]
+id = "candidate-search"
+role = "search"
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["candidate-generation"]
+state_policy = "reset"
+feedback_visibility = "full_trajectory"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "staged-validation"
+role = "validation"
+predecessors = ["candidate-search"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["candidate-validation"]
+state_policy = "read_only"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "promotion-selection"
+role = "selection"
+predecessors = ["candidate-search", "staged-validation"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.checkpoint-lineage.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["promotion"]
+state_policy = "carry"
+feedback_visibility = "aggregate_only"
+sealed = false
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0
+
+[[regime.stages]]
+id = "sealed-final-holdout"
+role = "holdout"
+predecessors = ["promotion-selection"]
+benchmark_id = "fake.exact.v1"
+dataset_id = "dataset.fake.exact.v1"
+evaluator_id = "evaluator.fake.exact.v1"
+protocol_id = "fake.deterministic.v1"
+metric_ids = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+]
+domains = ["final-holdout"]
+state_policy = "read_only"
+feedback_visibility = "none"
+sealed = true
+evaluation_cadence = 1
+
+[regime.stages.budget]
+max_tokens = 0
+max_wall_seconds = 1.0
+max_cost = 0.0

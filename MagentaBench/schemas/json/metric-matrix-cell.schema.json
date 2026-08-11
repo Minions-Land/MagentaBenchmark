@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "ExperimentCellDisposition": {
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid"
+      ],
+      "title": "ExperimentCellDisposition",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "column_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Column Id",
+      "type": "string"
+    },
+    "disposition": {
+      "$ref": "#/$defs/ExperimentCellDisposition"
+    },
+    "row_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Row Id",
+      "type": "string"
+    },
+    "source_cell_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Source Cell Id",
+      "type": "string"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Value"
+    },
+    "weight": {
+      "default": 1.0,
+      "exclusiveMinimum": 0,
+      "title": "Weight",
+      "type": "number"
+    }
+  },
+  "required": [
+    "row_id",
+    "column_id",
+    "source_cell_id",
+    "disposition"
+  ],
+  "title": "MetricMatrixCell",
+  "type": "object"
+}

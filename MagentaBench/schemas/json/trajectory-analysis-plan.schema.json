@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "ProgressCheckpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "coordinate": {
+          "minimum": 0.0,
+          "title": "Coordinate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "coordinate"
+      ],
+      "title": "ProgressCheckpoint",
+      "type": "object"
+    },
+    "ResearchMetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize"
+      ],
+      "title": "ResearchMetricDirection",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checkpoints": {
+      "items": {
+        "$ref": "#/$defs/ProgressCheckpoint"
+      },
+      "title": "Checkpoints",
+      "type": "array"
+    },
+    "direction": {
+      "$ref": "#/$defs/ResearchMetricDirection",
+      "default": "maximize"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    },
+    "trajectory_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trajectory Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "trajectory_ids",
+    "checkpoints",
+    "threshold"
+  ],
+  "title": "TrajectoryAnalysisPlan",
+  "type": "object"
+}

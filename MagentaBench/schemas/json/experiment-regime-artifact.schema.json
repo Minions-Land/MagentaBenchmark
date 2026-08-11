@@ -1,0 +1,341 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "Budget": {
+      "additionalProperties": false,
+      "description": "Hard limits for a run; absent fields mean that limit is unspecified.",
+      "properties": {
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        },
+        "max_wall_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Wall Seconds"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "ExperimentRegimeKind": {
+      "description": "Research setting orthogonal to the four comparison subjects.",
+      "enum": [
+        "iid_evaluation",
+        "repeated_sampling",
+        "generalization",
+        "cross_domain_transfer",
+        "continual_learning",
+        "curriculum",
+        "online_adaptation",
+        "robustness_stress",
+        "evolutionary_search",
+        "meta_evolution"
+      ],
+      "title": "ExperimentRegimeKind",
+      "type": "string"
+    },
+    "ExperimentRegimeSpec": {
+      "additionalProperties": false,
+      "description": "TOML authority for multi-stage research settings.\n\nThe DAG expresses generalization, transfer, continual learning, curriculum,\nonline adaptation, robustness, evolution, and meta-evolution without\nintroducing another semantic comparison kind.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "regime",
+          "title": "Kind",
+          "type": "string"
+        },
+        "regime_kind": {
+          "$ref": "#/$defs/ExperimentRegimeKind"
+        },
+        "stages": {
+          "items": {
+            "$ref": "#/$defs/ExperimentStageSpec"
+          },
+          "title": "Stages",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "regime_kind",
+        "stages"
+      ],
+      "title": "ExperimentRegimeSpec",
+      "type": "object"
+    },
+    "ExperimentStageRole": {
+      "enum": [
+        "train",
+        "adapt",
+        "search",
+        "validation",
+        "selection",
+        "evaluate",
+        "holdout",
+        "stress"
+      ],
+      "title": "ExperimentStageRole",
+      "type": "string"
+    },
+    "ExperimentStageSpec": {
+      "additionalProperties": false,
+      "description": "One node in a pre-registered experiment-stage DAG.",
+      "properties": {
+        "benchmark_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Benchmark Id",
+          "type": "string"
+        },
+        "budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Budget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "dataset_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Dataset Id",
+          "type": "string"
+        },
+        "domains": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Domains",
+          "type": "array"
+        },
+        "evaluation_cadence": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Evaluation Cadence",
+          "type": "integer"
+        },
+        "evaluator_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Evaluator Id",
+          "type": "string"
+        },
+        "feedback_visibility": {
+          "$ref": "#/$defs/StageFeedbackVisibility"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "metric_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Metric Ids",
+          "type": "array"
+        },
+        "predecessors": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Predecessors",
+          "type": "array"
+        },
+        "protocol_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Protocol Id",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/ExperimentStageRole"
+        },
+        "sealed": {
+          "default": false,
+          "title": "Sealed",
+          "type": "boolean"
+        },
+        "state_policy": {
+          "$ref": "#/$defs/StageStatePolicy"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "benchmark_id",
+        "dataset_id",
+        "evaluator_id",
+        "protocol_id",
+        "metric_ids",
+        "state_policy",
+        "feedback_visibility"
+      ],
+      "title": "ExperimentStageSpec",
+      "type": "object"
+    },
+    "RegimeDependencyArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "registry_kind": {
+          "enum": [
+            "benchmark",
+            "dataset",
+            "evaluator",
+            "metric",
+            "protocol"
+          ],
+          "title": "Registry Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "registry_kind",
+        "id",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "RegimeDependencyArtifact",
+      "type": "object"
+    },
+    "StageFeedbackVisibility": {
+      "enum": [
+        "none",
+        "aggregate_only",
+        "evaluator_feedback",
+        "full_trajectory"
+      ],
+      "title": "StageFeedbackVisibility",
+      "type": "string"
+    },
+    "StageStatePolicy": {
+      "enum": [
+        "reset",
+        "carry",
+        "fork",
+        "read_only"
+      ],
+      "title": "StageStatePolicy",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Artifact Digest",
+      "type": "string"
+    },
+    "declaration_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "dependencies": {
+      "items": {
+        "$ref": "#/$defs/RegimeDependencyArtifact"
+      },
+      "title": "Dependencies",
+      "type": "array"
+    },
+    "regime": {
+      "$ref": "#/$defs/ExperimentRegimeSpec"
+    }
+  },
+  "required": [
+    "regime",
+    "declaration_ref",
+    "dependencies",
+    "artifact_digest"
+  ],
+  "title": "ExperimentRegimeArtifact",
+  "type": "object"
+}

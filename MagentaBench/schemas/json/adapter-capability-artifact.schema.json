@@ -13,7 +13,8 @@
           "enum": [
             "benchmark_loader",
             "backend_factory",
-            "execution"
+            "execution",
+            "metric_source"
           ],
           "title": "Adapter Kind",
           "type": "string"
@@ -66,6 +67,24 @@
           "const": "adapter",
           "title": "Kind",
           "type": "string"
+        },
+        "metric_config_schema": {
+          "additionalProperties": true,
+          "title": "Metric Config Schema",
+          "type": "object"
+        },
+        "metric_config_schema_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Config Schema Digest"
         },
         "model_activation_source": {
           "anyOf": [
@@ -125,6 +144,27 @@
             "type": "string"
           },
           "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_metric_formulas": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Metric Formulas",
+          "type": "array"
+        },
+        "supported_metric_sources": {
+          "default": [],
+          "items": {
+            "enum": [
+              "regime",
+              "evolution",
+              "external"
+            ],
+            "type": "string"
+          },
+          "title": "Supported Metric Sources",
           "type": "array"
         },
         "supported_state_reset_policies": {

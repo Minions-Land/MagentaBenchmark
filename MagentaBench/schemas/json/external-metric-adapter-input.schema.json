@@ -1,0 +1,1350 @@
+{
+  "$defs": {
+    "AdapterCapability": {
+      "additionalProperties": false,
+      "description": "Declarative capability contract for a pluggable BMP adapter.\n\nThe entrypoint is metadata only until a host explicitly registers the\nimplementation object.  This keeps a TOML declaration from silently\nselecting executable code while still making supported kinds and config\npaths inspectable and hashable.",
+      "properties": {
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "adapter_kind": {
+          "enum": [
+            "benchmark_loader",
+            "backend_factory",
+            "execution",
+            "metric_source"
+          ],
+          "title": "Adapter Kind",
+          "type": "string"
+        },
+        "backend_default_read_set": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Default Read Set"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "config_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Config Paths",
+          "type": "array"
+        },
+        "digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Digest",
+          "type": "string"
+        },
+        "entrypoint": {
+          "minLength": 1,
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "const": "adapter",
+          "title": "Kind",
+          "type": "string"
+        },
+        "metric_config_schema": {
+          "additionalProperties": true,
+          "title": "Metric Config Schema",
+          "type": "object"
+        },
+        "metric_config_schema_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Config Schema Digest"
+        },
+        "model_activation_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "provider_response",
+                "runtime_manifest",
+                "native_result",
+                "adapter_receipt"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Activation Source"
+        },
+        "none_model_sentinels": {
+          "default": [],
+          "items": {
+            "enum": [
+              "none",
+              "none/deterministic",
+              "none/echo"
+            ],
+            "type": "string"
+          },
+          "title": "None Model Sentinels",
+          "type": "array"
+        },
+        "source": {
+          "default": ".",
+          "title": "Source",
+          "type": "string"
+        },
+        "supported_backend_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Adapters",
+          "type": "array"
+        },
+        "supported_backend_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Backend Kinds",
+          "type": "array"
+        },
+        "supported_benchmark_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Benchmark Kinds",
+          "type": "array"
+        },
+        "supported_metric_formulas": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Metric Formulas",
+          "type": "array"
+        },
+        "supported_metric_sources": {
+          "default": [],
+          "items": {
+            "enum": [
+              "regime",
+              "evolution",
+              "external"
+            ],
+            "type": "string"
+          },
+          "title": "Supported Metric Sources",
+          "type": "array"
+        },
+        "supported_state_reset_policies": {
+          "default": [],
+          "items": {
+            "enum": [
+              "per_case",
+              "per_rollout",
+              "never"
+            ],
+            "type": "string"
+          },
+          "title": "Supported State Reset Policies",
+          "type": "array"
+        },
+        "supported_subject_adapters": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Adapters",
+          "type": "array"
+        },
+        "supported_subject_interfaces": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Interfaces",
+          "type": "array"
+        },
+        "supported_subject_kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Subject Kinds",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "adapter_kind",
+        "entrypoint",
+        "digest"
+      ],
+      "title": "AdapterCapability",
+      "type": "object"
+    },
+    "AdapterCapabilityArtifact": {
+      "additionalProperties": false,
+      "description": "Resolved plugin declaration and implementation byte identity.\n\n``source_closure_*`` records the local Python helpers imported by the\nentrypoint.  Keeping relative names separate from absolute artifact refs\nmakes the digest stable across record relocation while still allowing the\nverifier to rehash every persisted byte.",
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "capability": {
+          "$ref": "#/$defs/AdapterCapability"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "implementation_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "source_closure_digest": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Closure Digest"
+        },
+        "source_closure_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Closure Paths",
+          "type": "array"
+        },
+        "source_closure_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Source Closure Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "capability",
+        "declaration_ref",
+        "implementation_ref",
+        "artifact_digest"
+      ],
+      "title": "AdapterCapabilityArtifact",
+      "type": "object"
+    },
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "ExperimentCellCoordinates": {
+      "additionalProperties": false,
+      "description": "Axes shared by IID, transfer, continual, evolution, and stress cells.",
+      "properties": {
+        "checkpoint_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "domain_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain Id"
+        },
+        "generation": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Generation"
+        },
+        "repetition": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Repetition",
+          "type": "integer"
+        },
+        "scenario_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scenario Id"
+        },
+        "stage_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Stage Id",
+          "type": "string"
+        },
+        "task_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "variant_id": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Variant Id"
+        }
+      },
+      "required": [
+        "stage_id",
+        "checkpoint_id",
+        "task_id"
+      ],
+      "title": "ExperimentCellCoordinates",
+      "type": "object"
+    },
+    "ExperimentCellDisposition": {
+      "enum": [
+        "observed",
+        "zero_filled",
+        "excluded",
+        "missing",
+        "invalid"
+      ],
+      "title": "ExperimentCellDisposition",
+      "type": "string"
+    },
+    "ExperimentCellLedger": {
+      "additionalProperties": false,
+      "properties": {
+        "excluded_count": {
+          "minimum": 0,
+          "title": "Excluded Count",
+          "type": "integer"
+        },
+        "format": {
+          "const": "bmp-experiment-cell-ledger-v1",
+          "default": "bmp-experiment-cell-ledger-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "invalid_count": {
+          "minimum": 0,
+          "title": "Invalid Count",
+          "type": "integer"
+        },
+        "missing_count": {
+          "minimum": 0,
+          "title": "Missing Count",
+          "type": "integer"
+        },
+        "observation_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Observation Digest",
+          "type": "string"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/ExperimentCellObservation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "observed_count": {
+          "minimum": 0,
+          "title": "Observed Count",
+          "type": "integer"
+        },
+        "plan": {
+          "$ref": "#/$defs/ExperimentCellPlan"
+        },
+        "zero_filled_count": {
+          "minimum": 0,
+          "title": "Zero Filled Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "plan",
+        "observations",
+        "observed_count",
+        "zero_filled_count",
+        "excluded_count",
+        "missing_count",
+        "invalid_count",
+        "observation_digest"
+      ],
+      "title": "ExperimentCellLedger",
+      "type": "object"
+    },
+    "ExperimentCellObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Cell Id",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ExperimentCellDisposition"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "metric_result_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "terminal_status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "cell_id",
+        "disposition"
+      ],
+      "title": "ExperimentCellObservation",
+      "type": "object"
+    },
+    "ExperimentCellPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/PlannedMetricCell"
+          },
+          "title": "Cells",
+          "type": "array"
+        },
+        "format": {
+          "const": "bmp-experiment-cell-plan-v1",
+          "default": "bmp-experiment-cell-plan-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "membership_refs": {
+          "items": {
+            "$ref": "#/$defs/ArtifactRef"
+          },
+          "title": "Membership Refs",
+          "type": "array"
+        },
+        "plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Plan Digest",
+          "type": "string"
+        },
+        "regime_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Regime Digest",
+          "type": "string"
+        },
+        "regime_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Regime Id",
+          "type": "string"
+        },
+        "stage_manifest_digests": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Stage Manifest Digests",
+          "type": "object"
+        }
+      },
+      "required": [
+        "regime_id",
+        "regime_digest",
+        "stage_manifest_digests",
+        "membership_refs",
+        "cells",
+        "plan_digest"
+      ],
+      "title": "ExperimentCellPlan",
+      "type": "object"
+    },
+    "MetricAcrossGroupAggregation": {
+      "enum": [
+        "macro_mean",
+        "minimum"
+      ],
+      "title": "MetricAcrossGroupAggregation",
+      "type": "string"
+    },
+    "MetricArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Artifact Digest",
+          "type": "string"
+        },
+        "declaration_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "metric": {
+          "$ref": "#/$defs/MetricSpec"
+        }
+      },
+      "required": [
+        "metric",
+        "declaration_ref",
+        "artifact_digest"
+      ],
+      "title": "MetricArtifact",
+      "type": "object"
+    },
+    "MetricCellMatrix": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/MetricMatrixCell"
+          },
+          "title": "Cells",
+          "type": "array"
+        },
+        "column_axis": {
+          "enum": [
+            "task",
+            "domain",
+            "scenario",
+            "variant"
+          ],
+          "title": "Column Axis",
+          "type": "string"
+        },
+        "column_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Column Ids",
+          "type": "array"
+        },
+        "format": {
+          "const": "bmp-metric-cell-matrix-v1",
+          "default": "bmp-metric-cell-matrix-v1",
+          "title": "Format",
+          "type": "string"
+        },
+        "matrix_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Matrix Digest",
+          "type": "string"
+        },
+        "metric_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metric Digest",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "row_axis": {
+          "enum": [
+            "checkpoint",
+            "stage",
+            "generation"
+          ],
+          "title": "Row Axis",
+          "type": "string"
+        },
+        "row_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Row Ids",
+          "type": "array"
+        },
+        "source_observation_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Observation Digest",
+          "type": "string"
+        },
+        "source_plan_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Plan Digest",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_plan_digest",
+        "source_observation_digest",
+        "metric_id",
+        "metric_digest",
+        "row_axis",
+        "column_axis",
+        "row_ids",
+        "column_ids",
+        "cells",
+        "matrix_digest"
+      ],
+      "title": "MetricCellMatrix",
+      "type": "object"
+    },
+    "MetricDirection": {
+      "enum": [
+        "maximize",
+        "minimize",
+        "neutral"
+      ],
+      "title": "MetricDirection",
+      "type": "string"
+    },
+    "MetricFormula": {
+      "enum": [
+        "direct_v1",
+        "mean_v1",
+        "sum_v1",
+        "minimum_v1",
+        "maximum_v1",
+        "median_v1",
+        "quantile_linear_v1",
+        "variance_population_v1",
+        "variance_sample_v1",
+        "standard_deviation_population_v1",
+        "standard_deviation_sample_v1",
+        "pass_at_1_v1",
+        "pass_at_k_unbiased_v1",
+        "pass_power_k_v1",
+        "empirical_any_at_k_v1",
+        "empirical_all_at_k_v1",
+        "expected_max_at_k_v1",
+        "ratio_v1",
+        "difference_v1",
+        "successes_per_million_tokens_v1",
+        "completed_per_hour_v1",
+        "external_adapter_v1"
+      ],
+      "title": "MetricFormula",
+      "type": "string"
+    },
+    "MetricFormulaParameters": {
+      "additionalProperties": false,
+      "description": "Typed parameters whose meaning is owned by ``MetricFormula``.",
+      "properties": {
+        "k": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "K"
+        },
+        "quantile": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantile"
+        }
+      },
+      "title": "MetricFormulaParameters",
+      "type": "object"
+    },
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
+      "type": "string"
+    },
+    "MetricLevel": {
+      "enum": [
+        "event",
+        "rollout",
+        "task",
+        "configuration",
+        "experiment"
+      ],
+      "title": "MetricLevel",
+      "type": "string"
+    },
+    "MetricMatrixCell": {
+      "additionalProperties": false,
+      "properties": {
+        "column_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Column Id",
+          "type": "string"
+        },
+        "disposition": {
+          "$ref": "#/$defs/ExperimentCellDisposition"
+        },
+        "row_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Row Id",
+          "type": "string"
+        },
+        "source_cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Source Cell Id",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "row_id",
+        "column_id",
+        "source_cell_id",
+        "disposition"
+      ],
+      "title": "MetricMatrixCell",
+      "type": "object"
+    },
+    "MetricMissingDisposition": {
+      "enum": [
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricMissingDisposition",
+      "type": "string"
+    },
+    "MetricPopulation": {
+      "enum": [
+        "evaluator_observations",
+        "planned_rollouts",
+        "planned_tasks",
+        "launched_rollouts",
+        "completed_rollouts",
+        "observed_rollouts",
+        "stages",
+        "domains",
+        "generations",
+        "experiment_wall_clock"
+      ],
+      "title": "MetricPopulation",
+      "type": "string"
+    },
+    "MetricSamplingDesign": {
+      "enum": [
+        "exchangeable_rollouts",
+        "ordered_prefix"
+      ],
+      "title": "MetricSamplingDesign",
+      "type": "string"
+    },
+    "MetricSamplingSpec": {
+      "additionalProperties": false,
+      "description": "Sampling assumptions required by a repeated-rollout estimand.",
+      "properties": {
+        "design": {
+          "$ref": "#/$defs/MetricSamplingDesign"
+        },
+        "exchangeability_keys": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Exchangeability Keys",
+          "type": "array"
+        },
+        "subset_policy": {
+          "enum": [
+            "uniform_without_replacement",
+            "first_k"
+          ],
+          "title": "Subset Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "subset_policy"
+      ],
+      "title": "MetricSamplingSpec",
+      "type": "object"
+    },
+    "MetricSource": {
+      "enum": [
+        "evaluator",
+        "usage",
+        "trajectory",
+        "schedule",
+        "regime",
+        "evolution",
+        "external",
+        "derived"
+      ],
+      "title": "MetricSource",
+      "type": "string"
+    },
+    "MetricSpec": {
+      "additionalProperties": false,
+      "description": "Versioned metric semantics selected only through a TOML registry.\n\nThe formula, population, failure handling, unit, and dependency identities\nare all part of the metric digest. This prevents a familiar display name\nsuch as ``pass@1`` from silently changing denominator or exception policy.",
+      "properties": {
+        "across_groups": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricAcrossGroupAggregation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "adapter": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+          "title": "Adapter",
+          "type": "string"
+        },
+        "bmp_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Bmp Version",
+          "type": "string"
+        },
+        "config": {
+          "additionalProperties": true,
+          "title": "Config",
+          "type": "object"
+        },
+        "direction": {
+          "$ref": "#/$defs/MetricDirection"
+        },
+        "formula": {
+          "$ref": "#/$defs/MetricFormula"
+        },
+        "group_by": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Group By",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Inputs",
+          "type": "array"
+        },
+        "kind": {
+          "const": "metric",
+          "title": "Kind",
+          "type": "string"
+        },
+        "level": {
+          "$ref": "#/$defs/MetricLevel"
+        },
+        "missing_observation": {
+          "$ref": "#/$defs/MetricMissingDisposition"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricFormulaParameters"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "population": {
+          "$ref": "#/$defs/MetricPopulation"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricSamplingSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scale": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "source": {
+          "$ref": "#/$defs/MetricSource"
+        },
+        "source_field": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Field"
+        },
+        "status_policy": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetricStatusDisposition"
+          },
+          "title": "Status Policy",
+          "type": "object"
+        },
+        "uncertainty": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MetricUncertaintySpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unit": {
+          "minLength": 1,
+          "title": "Unit",
+          "type": "string"
+        },
+        "value_kind": {
+          "$ref": "#/$defs/MetricValueKind"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "adapter",
+        "value_kind",
+        "level",
+        "direction",
+        "unit",
+        "source",
+        "formula",
+        "population",
+        "missing_observation"
+      ],
+      "title": "MetricSpec",
+      "type": "object"
+    },
+    "MetricStatusDisposition": {
+      "enum": [
+        "observe",
+        "zero",
+        "exclude",
+        "invalidate"
+      ],
+      "title": "MetricStatusDisposition",
+      "type": "string"
+    },
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    },
+    "MetricUncertaintySpec": {
+      "additionalProperties": false,
+      "description": "Pre-registered deterministic uncertainty calculation.",
+      "properties": {
+        "cluster_by": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Cluster By",
+          "type": "array"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "degenerate_policy": {
+          "const": "point_interval",
+          "default": "point_interval",
+          "title": "Degenerate Policy",
+          "type": "string"
+        },
+        "estimand": {
+          "const": "mean",
+          "default": "mean",
+          "title": "Estimand",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/MetricUncertaintyMethod"
+        },
+        "resamples": {
+          "anyOf": [
+            {
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resamples"
+        },
+        "resampling_unit": {
+          "enum": [
+            "rollout",
+            "task"
+          ],
+          "title": "Resampling Unit",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "anyOf": [
+            {
+              "const": "sha256_counter_v1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Algorithm"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "method",
+        "resampling_unit"
+      ],
+      "title": "MetricUncertaintySpec",
+      "type": "object"
+    },
+    "MetricValueKind": {
+      "enum": [
+        "binary",
+        "count",
+        "continuous",
+        "duration",
+        "tokens",
+        "currency",
+        "rate",
+        "efficiency"
+      ],
+      "title": "MetricValueKind",
+      "type": "string"
+    },
+    "PlannedMetricCell": {
+      "additionalProperties": false,
+      "properties": {
+        "cell_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Cell Id",
+          "type": "string"
+        },
+        "coordinates": {
+          "$ref": "#/$defs/ExperimentCellCoordinates"
+        },
+        "membership_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Membership Digest",
+          "type": "string"
+        },
+        "metric_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Metric Digest",
+          "type": "string"
+        },
+        "metric_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Metric Id",
+          "type": "string"
+        },
+        "weight": {
+          "default": 1.0,
+          "exclusiveMinimum": 0,
+          "title": "Weight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cell_id",
+        "coordinates",
+        "metric_id",
+        "metric_digest",
+        "membership_digest"
+      ],
+      "title": "PlannedMetricCell",
+      "type": "object"
+    },
+    "RunStatus": {
+      "description": "Closed outcome taxonomy retained for every planned rollout.",
+      "enum": [
+        "pass",
+        "verified_fail",
+        "scored",
+        "no_output",
+        "invalid_output",
+        "timeout",
+        "agent_error",
+        "harness_fault",
+        "verifier_error",
+        "infra_error",
+        "unsupported"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Typed input envelope presented to a source-closed metric plugin.",
+  "properties": {
+    "capability": {
+      "$ref": "#/$defs/AdapterCapabilityArtifact"
+    },
+    "capability_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Capability Digest",
+      "type": "string"
+    },
+    "cell_ledger": {
+      "$ref": "#/$defs/ExperimentCellLedger"
+    },
+    "cell_ledger_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "cell_matrix": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetricCellMatrix"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "cell_matrix_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Digest",
+      "type": "string"
+    },
+    "metric": {
+      "$ref": "#/$defs/MetricArtifact"
+    },
+    "source_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRef"
+      },
+      "title": "Source Refs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_digest",
+    "capability_digest",
+    "capability",
+    "metric",
+    "cell_ledger",
+    "cell_ledger_ref",
+    "source_refs"
+  ],
+  "title": "ExternalMetricAdapterInput",
+  "type": "object"
+}

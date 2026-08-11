@@ -1,0 +1,239 @@
+{
+  "$defs": {
+    "ArtifactRef": {
+      "additionalProperties": false,
+      "description": "Content-addressed reference to an artifact stored outside the manifest.",
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "pattern": "^/",
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "size_bytes"
+      ],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CandidateGateCommandKind": {
+      "enum": [
+        "import_check",
+        "compile",
+        "schema",
+        "smoke",
+        "custom"
+      ],
+      "title": "CandidateGateCommandKind",
+      "type": "string"
+    },
+    "CandidateGateCommandReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "command_id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Command Id",
+          "type": "string"
+        },
+        "error_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArtifactRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "exit_code": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exit Code"
+        },
+        "finished_at": {
+          "title": "Finished At",
+          "type": "string"
+        },
+        "started_at": {
+          "title": "Started At",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "timeout",
+            "infra_error"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "stderr_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        },
+        "stdout_ref": {
+          "$ref": "#/$defs/ArtifactRef"
+        }
+      },
+      "required": [
+        "command_id",
+        "started_at",
+        "finished_at",
+        "status",
+        "stdout_ref",
+        "stderr_ref"
+      ],
+      "title": "CandidateGateCommandReceipt",
+      "type": "object"
+    },
+    "CandidateGateCommandSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Argv",
+          "type": "array"
+        },
+        "expected_exit_codes": {
+          "default": [
+            0
+          ],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Expected Exit Codes",
+          "type": "array"
+        },
+        "id": {
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/CandidateGateCommandKind"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "argv",
+        "timeout_seconds"
+      ],
+      "title": "CandidateGateCommandSpec",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pre-evaluation source/build validity gate for one generated candidate.",
+  "properties": {
+    "candidate_id": {
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "candidate_manifest_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Manifest Digest",
+      "type": "string"
+    },
+    "command_receipts": {
+      "items": {
+        "$ref": "#/$defs/CandidateGateCommandReceipt"
+      },
+      "title": "Command Receipts",
+      "type": "array"
+    },
+    "commands": {
+      "items": {
+        "$ref": "#/$defs/CandidateGateCommandSpec"
+      },
+      "title": "Commands",
+      "type": "array"
+    },
+    "environment_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Environment Digest",
+      "type": "string"
+    },
+    "format": {
+      "const": "bmp-candidate-validity-gate-v1",
+      "default": "bmp-candidate-validity-gate-v1",
+      "title": "Format",
+      "type": "string"
+    },
+    "gate_policy_digest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Gate Policy Digest",
+      "type": "string"
+    },
+    "invalid_reasons": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Invalid Reasons",
+      "type": "array"
+    },
+    "source_commit": {
+      "pattern": "^[0-9a-f]{40}(?:[0-9a-f]{24})?$",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "source_snapshot_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "tracked_patch_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "untracked_patch_ref": {
+      "$ref": "#/$defs/ArtifactRef"
+    },
+    "valid": {
+      "title": "Valid",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "candidate_manifest_digest",
+    "source_snapshot_ref",
+    "source_commit",
+    "environment_digest",
+    "tracked_patch_ref",
+    "untracked_patch_ref",
+    "gate_policy_digest",
+    "commands",
+    "command_receipts",
+    "valid"
+  ],
+  "title": "CandidateValidityGateReceipt",
+  "type": "object"
+}

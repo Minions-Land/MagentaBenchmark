@@ -1,0 +1,24 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "candidate_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Candidate Ids",
+      "type": "array"
+    },
+    "normalization_tolerance": {
+      "default": 1e-12,
+      "exclusiveMinimum": 0.0,
+      "maximum": 1e-06,
+      "title": "Normalization Tolerance",
+      "type": "number"
+    }
+  },
+  "required": [
+    "candidate_ids"
+  ],
+  "title": "SelectorAnalysisPlan",
+  "type": "object"
+}

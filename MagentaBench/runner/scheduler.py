@@ -299,6 +299,7 @@ class Scheduler:
                     attempt_id=attempt_id,
                     case_allocation_id=case_allocation_id,
                     case_id=case_id,
+                    attempt_index=attempt_index,
                     allocated=allocation,
                     reservation_sequence=reservation_sequence,
                     launched=False,

@@ -1,0 +1,38 @@
+[experiment]
+id = "repeated-sampling-smoke"
+benchmark = "fake.exact.v1"
+dataset = "dataset.fake.exact.v1"
+evaluator = "evaluator.fake.exact.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.task-bootstrap.v1",
+  "pass-at-2.unbiased.v1",
+  "pass-power-2.reliability.v1",
+  "empirical-any-at-2.v1",
+  "empirical-all-at-2.v1",
+  "expected-max-at-2.v1",
+]
+subject = "fake.control"
+protocol = "fake.repeated-sampling.v1"
+regime = "repeated-sampling.fake.v1"
+stage = "sample"
+factors = ["conformance.fake-subject"]
+
+[experiment.contrast]
+mode = "one_factor"
+factor_id = "conformance.fake-subject"
+control_level = "control"
+treatment_level = "treatment"
+counterbalanced = true
+
+[experiment.design]
+purpose = "exploratory"
+
+[execution]
+backend = "subprocess.echo"
+model = "none/echo"
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 4.0
+max_cost = 0.0

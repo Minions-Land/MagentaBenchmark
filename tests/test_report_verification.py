@@ -43,6 +43,21 @@ def replace_required(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
+def activate_repeated_sampling_metric(experiment: Path) -> None:
+    text = experiment.read_text(encoding="utf-8")
+    text = replace_required(
+        text,
+        '"pass-at-1.infra-zero.v1",',
+        '"pass-at-1.infra-zero.task-bootstrap.v1",',
+    )
+    text = replace_required(
+        text,
+        '  "successes-per-million-tokens.v1",\n',
+        "",
+    )
+    experiment.write_text(text, encoding="utf-8")
+
+
 def checkpoint_project(tmp_path: Path) -> tuple[Path, Path]:
     project = tmp_path / "checkpoint-project"
     shutil.copytree(ROOT / "registries", project / "registries")
@@ -514,6 +529,7 @@ def test_standalone_verifier_binds_nonselected_attempt_provenance(
     tmp_path: Path,
 ) -> None:
     project, experiment = checkpoint_project(tmp_path)
+    activate_repeated_sampling_metric(experiment)
     protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol = protocol_path.read_text(encoding="utf-8")
     protocol = replace_required(protocol, "rollouts_per_case = 1", "rollouts_per_case = 3")
@@ -551,6 +567,7 @@ def test_standalone_verifier_binds_nonselected_attempt_reward(
     tmp_path: Path,
 ) -> None:
     project, experiment = checkpoint_project(tmp_path)
+    activate_repeated_sampling_metric(experiment)
     protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol = protocol_path.read_text(encoding="utf-8")
     protocol = replace_required(protocol, "rollouts_per_case = 1", "rollouts_per_case = 2")
@@ -576,6 +593,7 @@ def test_standalone_verifier_binds_nonselected_attempt_network_case(
     tmp_path: Path,
 ) -> None:
     project, experiment = checkpoint_project(tmp_path)
+    activate_repeated_sampling_metric(experiment)
     protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol = protocol_path.read_text(encoding="utf-8")
     protocol = replace_required(protocol, "rollouts_per_case = 1", "rollouts_per_case = 2")
@@ -634,6 +652,46 @@ def test_standalone_verifier_binds_observed_case_order_to_allocations(
     rewrite_schedule_lineage(result, 0, schedule_path)
 
     with pytest.raises(ReportVerificationError, match="observed_case_order"):
+        verify_observation_report(result.report_path)
+
+
+def test_standalone_verifier_rejects_attempt_index_swap(tmp_path: Path) -> None:
+    project, experiment = checkpoint_project(tmp_path)
+    experiment_text = experiment.read_text(encoding="utf-8")
+    experiment_text = replace_required(
+        experiment_text,
+        '"pass-at-1.infra-zero.v1",',
+        '"pass-at-1.infra-zero.task-bootstrap.v1",',
+    )
+    experiment_text = replace_required(
+        experiment_text,
+        '  "successes-per-million-tokens.v1",\n',
+        "",
+    )
+    experiment.write_text(experiment_text, encoding="utf-8")
+    protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
+    protocol = protocol_path.read_text(encoding="utf-8")
+    protocol = replace_required(protocol, "rollouts_per_case = 1", "rollouts_per_case = 2")
+    protocol = replace_required(
+        protocol,
+        'candidate_selection = "single"',
+        'candidate_selection = "best_of_n"',
+    )
+    protocol_path.write_text(protocol, encoding="utf-8")
+    result = Pipeline(project, tmp_path / "attempt-index-records").run(experiment)
+    schedule_path = Path(result.report.lineage[0].schedule_receipt_ref.path)
+    schedule = json.loads(schedule_path.read_text(encoding="utf-8"))
+    first_index = schedule["attempts"][0]["attempt_index"]
+    second_index = schedule["attempts"][1]["attempt_index"]
+    schedule["attempts"][0]["attempt_index"] = second_index
+    schedule["attempts"][1]["attempt_index"] = first_index
+    schedule_path.write_bytes(compact_bytes(schedule))
+    rewrite_schedule_lineage(result, 0, schedule_path)
+
+    with pytest.raises(
+        ReportVerificationError,
+        match="attempt execution index must match its allocation",
+    ):
         verify_observation_report(result.report_path)
 
 

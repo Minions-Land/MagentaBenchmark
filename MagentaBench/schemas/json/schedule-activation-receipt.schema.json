@@ -41,6 +41,11 @@
           "title": "Attempt Id",
           "type": "string"
         },
+        "attempt_index": {
+          "minimum": 0,
+          "title": "Attempt Index",
+          "type": "integer"
+        },
         "case_allocation_id": {
           "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
           "title": "Case Allocation Id",
@@ -78,6 +83,7 @@
         "attempt_id",
         "case_allocation_id",
         "case_id",
+        "attempt_index",
         "allocated",
         "reservation_sequence",
         "launched"

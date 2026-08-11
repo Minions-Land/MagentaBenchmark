@@ -49,6 +49,8 @@ from MagentaBench.schemas import (
     EvolutionMethodArtifact,
     EvolutionMethodSpec,
     ExperimentContrast,
+    ExperimentRegimeArtifact,
+    ExperimentRegimeSpec,
     FactorArtifact,
     FactorCategory,
     FactorSpec,
@@ -56,10 +58,13 @@ from MagentaBench.schemas import (
     GateResult,
     ObservationReport,
     MetricArtifact,
+    MetricFormula,
     MetricSpec,
+    MetricUncertaintyMethod,
     MetaEvolutionMethodArtifact,
     MetaEvolutionMethodSpec,
     ProtocolSpec,
+    RegimeDependencyArtifact,
     ResolvedBmpManifest,
     ResolvedManifestMetadata,
     RunPurpose,
@@ -380,6 +385,8 @@ class Compiler:
             "metrics",
             "subject",
             "protocol",
+            "regime",
+            "stage",
             "factors",
             "contrast",
             "design",
@@ -395,6 +402,7 @@ class Compiler:
         "metric": ("metrics", MetricSpec),
         "subject": ("subjects", SubjectSpecAdapter),
         "protocol": ("protocols", ProtocolSpec),
+        "regime": ("regimes", ExperimentRegimeSpec),
         "backend": ("backends", BackendSpec),
         "configuration": ("configurations", ConfigurationSpec),
         "evolver": ("evolvers", EvolutionMethodSpec),
@@ -544,6 +552,154 @@ class Compiler:
         provisional = MetricArtifact(
             metric=metric,
             declaration_ref=declaration_ref,
+            artifact_digest="0" * 64,
+        )
+        return provisional.model_copy(
+            update={"artifact_digest": provisional.canonical_digest()}
+        )
+
+    def _regime_artifact(self, entry_id: str) -> ExperimentRegimeArtifact:
+        """Resolve a stage DAG and bind every referenced registry declaration."""
+
+        regime, declaration_path = self._lookup("regime", entry_id)
+        dependencies: dict[tuple[str, str], RegimeDependencyArtifact] = {}
+
+        def bind(
+            registry_kind: str,
+            dependency_id: str,
+            *,
+            artifact_digest: str,
+            dependency_path: Path,
+        ) -> None:
+            key = (registry_kind, dependency_id)
+            candidate = RegimeDependencyArtifact(
+                registry_kind=registry_kind,
+                id=dependency_id,
+                declaration_ref=self._configuration_source_ref(dependency_path),
+                artifact_digest=artifact_digest,
+            )
+            previous = dependencies.get(key)
+            if previous is not None and previous != candidate:
+                raise CompilationError(
+                    f"regime dependency {registry_kind}:{dependency_id} drift"
+                )
+            dependencies[key] = candidate
+
+        for stage in regime.stages:
+            benchmark = self._benchmark_artifact(stage.benchmark_id)
+            benchmark_spec, benchmark_path = self._lookup(
+                "benchmark", stage.benchmark_id
+            )
+            del benchmark_spec
+            bind(
+                "benchmark",
+                stage.benchmark_id,
+                artifact_digest=benchmark.artifact_digest,
+                dependency_path=benchmark_path,
+            )
+            dataset = self._dataset_artifact(stage.dataset_id)
+            _, dataset_path = self._lookup("dataset", stage.dataset_id)
+            bind(
+                "dataset",
+                stage.dataset_id,
+                artifact_digest=dataset.artifact_digest,
+                dependency_path=dataset_path,
+            )
+            evaluator = self._evaluator_artifact(stage.evaluator_id)
+            _, evaluator_path = self._lookup("evaluator", stage.evaluator_id)
+            bind(
+                "evaluator",
+                stage.evaluator_id,
+                artifact_digest=evaluator.artifact_digest,
+                dependency_path=evaluator_path,
+            )
+            protocol_spec, protocol_path = self._lookup(
+                "protocol", stage.protocol_id
+            )
+            protocol_identity = {
+                "protocol": protocol_spec.identity_data(),
+                "declaration_ref": self._configuration_source_ref(
+                    protocol_path
+                ).identity_data(),
+            }
+            bind(
+                "protocol",
+                stage.protocol_id,
+                artifact_digest=sha256_bytes(
+                    canonical_json_bytes(protocol_identity)
+                ),
+                dependency_path=protocol_path,
+            )
+            metric_artifacts = tuple(
+                self._metric_artifact(metric_id) for metric_id in stage.metric_ids
+            )
+            metric_ids = {artifact.metric.id for artifact in metric_artifacts}
+            emitted = {
+                binding.metric_id for binding in evaluator.evaluator.metrics
+            }
+            missing_emitted = sorted(emitted - metric_ids)
+            missing_inputs = sorted(
+                {
+                    dependency
+                    for artifact in metric_artifacts
+                    for dependency in artifact.metric.inputs
+                    if dependency not in metric_ids
+                }
+            )
+            if missing_emitted or missing_inputs:
+                raise CompilationError(
+                    f"regime stage {stage.id!r} metric closure is incomplete: "
+                    f"evaluator={missing_emitted}, dependencies={missing_inputs}"
+                )
+            if evaluator.evaluator.scoring_kind.value != "binary" and any(
+                artifact.metric.formula
+                in {
+                    MetricFormula.pass_at_1_v1,
+                    MetricFormula.pass_at_k_unbiased_v1,
+                    MetricFormula.pass_power_k_v1,
+                    MetricFormula.empirical_any_at_k_v1,
+                    MetricFormula.empirical_all_at_k_v1,
+                }
+                for artifact in metric_artifacts
+            ):
+                raise CompilationError(
+                    f"regime stage {stage.id!r} selects binary pass metrics "
+                    "without a binary evaluator"
+                )
+            if dataset.adapter != benchmark.adapter:
+                raise CompilationError(
+                    f"regime stage {stage.id!r} dataset/benchmark adapter mismatch"
+                )
+            if evaluator.evaluator.adapter != benchmark.adapter:
+                raise CompilationError(
+                    f"regime stage {stage.id!r} evaluator/benchmark adapter mismatch"
+                )
+            for artifact in metric_artifacts:
+                parameters = artifact.metric.parameters
+                if (
+                    parameters is not None
+                    and parameters.k is not None
+                    and parameters.k > protocol_spec.rollouts_per_case
+                ):
+                    raise CompilationError(
+                        f"regime stage {stage.id!r} metric {artifact.metric.id!r} "
+                        f"requires k={parameters.k}, but protocol plans only "
+                        f"{protocol_spec.rollouts_per_case} rollouts per task"
+                    )
+                _, metric_path = self._lookup("metric", artifact.metric.id)
+                bind(
+                    "metric",
+                    artifact.metric.id,
+                    artifact_digest=artifact.artifact_digest,
+                    dependency_path=metric_path,
+                )
+
+        provisional = ExperimentRegimeArtifact(
+            regime=regime,
+            declaration_ref=self._configuration_source_ref(declaration_path),
+            dependencies=tuple(
+                dependencies[key] for key in sorted(dependencies)
+            ),
             artifact_digest="0" * 64,
         )
         return provisional.model_copy(
@@ -1385,6 +1541,21 @@ class Compiler:
         for metric_id in metric_ids:
             append_metric(metric_id)
         metrics = tuple(ordered_metrics)
+        binary_success_formulas = {
+            MetricFormula.pass_at_1_v1,
+            MetricFormula.pass_at_k_unbiased_v1,
+            MetricFormula.pass_power_k_v1,
+            MetricFormula.empirical_any_at_k_v1,
+            MetricFormula.empirical_all_at_k_v1,
+        }
+        if evaluator.evaluator.scoring_kind.value != "binary" and any(
+            artifact.metric.formula in binary_success_formulas
+            for artifact in metrics
+        ):
+            raise CompilationError(
+                "binary pass/reliability metrics require an evaluator with a "
+                "registered success rule"
+            )
         subject = self._subject_artifact(str(experiment["subject"]))
         evolver_artifact: EvolutionMethodArtifact | None = None
         meta_evolver_artifact: MetaEvolutionMethodArtifact | None = None
@@ -1446,6 +1617,75 @@ class Compiler:
             )
         backend, _ = self._lookup("backend", execution.backend)
         protocol = self._resolved_protocol(str(experiment["protocol"]))
+        repeated_wilson = [
+            artifact.metric.id
+            for artifact in metrics
+            if artifact.metric.uncertainty is not None
+            and artifact.metric.uncertainty.method
+            == MetricUncertaintyMethod.wilson_score_v1
+            and protocol.rollouts_per_case != 1
+        ]
+        if repeated_wilson:
+            raise CompilationError(
+                "rollout-level Wilson uncertainty requires exactly one rollout "
+                "per task; select a task-cluster bootstrap metric instead: "
+                f"{repeated_wilson}"
+            )
+        for artifact in metrics:
+            parameters = artifact.metric.parameters
+            if (
+                parameters is not None
+                and parameters.k is not None
+                and parameters.k > protocol.rollouts_per_case
+            ):
+                raise CompilationError(
+                    f"metric {artifact.metric.id!r} requires k={parameters.k}, "
+                    f"but protocol plans only {protocol.rollouts_per_case} "
+                    "rollouts per task"
+                )
+        regime_artifact: ExperimentRegimeArtifact | None = None
+        regime_id = experiment.get("regime")
+        regime_stage_id = experiment.get("stage")
+        if (regime_id is None) != (regime_stage_id is None):
+            raise CompilationError(
+                "[experiment].regime and [experiment].stage must be selected together"
+            )
+        if regime_id is not None:
+            if not isinstance(regime_id, str) or not isinstance(
+                regime_stage_id, str
+            ):
+                raise CompilationError("regime and stage must contain registry ids")
+            regime_artifact = self._regime_artifact(regime_id)
+            try:
+                active_stage = next(
+                    stage
+                    for stage in regime_artifact.regime.stages
+                    if stage.id == regime_stage_id
+                )
+            except StopIteration as exc:
+                raise CompilationError(
+                    f"regime {regime_id!r} has no stage {regime_stage_id!r}"
+                ) from exc
+            active_registry_ids = {
+                "benchmark": str(experiment["benchmark"]),
+                "dataset": str(experiment["dataset"]),
+                "evaluator": str(experiment["evaluator"]),
+                "protocol": str(experiment["protocol"]),
+            }
+            stage_registry_ids = {
+                "benchmark": active_stage.benchmark_id,
+                "dataset": active_stage.dataset_id,
+                "evaluator": active_stage.evaluator_id,
+                "protocol": active_stage.protocol_id,
+            }
+            if active_registry_ids != stage_registry_ids:
+                raise CompilationError(
+                    "active experiment registry ids differ from the selected regime stage"
+                )
+            if tuple(metric_ids) != active_stage.metric_ids:
+                raise CompilationError(
+                    "active experiment metrics differ from the selected regime stage"
+                )
         subject_interface = (
             None if subject.kind == "fake" else getattr(subject, "interface", None)
         )
@@ -1621,9 +1861,10 @@ class Compiler:
             )
 
         if claim_design.comparison_kind is None:
-            if protocol.kind != "mechanism_validation":
+            if protocol.kind not in {"mechanism_validation", "test_time_scaling"}:
                 raise CompilationError(
-                    "comparison-free conformance requires mechanism_validation"
+                    "comparison-free exploratory runs require mechanism_validation "
+                    "or test_time_scaling"
                 )
         elif protocol.kind == "mechanism_validation" and (
             claim_design.purpose != RunPurpose.exploratory
@@ -1761,6 +2002,9 @@ class Compiler:
         metadata = ResolvedManifestMetadata(
             experiment_id=experiment["id"],
             run_id=f"{experiment['id']}__run{run_index:04d}",
+            regime_stage_id=(
+                None if regime_stage_id is None else str(regime_stage_id)
+            ),
             allowed_diff=allowed_diff,
             factors=dict(factor_values),
             factor_artifacts=factor_artifacts,
@@ -1784,6 +2028,7 @@ class Compiler:
             dataset=dataset,
             evaluator=evaluator,
             metrics=metrics,
+            regime=regime_artifact,
             subject=subject,
             execution=resolved_execution,
             claim_design=claim_design,
@@ -1811,6 +2056,11 @@ class Compiler:
                 or real_model
             ):
                 required_capability_keys.append((benchmark.adapter, "execution"))
+            for artifact in metrics:
+                if artifact.metric.formula == MetricFormula.external_adapter_v1:
+                    required_capability_keys.append(
+                        (artifact.metric.adapter, "metric_source")
+                    )
         resolved_capabilities: list[AdapterCapabilityArtifact] = []
         missing_capabilities: list[tuple[str, str]] = []
         for capability_key in dict.fromkeys(required_capability_keys):
@@ -1847,6 +2097,44 @@ class Compiler:
                     f"adapter capability {capability.id!r} does not own "
                     "any resolved configuration path"
                 )
+        capability_by_key = {
+            (artifact.capability.adapter, artifact.capability.adapter_kind): artifact
+            for artifact in resolved_capabilities
+        }
+        for metric_artifact in metrics:
+            metric = metric_artifact.metric
+            if metric.formula != MetricFormula.external_adapter_v1:
+                continue
+            capability_artifact_item = capability_by_key.get(
+                (metric.adapter, "metric_source")
+            )
+            if capability_artifact_item is None:
+                if self.allow_test_override:
+                    continue
+                raise CompilationError(
+                    f"external metric {metric.id!r} lacks a metric_source capability"
+                )
+            capability = capability_artifact_item.capability
+            if metric.source.value not in capability.supported_metric_sources:
+                raise CompilationError(
+                    f"metric adapter {capability.id!r} rejects source "
+                    f"{metric.source.value!r}"
+                )
+            if metric.formula.value not in capability.supported_metric_formulas:
+                raise CompilationError(
+                    f"metric adapter {capability.id!r} rejects formula "
+                    f"{metric.formula.value!r}"
+                )
+            try:
+                validate_json_schema_document(capability.metric_config_schema)
+                validate_json_schema_configuration(
+                    capability.metric_config_schema,
+                    metric.config,
+                )
+            except ConfigurationRegistryError as exc:
+                raise CompilationError(
+                    f"metric {metric.id!r} fails its adapter config schema: {exc}"
+                ) from exc
         manifest = manifest.model_copy(
             update={
                 "metadata": manifest.metadata.model_copy(

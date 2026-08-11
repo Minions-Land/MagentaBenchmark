@@ -1,0 +1,37 @@
+[metric]
+id = "expected-max-at-2.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "continuous"
+level = "task"
+direction = "maximize"
+unit = "reward"
+source = "evaluator"
+source_field = "authoritative_reward"
+formula = "expected_max_at_k_v1"
+population = "planned_tasks"
+group_by = ["task"]
+across_groups = "macro_mean"
+missing_observation = "zero"
+
+[metric.parameters]
+k = 2
+
+[metric.sampling]
+design = "exchangeable_rollouts"
+subset_policy = "uniform_without_replacement"
+exchangeability_keys = ["configuration", "task", "sampler"]
+
+[metric.status_policy]
+pass = "observe"
+verified_fail = "observe"
+scored = "observe"
+no_output = "zero"
+invalid_output = "zero"
+timeout = "zero"
+agent_error = "zero"
+harness_fault = "zero"
+verifier_error = "zero"
+infra_error = "zero"
+unsupported = "zero"

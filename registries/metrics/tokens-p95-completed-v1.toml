@@ -1,0 +1,30 @@
+[metric]
+id = "tokens.p95-completed.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "tokens"
+level = "configuration"
+direction = "minimize"
+unit = "tokens"
+source = "usage"
+source_field = "total_tokens"
+formula = "quantile_linear_v1"
+population = "completed_rollouts"
+missing_observation = "invalidate"
+
+[metric.parameters]
+quantile = 0.95
+
+[metric.status_policy]
+pass = "observe"
+verified_fail = "observe"
+scored = "observe"
+no_output = "observe"
+invalid_output = "observe"
+timeout = "exclude"
+agent_error = "observe"
+harness_fault = "exclude"
+verifier_error = "observe"
+infra_error = "exclude"
+unsupported = "exclude"

@@ -1,5 +1,13 @@
 {
   "$defs": {
+    "MetricAcrossGroupAggregation": {
+      "enum": [
+        "macro_mean",
+        "minimum"
+      ],
+      "title": "MetricAcrossGroupAggregation",
+      "type": "string"
+    },
     "MetricDirection": {
       "enum": [
         "maximize",
@@ -14,12 +22,78 @@
         "direct_v1",
         "mean_v1",
         "sum_v1",
+        "minimum_v1",
+        "maximum_v1",
+        "median_v1",
+        "quantile_linear_v1",
+        "variance_population_v1",
+        "variance_sample_v1",
+        "standard_deviation_population_v1",
+        "standard_deviation_sample_v1",
         "pass_at_1_v1",
+        "pass_at_k_unbiased_v1",
+        "pass_power_k_v1",
+        "empirical_any_at_k_v1",
+        "empirical_all_at_k_v1",
+        "expected_max_at_k_v1",
         "ratio_v1",
+        "difference_v1",
         "successes_per_million_tokens_v1",
-        "completed_per_hour_v1"
+        "completed_per_hour_v1",
+        "external_adapter_v1"
       ],
       "title": "MetricFormula",
+      "type": "string"
+    },
+    "MetricFormulaParameters": {
+      "additionalProperties": false,
+      "description": "Typed parameters whose meaning is owned by ``MetricFormula``.",
+      "properties": {
+        "k": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "K"
+        },
+        "quantile": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantile"
+        }
+      },
+      "title": "MetricFormulaParameters",
+      "type": "object"
+    },
+    "MetricGroupKey": {
+      "description": "Identity keys available to an intermediate metric reduction.\n\nA reducer first operates inside every declared group and the resulting\ngroup values are macro-averaged unless the formula says otherwise.  The\ntask key is available from every schedule receipt; stage/domain/generation\nkeys require their corresponding typed receipt and therefore fail closed\nwhen selected on a plain single-stage schedule.",
+      "enum": [
+        "task",
+        "stage",
+        "checkpoint",
+        "domain",
+        "scenario",
+        "variant",
+        "candidate",
+        "generation",
+        "time_window"
+      ],
+      "title": "MetricGroupKey",
       "type": "string"
     },
     "MetricLevel": {
@@ -46,13 +120,56 @@
       "enum": [
         "evaluator_observations",
         "planned_rollouts",
+        "planned_tasks",
         "launched_rollouts",
         "completed_rollouts",
         "observed_rollouts",
+        "stages",
+        "domains",
+        "generations",
         "experiment_wall_clock"
       ],
       "title": "MetricPopulation",
       "type": "string"
+    },
+    "MetricSamplingDesign": {
+      "enum": [
+        "exchangeable_rollouts",
+        "ordered_prefix"
+      ],
+      "title": "MetricSamplingDesign",
+      "type": "string"
+    },
+    "MetricSamplingSpec": {
+      "additionalProperties": false,
+      "description": "Sampling assumptions required by a repeated-rollout estimand.",
+      "properties": {
+        "design": {
+          "$ref": "#/$defs/MetricSamplingDesign"
+        },
+        "exchangeability_keys": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Exchangeability Keys",
+          "type": "array"
+        },
+        "subset_policy": {
+          "enum": [
+            "uniform_without_replacement",
+            "first_k"
+          ],
+          "title": "Subset Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "design",
+        "subset_policy"
+      ],
+      "title": "MetricSamplingSpec",
+      "type": "object"
     },
     "MetricSource": {
       "enum": [
@@ -60,6 +177,9 @@
         "usage",
         "trajectory",
         "schedule",
+        "regime",
+        "evolution",
+        "external",
         "derived"
       ],
       "title": "MetricSource",
@@ -74,6 +194,102 @@
       ],
       "title": "MetricStatusDisposition",
       "type": "string"
+    },
+    "MetricUncertaintyMethod": {
+      "enum": [
+        "wilson_score_v1",
+        "bootstrap_percentile_v1"
+      ],
+      "title": "MetricUncertaintyMethod",
+      "type": "string"
+    },
+    "MetricUncertaintySpec": {
+      "additionalProperties": false,
+      "description": "Pre-registered deterministic uncertainty calculation.",
+      "properties": {
+        "cluster_by": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MetricGroupKey"
+          },
+          "title": "Cluster By",
+          "type": "array"
+        },
+        "confidence_level": {
+          "default": 0.95,
+          "exclusiveMaximum": 1.0,
+          "exclusiveMinimum": 0.5,
+          "title": "Confidence Level",
+          "type": "number"
+        },
+        "degenerate_policy": {
+          "const": "point_interval",
+          "default": "point_interval",
+          "title": "Degenerate Policy",
+          "type": "string"
+        },
+        "estimand": {
+          "const": "mean",
+          "default": "mean",
+          "title": "Estimand",
+          "type": "string"
+        },
+        "method": {
+          "$ref": "#/$defs/MetricUncertaintyMethod"
+        },
+        "resamples": {
+          "anyOf": [
+            {
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resamples"
+        },
+        "resampling_unit": {
+          "enum": [
+            "rollout",
+            "task"
+          ],
+          "title": "Resampling Unit",
+          "type": "string"
+        },
+        "rng_algorithm": {
+          "anyOf": [
+            {
+              "const": "sha256_counter_v1",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rng Algorithm"
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seed"
+        }
+      },
+      "required": [
+        "method",
+        "resampling_unit"
+      ],
+      "title": "MetricUncertaintySpec",
+      "type": "object"
     },
     "MetricValueKind": {
       "enum": [
@@ -93,6 +309,17 @@
   "additionalProperties": false,
   "description": "Versioned metric semantics selected only through a TOML registry.\n\nThe formula, population, failure handling, unit, and dependency identities\nare all part of the metric digest. This prevents a familiar display name\nsuch as ``pass@1`` from silently changing denominator or exception policy.",
   "properties": {
+    "across_groups": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetricAcrossGroupAggregation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "adapter": {
       "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
       "title": "Adapter",
@@ -104,11 +331,24 @@
       "title": "Bmp Version",
       "type": "string"
     },
+    "config": {
+      "additionalProperties": true,
+      "title": "Config",
+      "type": "object"
+    },
     "direction": {
       "$ref": "#/$defs/MetricDirection"
     },
     "formula": {
       "$ref": "#/$defs/MetricFormula"
+    },
+    "group_by": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/MetricGroupKey"
+      },
+      "title": "Group By",
+      "type": "array"
     },
     "id": {
       "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$",
@@ -134,8 +374,30 @@
     "missing_observation": {
       "$ref": "#/$defs/MetricMissingDisposition"
     },
+    "parameters": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetricFormulaParameters"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "population": {
       "$ref": "#/$defs/MetricPopulation"
+    },
+    "sampling": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetricSamplingSpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "scale": {
       "default": 1.0,
@@ -165,6 +427,17 @@
       },
       "title": "Status Policy",
       "type": "object"
+    },
+    "uncertainty": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MetricUncertaintySpec"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "unit": {
       "minLength": 1,

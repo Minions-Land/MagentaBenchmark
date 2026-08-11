@@ -36,6 +36,21 @@ def _replace_required(text: str, old: str, new: str) -> str:
     return replaced
 
 
+def _activate_repeated_sampling_metric(experiment: Path) -> None:
+    text = experiment.read_text(encoding="utf-8")
+    text = _replace_required(
+        text,
+        '"pass-at-1.infra-zero.v1",',
+        '"pass-at-1.infra-zero.task-bootstrap.v1",',
+    )
+    text = _replace_required(
+        text,
+        '  "successes-per-million-tokens.v1",\n',
+        "",
+    )
+    experiment.write_text(text, encoding="utf-8")
+
+
 def _copy_resume_project(tmp_path: Path, name: str) -> tuple[Path, Path]:
     project = tmp_path / name
     shutil.copytree(ROOT / "registries", project / "registries")
@@ -309,6 +324,7 @@ def test_resume_validates_every_retained_rollout_bundle(tmp_path: Path) -> None:
     project, experiment = _copy_resume_project(
         tmp_path, "rollout-resume-project"
     )
+    _activate_repeated_sampling_metric(experiment)
     protocol_path = project / "registries/protocols/fake-checkpoint-lineage.toml"
     protocol_text = protocol_path.read_text(encoding="utf-8")
     protocol_text = _replace_required(

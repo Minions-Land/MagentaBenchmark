@@ -1,0 +1,46 @@
+[metric]
+id = "pass-at-2.unbiased.v1"
+kind = "metric"
+adapter = "magentabench.measurement"
+bmp_version = "0.1"
+value_kind = "rate"
+level = "task"
+direction = "maximize"
+unit = "fraction"
+source = "evaluator"
+source_field = "authoritative_reward"
+formula = "pass_at_k_unbiased_v1"
+population = "planned_tasks"
+group_by = ["task"]
+across_groups = "macro_mean"
+missing_observation = "zero"
+
+[metric.parameters]
+k = 2
+
+[metric.sampling]
+design = "exchangeable_rollouts"
+subset_policy = "uniform_without_replacement"
+exchangeability_keys = ["configuration", "task", "sampler"]
+
+[metric.uncertainty]
+method = "bootstrap_percentile_v1"
+confidence_level = 0.95
+resampling_unit = "task"
+cluster_by = ["task"]
+resamples = 2000
+seed = 20260810
+rng_algorithm = "sha256_counter_v1"
+
+[metric.status_policy]
+pass = "observe"
+verified_fail = "observe"
+scored = "observe"
+no_output = "zero"
+invalid_output = "zero"
+timeout = "zero"
+agent_error = "zero"
+harness_fault = "zero"
+verifier_error = "zero"
+infra_error = "zero"
+unsupported = "zero"
