@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -12,6 +11,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT = ROOT / "scripts" / "audit_hcp_boundary.sh"
 BASH = Path(shutil.which("bash", path=os.defpath) or "/bin/bash").resolve()
+SH = Path(shutil.which("sh", path=os.defpath) or "/bin/sh").resolve()
+MANAGED_RG_SPEC = "ripgrep-bin==15.1.0"
 
 
 def _joined(*parts: str) -> str:
@@ -53,22 +54,108 @@ def _audit_fixture(tmp_path: Path) -> tuple[Path, Path]:
     return script, source
 
 
-def _python_only_env(tmp_path: Path) -> dict[str, str]:
-    binary_directory = tmp_path / "python-only-bin"
+def _supports_pcre2(executable: Path) -> bool:
+    try:
+        result = subprocess.run(
+            [str(executable), "--pcre2", "-q", "(?<=p)cre"],
+            check=False,
+            capture_output=True,
+            input="pcre\n",
+            text=True,
+            timeout=30,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
+
+
+@pytest.fixture(scope="session")
+def real_rg() -> Path:
+    ambient = shutil.which("rg")
+    if ambient is not None:
+        candidate = Path(ambient).resolve()
+        if _supports_pcre2(candidate):
+            return candidate
+
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.fail("tests require ambient PCRE2 rg or uv for managed real rg")
+    result = subprocess.run(
+        [
+            uv,
+            "--no-config",
+            "tool",
+            "run",
+            "--isolated",
+            "--no-build",
+            "--from",
+            MANAGED_RG_SPEC,
+            str(SH),
+            "-c",
+            "command -v rg",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        pytest.fail(f"cannot resolve managed real rg: {result.stdout}{result.stderr}")
+    candidate = Path(result.stdout.splitlines()[0]).resolve()
+    version = subprocess.run(
+        [str(candidate), "--version"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if (
+        version.returncode != 0
+        or not version.stdout.startswith("ripgrep 15.1.0 ")
+        or not _supports_pcre2(candidate)
+    ):
+        pytest.fail(f"{MANAGED_RG_SPEC} did not provide PCRE2 ripgrep 15.1.0")
+    return candidate
+
+
+def _ambient_rg_env(tmp_path: Path, real_rg: Path) -> dict[str, str]:
+    binary_directory = tmp_path / "ambient-rg-bin"
     binary_directory.mkdir()
-    (binary_directory / "python3").symlink_to(Path(sys.executable).resolve())
+    (binary_directory / "rg").symlink_to(real_rg)
+    unavailable_uv = binary_directory / "uv"
+    unavailable_uv.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+    unavailable_uv.chmod(0o755)
     environment = os.environ.copy()
-    environment["PATH"] = str(binary_directory)
+    environment["PATH"] = os.pathsep.join(
+        (str(binary_directory), environment.get("PATH", os.defpath))
+    )
     return environment
 
 
-@pytest.fixture(params=("ambient", "python-fallback"))
+def _managed_rg_env(tmp_path: Path) -> dict[str, str]:
+    if shutil.which("uv") is None:
+        pytest.fail("managed-rg tests require uv")
+    binary_directory = tmp_path / "managed-rg-bin"
+    binary_directory.mkdir()
+    unsupported_rg = binary_directory / "rg"
+    unsupported_rg.write_text("#!/bin/sh\nexit 98\n", encoding="utf-8")
+    unsupported_rg.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = os.pathsep.join(
+        (str(binary_directory), environment.get("PATH", os.defpath))
+    )
+    return environment
+
+
+@pytest.fixture(params=("ambient-rg", "managed-rg"))
 def scan_environment(
-    request: pytest.FixtureRequest, tmp_path: Path
-) -> dict[str, str] | None:
-    if request.param == "python-fallback":
-        return _python_only_env(tmp_path)
-    return None
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    real_rg: Path,
+) -> dict[str, str]:
+    if request.param == "ambient-rg":
+        return _ambient_rg_env(tmp_path, real_rg)
+    return _managed_rg_env(tmp_path)
 
 
 def _run(
@@ -84,13 +171,14 @@ def _run(
         text=True,
         env=env,
         cwd=cwd,
+        timeout=180,
     )
 
 
 @pytest.mark.parametrize(("rule", "content"), CONTENT_CASES)
 def test_each_content_rule_is_enforced(
     tmp_path: Path,
-    scan_environment: dict[str, str] | None,
+    scan_environment: dict[str, str],
     rule: str,
     content: str,
 ) -> None:
@@ -106,7 +194,7 @@ def test_each_content_rule_is_enforced(
 
 @pytest.mark.parametrize("rule", ("BMP-HCP-B12", "BMP-HCP-B13"))
 def test_each_path_rule_is_enforced(
-    tmp_path: Path, scan_environment: dict[str, str] | None, rule: str
+    tmp_path: Path, scan_environment: dict[str, str], rule: str
 ) -> None:
     script, source = _audit_fixture(tmp_path)
     if rule.endswith("12"):
@@ -123,9 +211,7 @@ def test_each_path_rule_is_enforced(
     assert str(path) in result.stdout
 
 
-def test_clean_fixture_passes(
-    tmp_path: Path, scan_environment: dict[str, str] | None
-) -> None:
+def test_clean_fixture_passes(tmp_path: Path, scan_environment: dict[str, str]) -> None:
     script, _ = _audit_fixture(tmp_path)
 
     result = _run(script, env=scan_environment)
@@ -135,7 +221,7 @@ def test_clean_fixture_passes(
 
 
 def test_repository_passes_boundary_audit(
-    scan_environment: dict[str, str] | None,
+    scan_environment: dict[str, str],
 ) -> None:
     result = _run(AUDIT, env=scan_environment)
 
@@ -143,7 +229,7 @@ def test_repository_passes_boundary_audit(
     assert "0 violation(s), 0 scan error(s)" in result.stdout
 
 
-def test_missing_scan_engines_fails_closed(tmp_path: Path) -> None:
+def test_missing_rg_and_uv_fails_closed(tmp_path: Path) -> None:
     script, _ = _audit_fixture(tmp_path)
     environment = os.environ.copy()
     environment["PATH"] = ""
@@ -151,15 +237,17 @@ def test_missing_scan_engines_fails_closed(tmp_path: Path) -> None:
     result = _run(script, env=environment)
 
     assert result.returncode == 2
-    assert "rg with PCRE2 or Python 3 is required" in result.stderr
+    assert "rg with PCRE2 is required; managed bootstrap requires uv" in result.stderr
 
 
-def test_python_fallback_fails_closed_on_invalid_utf8(tmp_path: Path) -> None:
+def test_invalid_utf8_fails_closed(
+    tmp_path: Path, scan_environment: dict[str, str]
+) -> None:
     script, source = _audit_fixture(tmp_path)
     invalid_source = source / "invalid.py"
     invalid_source.write_bytes(b"\xff\n")
 
-    result = _run(script, env=_python_only_env(tmp_path))
+    result = _run(script, env=scan_environment)
 
     assert result.returncode == 1
     assert "cannot read UTF-8 source" in result.stderr
@@ -168,7 +256,7 @@ def test_python_fallback_fails_closed_on_invalid_utf8(tmp_path: Path) -> None:
 
 
 def test_root_excluded_directories_are_preserved(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, _ = _audit_fixture(tmp_path)
     excluded = tmp_path / "docs"
@@ -184,7 +272,7 @@ def test_root_excluded_directories_are_preserved(
 
 
 def test_nested_exclusion_name_remains_in_scope(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, source = _audit_fixture(tmp_path)
     nested = source / "package" / "docs"
@@ -200,7 +288,7 @@ def test_nested_exclusion_name_remains_in_scope(
 
 
 def test_ignore_files_cannot_hide_in_scope_source(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, _ = _audit_fixture(tmp_path)
     (tmp_path / ".gitignore").write_text("scratch/\n", encoding="utf-8")
@@ -217,7 +305,7 @@ def test_ignore_files_cannot_hide_in_scope_source(
 
 
 def test_utf8_bom_does_not_hide_first_line_import(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, source = _audit_fixture(tmp_path)
     violation = source / "violation.py"
@@ -234,7 +322,7 @@ def test_utf8_bom_does_not_hide_first_line_import(
 
 
 def test_form_feed_does_not_split_a_scanned_line(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, source = _audit_fixture(tmp_path)
     violation = source / "violation.py"
@@ -248,7 +336,7 @@ def test_form_feed_does_not_split_a_scanned_line(
 
 
 def test_nul_byte_does_not_hide_declared_source_text(
-    tmp_path: Path, scan_environment: dict[str, str] | None
+    tmp_path: Path, scan_environment: dict[str, str]
 ) -> None:
     script, source = _audit_fixture(tmp_path)
     violation = source / "violation.py"
@@ -261,31 +349,34 @@ def test_nul_byte_does_not_hide_declared_source_text(
     assert str(violation) in result.stdout
 
 
-def test_python_fallback_ignores_cwd_module_shadowing(tmp_path: Path) -> None:
+def test_utf8_preflight_ignores_cwd_module_shadowing(
+    tmp_path: Path, scan_environment: dict[str, str]
+) -> None:
     script, source = _audit_fixture(tmp_path)
-    (tmp_path / "re.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
-    violation = source / "violation.py"
-    violation.write_text(_joined("role = Hcp", "Client\n"), encoding="utf-8")
+    (tmp_path / "pathlib.py").write_text("raise SystemExit(0)\n", encoding="utf-8")
+    invalid_source = source / "invalid.py"
+    invalid_source.write_bytes(b"\xff\n")
 
     result = _run(
         script,
-        env=_python_only_env(tmp_path),
+        env=scan_environment,
         cwd=tmp_path,
     )
 
     assert result.returncode == 1
-    assert "BMP-HCP-B03" in result.stdout
-    assert str(violation) in result.stdout
+    assert "cannot read UTF-8 source" in result.stderr
+    assert str(invalid_source) in result.stderr
 
 
-@pytest.mark.skipif(shutil.which("rg") is None, reason="ripgrep is not installed")
-def test_ripgrep_config_cannot_silence_violations(tmp_path: Path) -> None:
+def test_ripgrep_config_cannot_silence_violations(
+    tmp_path: Path, scan_environment: dict[str, str]
+) -> None:
     script, source = _audit_fixture(tmp_path)
     violation = source / "violation.py"
     violation.write_text(_joined("role = Hcp", "Client\n"), encoding="utf-8")
     config = tmp_path / "ripgrep.conf"
     config.write_text("--quiet\n", encoding="utf-8")
-    environment = os.environ.copy()
+    environment = scan_environment.copy()
     environment["RIPGREP_CONFIG_PATH"] = str(config)
 
     result = _run(script, env=environment)

@@ -66,149 +66,131 @@ declare -a PATH_RULES=(
   'BMP-HCP-B13' '(?:^|/)Hcp(?:Client|Server|Magnet)\.(?:ts|tsx|js|mjs|cjs|py)$'
 )
 
-run_python_fallback() {
-  local python_executable="$1"
-  "$python_executable" -I -S - "$ROOT" \
-    --suffixes "${INCLUDE_SUFFIXES[@]}" \
-    --exclude-root-globs "${EXCLUDE_ROOT_GLOBS[@]}" \
-    --content-rules "${CONTENT_RULES[@]}" \
-    --path-rules "${PATH_RULES[@]}" <<'PY'
-from __future__ import annotations
-
-import fnmatch
-import os
-from pathlib import Path
-import re
-import stat
-import sys
-
-
-def sections(values: list[str]) -> dict[str, list[str]]:
-    result: dict[str, list[str]] = {}
-    current: str | None = None
-    for value in values:
-        if value.startswith("--"):
-            current = value[2:]
-            if current in result:
-                raise ValueError(f"duplicate section {value}")
-            result[current] = []
-        elif current is None:
-            raise ValueError(f"value before section: {value!r}")
-        else:
-            result[current].append(value)
-    return result
-
-
-def pairs(values: list[str], *, label: str) -> list[tuple[str, str]]:
-    if len(values) % 2:
-        raise ValueError(f"{label} must contain rule/pattern pairs")
-    return list(zip(values[::2], values[1::2], strict=True))
-
-
-def excluded(name: str, patterns: list[str]) -> bool:
-    return any(fnmatch.fnmatchcase(name, pattern) for pattern in patterns)
-
-
-violations = 0
-scan_errors: list[str] = []
-try:
-    root = Path(sys.argv[1]).resolve(strict=True)
-    configured = sections(sys.argv[2:])
-    suffixes = tuple(configured["suffixes"])
-    exclude_root_globs = configured["exclude-root-globs"]
-    content_rules = [
-        (rule, re.compile(pattern))
-        for rule, pattern in pairs(configured["content-rules"], label="content rules")
-    ]
-    path_rules = [
-        (rule, re.compile(pattern))
-        for rule, pattern in pairs(configured["path-rules"], label="path rules")
-    ]
-except (KeyError, OSError, re.error, ValueError) as exc:
-    print(f"BMP-HCP-AUDIT scan error: invalid fallback configuration: {exc}", file=sys.stderr)
-    print("BMP-HCP-AUDIT: 0 violation(s), 1 scan error(s)")
-    raise SystemExit(1)
-
-
-def walk_error(error: OSError) -> None:
-    scan_errors.append(f"cannot enumerate {error.filename}: {error}")
-
-
-files: list[Path] = []
-for directory, child_directories, child_files in os.walk(
-    root, topdown=True, onerror=walk_error, followlinks=False
-):
-    directory_path = Path(directory)
-    child_directories[:] = sorted(
-        name
-        for name in child_directories
-        if not (
-            directory_path == root and excluded(name, exclude_root_globs)
-        )
-        and not (directory_path / name).is_symlink()
-    )
-    for name in sorted(child_files):
-        path = directory_path / name
-        try:
-            metadata = path.stat(follow_symlinks=False)
-        except OSError as exc:
-            scan_errors.append(f"cannot inspect {path}: {exc}")
-            continue
-        if stat.S_ISLNK(metadata.st_mode):
-            continue
-        if not stat.S_ISREG(metadata.st_mode):
-            scan_errors.append(f"scan candidate is not a regular file: {path}")
-            continue
-        files.append(path)
-
-files.sort(key=lambda path: path.as_posix())
-source_lines: dict[Path, tuple[str, ...]] = {}
-for path in files:
-    if not path.name.endswith(suffixes):
-        continue
-    try:
-        source_lines[path] = tuple(
-            path.read_bytes().decode("utf-8-sig").split("\n")
-        )
-    except (OSError, UnicodeError) as exc:
-        scan_errors.append(f"cannot read UTF-8 source {path}: {exc}")
-
-for rule, pattern in content_rules:
-    for path, lines in source_lines.items():
-        for line_number, line in enumerate(lines, start=1):
-            if pattern.search(line) is not None:
-                print(f"{rule} {path}:{line_number}:{line}")
-                violations += 1
-
-for rule, pattern in path_rules:
-    for path in files:
-        rendered = path.as_posix()
-        if pattern.search(rendered) is not None:
-            print(f"{rule} {rendered}:1:{rendered}")
-            violations += 1
-
-for message in scan_errors:
-    print(f"BMP-HCP-AUDIT scan error: {message}", file=sys.stderr)
-print(
-    f"BMP-HCP-AUDIT: {violations} violation(s), {len(scan_errors)} scan error(s)"
-)
-raise SystemExit(1 if violations or scan_errors else 0)
-PY
+supports_pcre2() {
+  local candidate="$1"
+  printf 'pcre\n' | "$candidate" --pcre2 -q '(?<=p)cre' \
+    >/dev/null 2>&1
 }
 
-if ! command -v rg >/dev/null 2>&1 \
-  || ! printf 'pcre\n' | rg --pcre2 -q '(?<=p)cre'; then
-  python_executable="$(command -v python3 || command -v python || true)"
-  if [[ -z "$python_executable" ]]; then
-    echo "BMP-HCP-AUDIT: rg with PCRE2 or Python 3 is required" >&2
+RG_BIN="$(type -P rg || true)"
+if [[ -n "$RG_BIN" ]] && ! supports_pcre2 "$RG_BIN"; then
+  RG_BIN=""
+fi
+
+if [[ -z "$RG_BIN" ]]; then
+  UV_BIN="$(type -P uv || true)"
+  if [[ -z "$UV_BIN" ]]; then
+    echo \
+      "BMP-HCP-AUDIT: rg with PCRE2 is required; managed bootstrap requires uv" \
+      >&2
     exit 2
   fi
-  run_python_fallback "$python_executable"
-  exit $?
+
+  MANAGED_RG_SPEC='ripgrep-bin==15.1.0'
+  managed_rg_output="$("$UV_BIN" --no-config tool run --isolated --no-build \
+    --from "$MANAGED_RG_SPEC" sh -c 'command -v rg')"
+  managed_rg_status=$?
+  if (( managed_rg_status != 0 )); then
+    echo "BMP-HCP-AUDIT: failed to bootstrap $MANAGED_RG_SPEC with uv" >&2
+    exit 2
+  fi
+  RG_BIN="${managed_rg_output%%$'\n'*}"
+  if [[ -z "$RG_BIN" || ! -x "$RG_BIN" ]]; then
+    echo \
+      "BMP-HCP-AUDIT: managed $MANAGED_RG_SPEC did not resolve an executable rg" \
+      >&2
+    exit 2
+  fi
+  managed_rg_version="$("$RG_BIN" --version 2>/dev/null)"
+  case "$managed_rg_version" in
+    'ripgrep 15.1.0 '*) ;;
+    *)
+      echo \
+        "BMP-HCP-AUDIT: managed $MANAGED_RG_SPEC did not resolve ripgrep 15.1.0" \
+        >&2
+      exit 2
+      ;;
+  esac
+  if ! supports_pcre2 "$RG_BIN"; then
+    echo \
+      "BMP-HCP-AUDIT: managed $MANAGED_RG_SPEC lacks working PCRE2 support" \
+      >&2
+    exit 2
+  fi
 fi
 
 violations=0
 scan_errors=0
+
+FILE_LIST="$(mktemp)" || {
+  echo "BMP-HCP-AUDIT: cannot create file-list output" >&2
+  exit 2
+}
+FILE_ERRORS="$(mktemp)" || {
+  echo "BMP-HCP-AUDIT: cannot create file-enumeration error output" >&2
+  rm -f -- "$FILE_LIST"
+  exit 2
+}
+trap 'rm -f -- "$FILE_LIST" "$FILE_ERRORS"' EXIT
+(
+  cd -- "$ROOT" || exit 2
+  "$RG_BIN" --files --hidden --no-ignore \
+    "${EXCLUDE_GLOBS[@]}" "$ROOT"
+) >"$FILE_LIST" 2>"$FILE_ERRORS"
+file_status=$?
+if (( file_status != 0 )); then
+  echo "BMP-HCP-AUDIT: file enumeration failed" >&2
+  cat "$FILE_ERRORS" >&2
+  scan_errors=$((scan_errors + 1))
+fi
+
+preflight_utf8() {
+  local python_executable="$1"
+  "$python_executable" -I -S - "$FILE_LIST" \
+    "${INCLUDE_SUFFIXES[@]}" <<'PY'
+from pathlib import Path
+import sys
+
+
+try:
+    file_list = Path(sys.argv[1]).read_bytes().decode("utf-8").splitlines()
+except (OSError, UnicodeError) as exc:
+    print(
+        f"BMP-HCP-AUDIT scan error: cannot read UTF-8 file list: {exc}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+suffixes = tuple(sys.argv[2:])
+errors = 0
+for rendered in file_list:
+    if not rendered.endswith(suffixes):
+        continue
+    path = Path(rendered)
+    try:
+        path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        print(
+            f"BMP-HCP-AUDIT scan error: cannot read UTF-8 source {path}: {exc}",
+            file=sys.stderr,
+        )
+        errors += 1
+
+raise SystemExit(1 if errors else 0)
+PY
+}
+
+if (( file_status == 0 )); then
+  PYTHON_BIN="$(type -P python3 || type -P python || true)"
+  if [[ -z "$PYTHON_BIN" ]]; then
+    echo \
+      "BMP-HCP-AUDIT scan error: Python 3 is required for UTF-8 preflight" \
+      >&2
+    scan_errors=$((scan_errors + 1))
+  elif ! preflight_utf8 "$PYTHON_BIN"; then
+    scan_errors=$((scan_errors + 1))
+  fi
+fi
 
 audit_content() {
   local rule="$1"
@@ -221,7 +203,8 @@ audit_content() {
   }
   (
     cd -- "$ROOT" || exit 2
-    rg --hidden --no-ignore --text --pcre2 -n --no-heading --color never \
+    "$RG_BIN" --hidden --no-ignore --text --encoding utf-8 --pcre2 \
+      -n --no-heading --color never \
       "${INCLUDE_GLOBS[@]}" "${EXCLUDE_GLOBS[@]}" \
       -- "$pattern" "$ROOT"
   ) >"$output" 2>&1
@@ -249,8 +232,8 @@ audit_path() {
     scan_errors=$((scan_errors + 1))
     return
   }
-  rg --pcre2 -n --no-heading --color never -- "$pattern" "$FILE_LIST" \
-    >"$output" 2>&1
+  "$RG_BIN" --text --pcre2 -n --no-heading --color never \
+    -- "$pattern" "$FILE_LIST" >"$output" 2>&1
   status=$?
   if (( status == 0 )); then
     while IFS= read -r line; do
@@ -270,21 +253,7 @@ for ((index = 0; index < ${#CONTENT_RULES[@]}; index += 2)); do
   audit_content "${CONTENT_RULES[index]}" "${CONTENT_RULES[index + 1]}"
 done
 
-FILE_LIST="$(mktemp)" || {
-  echo "BMP-HCP-AUDIT: cannot create file-list output" >&2
-  exit 2
-}
-trap 'rm -f -- "$FILE_LIST"' EXIT
-(
-  cd -- "$ROOT" || exit 2
-  rg --files --hidden --no-ignore "${EXCLUDE_GLOBS[@]}" "$ROOT"
-) >"$FILE_LIST" 2>&1
-file_status=$?
-if (( file_status != 0 )); then
-  echo "BMP-HCP-AUDIT: file enumeration failed" >&2
-  cat "$FILE_LIST" >&2
-  scan_errors=$((scan_errors + 1))
-else
+if (( file_status == 0 )); then
   for ((index = 0; index < ${#PATH_RULES[@]}; index += 2)); do
     audit_path "${PATH_RULES[index]}" "${PATH_RULES[index + 1]}"
   done
