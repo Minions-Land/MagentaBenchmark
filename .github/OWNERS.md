@@ -34,9 +34,10 @@ Repository administrators should protect `main` with:
 
 - required pull request reviews, including CODEOWNERS;
 - dismissal of stale approvals after new commits;
-- the always-present required status checks `MagentaBench required gate` and
-  `Protocol review required gate`; those gates route work internally by path
-  and cannot remain pending merely because a path class was not selected;
+- the always-present required status checks `MagentaBench required gate`,
+  `Protocol review required gate`, and `Execution profile required gate`;
+  these gates cannot remain pending merely because a path class was not
+  selected;
 - no force pushes or branch deletion;
 - conversation resolution before merge.
 

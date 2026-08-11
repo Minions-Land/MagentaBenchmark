@@ -1,0 +1,39 @@
+name: Execution profile gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: execution-profile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_DEFAULT_INDEX: https://mirrors.aliyun.com/pypi/simple/
+  UV_LINK_MODE: copy
+
+jobs:
+  required:
+    name: Execution profile required gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the locked test environment
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - run: uv sync --frozen --extra test
+      - name: Validate execution profiles, backend joins, and lab links
+        run: |
+          uv run --frozen bmp-collab validate
+          uv run --frozen bmp-collab modes --format json
+          uv run --frozen bmp-lab doctor
+      - name: Run execution profile regression tests
+        run: uv run --frozen --extra test pytest -q tests/test_execution_profiles.py
+      - run: git diff --check
