@@ -1,0 +1,27 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "exploratory",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "task-container",
+  "lab_issue": "appcontainer-backend-adapter",
+  "mode": "appcontainer",
+  "network_observation_required": true,
+  "registered_backend_ids": [],
+  "required_identity_evidence": [
+    "concrete AppContainer runtime authority",
+    "pinned launcher and runtime version",
+    "content-addressed application or image identity"
+  ],
+  "required_recovery_evidence": [
+    "provider request id and idempotency scope",
+    "timeout cancellation and retry terminal states",
+    "workspace preservation or destruction receipt"
+  ],
+  "required_runtime_evidence": [
+    "observed filesystem isolation",
+    "effective network boundary activation",
+    "artifact export receipt before teardown",
+    "standalone-verifier support for the adapter boundary"
+  ]
+}

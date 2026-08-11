@@ -1,0 +1,29 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "bmp-gated",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "process",
+  "lab_issue": null,
+  "mode": "local-process",
+  "network_observation_required": true,
+  "registered_backend_ids": [
+    "fake.local",
+    "subprocess.echo"
+  ],
+  "required_identity_evidence": [
+    "absolute executable path and digest",
+    "runner source closure digest",
+    "resolved environment receipt"
+  ],
+  "required_recovery_evidence": [
+    "terminal exit timeout and cancellation state",
+    "retained logs and workspace policy",
+    "fresh record root for a new execution"
+  ],
+  "required_runtime_evidence": [
+    "effective process network policy and observation",
+    "stdout stderr and output content references",
+    "usage values remain null when unobserved"
+  ]
+}

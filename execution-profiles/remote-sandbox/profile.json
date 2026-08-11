@@ -1,0 +1,26 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "exploratory",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "microvm",
+  "lab_issue": "execution-target-contract",
+  "mode": "remote-sandbox",
+  "network_observation_required": true,
+  "registered_backend_ids": [],
+  "required_identity_evidence": [
+    "provider adapter source closure digest",
+    "runtime template or image immutable identity",
+    "provider request and sandbox identifiers"
+  ],
+  "required_recovery_evidence": [
+    "documented provider idempotency and retry semantics",
+    "terminal cancellation timeout and destroy receipts",
+    "durable recovery artifact manifest"
+  ],
+  "required_runtime_evidence": [
+    "observed isolation and network boundary",
+    "artifact export completion before destruction",
+    "standalone-verifier activation receipt for the provider adapter"
+  ]
+}

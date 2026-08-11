@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Minions-Land/MagentaBenchmark/execution-profiles/schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "artifact_export_before_destroy": {
+      "const": true
+    },
+    "credential_recording": {
+      "const": "environment-names-only"
+    },
+    "evidence_ceiling": {
+      "enum": [
+        "exploratory",
+        "bmp-gated"
+      ]
+    },
+    "format": {
+      "const": "magentabench-execution-profile-v1"
+    },
+    "isolation_boundary": {
+      "enum": [
+        "process",
+        "task-container",
+        "microvm"
+      ]
+    },
+    "lab_issue": {
+      "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "local-process",
+        "docker",
+        "appcontainer",
+        "e2b",
+        "remote-sandbox"
+      ]
+    },
+    "network_observation_required": {
+      "const": true
+    },
+    "registered_backend_ids": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_identity_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_recovery_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "required_runtime_evidence": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "format",
+    "mode",
+    "lab_issue",
+    "registered_backend_ids",
+    "isolation_boundary",
+    "credential_recording",
+    "network_observation_required",
+    "artifact_export_before_destroy",
+    "required_identity_evidence",
+    "required_runtime_evidence",
+    "required_recovery_evidence",
+    "evidence_ceiling"
+  ],
+  "type": "object"
+}

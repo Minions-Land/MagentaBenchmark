@@ -2,8 +2,9 @@
 
 These rules apply to every human or agent working in this repository.
 
-1. Before shared work, run `uv run bmp-lab doctor` and `uv run bmp-lab status`,
-   then read the relevant issue with `bmp-lab show` or `bmp-lab recover`.
+1. Enter through `uv run bmp-agent`, `uv run bmp-collab validate`, and
+   `uv run bmp-collab modes`; then run `uv run bmp-lab doctor` and read the
+   relevant issue with `bmp-lab show` or `bmp-lab recover`.
 2. Create and mutate `lab/issues/**` only through `bmp-lab`. Never hand-edit,
    delete, rename, or resequence immutable issue and event JSON.
 3. Claim the issue's declared write scope, commit and non-force-push the lease
@@ -27,6 +28,15 @@ These rules apply to every human or agent working in this repository.
    preserve the canonical GitHub `origin` for authoritative pushes.
 10. Before handoff, run the checks in `docs/EXPERIMENT_RUNBOOK.md`, append any
     blocker/checkpoint/run linkage, commit reviewed files, and push them.
+11. Put experiment intent in one `experiments/<id>/` bundle. Do not update a
+    global progress board and do not edit BMP schemas, runner semantics, or
+    protocol registries for an experiment-only change.
+12. Select Docker, AppContainer, E2B, or another target through a registered,
+    digest-bound backend adapter. Unknown cloud boundaries remain exploratory
+    until runtime identity, network, artifact export, teardown, recovery, and
+    standalone verification are closed.
 
 The complete operating model and current runtime limitations are documented in
-`docs/LAB_OPERATIONS.md`.
+`docs/LAB_OPERATIONS.md`. Experiment collaboration and target-specific rules
+are in `docs/EXPERIMENT_COLLABORATION.md` and
+`docs/governance/EXECUTION_MODES.md`.

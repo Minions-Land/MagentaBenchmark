@@ -1,0 +1,32 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "bmp-gated",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "task-container",
+  "lab_issue": null,
+  "mode": "docker",
+  "network_observation_required": true,
+  "registered_backend_ids": [
+    "aose.docker.immutable",
+    "harbor.0.20.0",
+    "harbor.0.20.0.terminal-bench",
+    "harbor.local-shim"
+  ],
+  "required_identity_evidence": [
+    "immutable image id or digest",
+    "launcher executable digest and version",
+    "in-container agent executable digest"
+  ],
+  "required_recovery_evidence": [
+    "timeout and cancellation terminal state",
+    "retained workspace locator on failure",
+    "fresh record root on a new execution"
+  ],
+  "required_runtime_evidence": [
+    "container receipt cross-linked to provenance",
+    "effective network policy and observation",
+    "stdout stderr verifier and terminal attempt artifacts",
+    "container removal observation after export"
+  ]
+}

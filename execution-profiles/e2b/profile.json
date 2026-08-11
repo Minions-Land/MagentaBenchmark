@@ -1,0 +1,27 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "exploratory",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "microvm",
+  "lab_issue": "e2b-backend-adapter",
+  "mode": "e2b",
+  "network_observation_required": true,
+  "registered_backend_ids": [],
+  "required_identity_evidence": [
+    "pinned E2B SDK and API version",
+    "sandbox template id plus immutable build identity",
+    "sandbox id and creation request id"
+  ],
+  "required_recovery_evidence": [
+    "create and execute idempotency scope",
+    "timeout cancellation retry and resume terminal states",
+    "sandbox destruction receipt or retained recovery locator"
+  ],
+  "required_runtime_evidence": [
+    "effective network policy activation and observation",
+    "command exit usage and provider activation receipts",
+    "durable artifact export manifest before sandbox destruction",
+    "standalone-verifier support for the microvm boundary"
+  ]
+}
