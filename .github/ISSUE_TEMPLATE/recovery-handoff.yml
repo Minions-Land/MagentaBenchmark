@@ -7,13 +7,59 @@ body:
   - type: markdown
     attributes:
       value: |
-        GitHub is a review pointer, not the recovery source of truth. Record the checkpoint through `bmp-lab`, verify it with `bmp-lab recover`, and never paste credential values here.
+        GitHub is a review and notification pointer, not the recovery source of truth. Publish the `bmp-lab` checkpoint and stable run/job state first, then @mention the next operator. A mention does not transfer ownership: the incoming operator must run `bmp-lab recover` and acquire a new lease before writing or launching work. Never paste credential values here.
   - type: input
     id: lab-item
     attributes:
       label: Lab item ID
       description: The immutable lab issue that owns the interrupted scope.
       placeholder: magenta-single-case-pilot
+    validations:
+      required: true
+  - type: input
+    id: outgoing-operator
+    attributes:
+      label: Outgoing operator
+      description: GitHub login of the person or Agent handing off the run.
+      placeholder: PoorOtterBob
+    validations:
+      required: true
+  - type: input
+    id: next-operator
+    attributes:
+      label: Next operator to mention
+      description: GitHub login to @mention after the checkpoint and commit are published. This is notification only, not a lease transfer.
+      placeholder: DataLab-atom
+    validations:
+      required: true
+  - type: input
+    id: stable-run-id
+    attributes:
+      label: Stable run or job ID
+      description: Provider, CI, container, or durable job identifier that the next operator must query before restarting or cancelling.
+      placeholder: run-20260812-001
+    validations:
+      required: true
+  - type: dropdown
+    id: run-state
+    attributes:
+      label: Last observed run state
+      options:
+        - planned
+        - running
+        - finished
+        - failed
+        - invalid
+        - cancelled
+        - unknown-disconnected
+    validations:
+      required: true
+  - type: input
+    id: observed-at
+    attributes:
+      label: Last observed UTC time
+      description: UTC timestamp from the status query, not the time the connection was lost.
+      placeholder: 2026-08-12T12:34:56Z
     validations:
       required: true
   - type: input
@@ -44,12 +90,22 @@ body:
       description: List durable locators, sizes, and SHA-256 digests. Scratch-only `.runs/` paths are insufficient.
     validations:
       required: true
+  - type: textarea
+    id: incoming-acknowledgement
+    attributes:
+      label: Incoming acknowledgement
+      description: The next operator may record the UTC acknowledgement, bmp-lab recover result, new claim event/lease id, and next action here after accepting the handoff. Leave blank until accepted.
+      placeholder: "ACK 2026-08-12T12:45:00Z; recover=clean; claim=claim-...; next=..."
   - type: checkboxes
     id: safety
     attributes:
       label: Recovery checks
       options:
         - label: I ran `bmp-lab doctor` and `bmp-lab recover` and reviewed every reported mismatch.
+          required: true
+        - label: I queried the stable run or job ID and recorded its observed state and UTC time above.
+          required: true
+        - label: I published the checkpoint and commit before mentioning the next operator, and I understand that the mention does not transfer the lease.
           required: true
         - label: I removed credential values and secret-bearing URLs from this handoff and its referenced patch.
           required: true
