@@ -1,0 +1,253 @@
+name: MagentaBench CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: magentabench-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Keep dependency resolution on the repository's documented mirror policy.
+  UV_DEFAULT_INDEX: https://mirrors.aliyun.com/pypi/simple/
+  UV_LINK_MODE: copy
+
+jobs:
+  changed-paths:
+    name: Classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      lab: ${{ steps.classify.outputs.lab }}
+      bmp: ${{ steps.classify.outputs.bmp }}
+      metadata: ${{ steps.classify.outputs.metadata }}
+      governance: ${{ steps.classify.outputs.governance }}
+    steps:
+      - name: Check out all history for a stable diff
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Classify the patch
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            changed=("<manual-full-run>")
+          elif [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            mapfile -t changed < <(git diff-tree --root --no-commit-id --name-only --no-renames -r "$HEAD_SHA")
+          elif [[ "$EVENT_NAME" == "pull_request" ]]; then
+            mapfile -t changed < <(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA")
+          else
+            mapfile -t changed < <(git diff --name-only --no-renames "$BASE_SHA" "$HEAD_SHA")
+          fi
+
+          lab=false
+          bmp=false
+          metadata=false
+          governance=false
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            lab=true
+            bmp=true
+            metadata=true
+            governance=true
+          fi
+
+          for path in "${changed[@]}"; do
+            case "$path" in
+              lab/*|MagentaBench/lab/*|tests/test_lab_operations.py|docs/LAB_OPERATIONS.md|docs/EXPERIMENT_RUNBOOK.md|AGENTS.md)
+                lab=true
+                ;;
+            esac
+            case "$path" in
+              lab/*|MagentaBench/lab/*|tests/test_lab_operations.py)
+                ;;
+              MagentaBench/*|experiments/*|plugins/*|registries/*|tests/*|scripts/*|pyproject.toml|uv.lock)
+                bmp=true
+                ;;
+            esac
+            case "$path" in
+              .github/*)
+                metadata=true
+                ;;
+            esac
+            case "$path" in
+              README.md|AGENTS.md|EVIDENCE.md|docs/*|.docs/*|lab/README.md)
+                governance=true
+                ;;
+            esac
+          done
+
+          printf 'lab=%s\n' "$lab" >> "$GITHUB_OUTPUT"
+          printf 'bmp=%s\n' "$bmp" >> "$GITHUB_OUTPUT"
+          printf 'metadata=%s\n' "$metadata" >> "$GITHUB_OUTPUT"
+          printf 'governance=%s\n' "$governance" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "Changed files:"
+          printf '  %s\n' "${changed[@]:-<none>}"
+          printf 'Path classes: lab=%s bmp=%s metadata=%s governance=%s\n' \
+            "$lab" "$bmp" "$metadata" "$governance"
+
+  lab:
+    name: Lab ledger checks
+    needs: changed-paths
+    if: needs.changed-paths.outputs.lab == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the locked test environment
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - run: uv sync --frozen --extra test
+      - name: Run lab operation tests
+        run: uv run --frozen --extra test pytest -q tests/test_lab_operations.py
+      - name: Validate the collaboration ledger
+        run: |
+          uv run bmp-lab --project-root "$PWD" doctor
+          uv run bmp-lab --project-root "$PWD" status --format json
+      - run: git diff --check
+
+  bmp:
+    name: BMP boundary checks
+    needs: changed-paths
+    if: needs.changed-paths.outputs.bmp == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the locked test environment
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - run: uv sync --frozen --extra test
+      - name: Run the test suite
+        run: uv run --frozen --extra test pytest -q
+      - name: Validate merge-friendly experiment bundles
+        run: uv run --frozen bmp-collab validate
+      - name: Compile and audit the protocol boundary
+        run: |
+          uv run --frozen python -m compileall -q MagentaBench plugins tests
+          bash scripts/audit_hcp_boundary.sh
+      - name: Verify the registry lock
+        run: |
+          uv run --frozen python - <<'PY'
+          from MagentaBench.schemas.registry_lock import verify_registry_lock
+
+          catalog = verify_registry_lock("registries")
+          print(f"verified {len(catalog.entries)} registry entries: {catalog.catalog_digest}")
+          PY
+      - run: git diff --check
+
+  metadata:
+    name: GitHub policy syntax checks
+    needs: changed-paths
+    if: needs.changed-paths.outputs.metadata == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the YAML parser from the documented mirror
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+      - name: Parse workflows and issue forms
+        run: |
+          uv run --frozen --with pyyaml==6.0.2 python - <<'PY'
+          from pathlib import Path
+          import yaml
+
+          files = sorted(Path(".github").rglob("*.yml")) + sorted(Path(".github").rglob("*.yaml"))
+          assert files, "no GitHub YAML files found"
+          for path in files:
+              documents = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+              assert documents and isinstance(documents[0], dict), path
+              if "workflows" in path.parts:
+                  document = documents[0]
+                  # PyYAML 1.1 represents the YAML key `on` as True.
+                  assert "name" in document, path
+                  assert "on" in document or True in document, path
+              print(f"parsed {path}")
+          PY
+      - name: Check ownership and template files
+        run: |
+          test -s .github/CODEOWNERS
+          test -s .github/OWNERS.md
+          test -s .github/pull_request_template.md
+          test -s .github/ISSUE_TEMPLATE/benchmark-run.yml
+          test -s .github/ISSUE_TEMPLATE/bmp-protocol-change.yml
+          test -s .github/ISSUE_TEMPLATE/experiment-blocker.yml
+          test -s .github/ISSUE_TEMPLATE/recovery-handoff.yml
+          test -s .github/ISSUE_TEMPLATE/execution-target.yml
+          git diff --check
+
+  governance:
+    name: Repository governance checks
+    needs: changed-paths
+    if: needs.changed-paths.outputs.governance == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required contributor guidance
+        run: |
+          test -s README.md
+          test -s AGENTS.md
+          test -s docs/EXPERIMENT_RUNBOOK.md
+          test -s docs/LAB_OPERATIONS.md
+          git diff --check
+
+  required:
+    name: MagentaBench required gate
+    needs: [changed-paths, lab, bmp, metadata, governance]
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      CHANGED_PATHS_RESULT: ${{ needs.changed-paths.result }}
+      LAB_REQUIRED: ${{ needs.changed-paths.outputs.lab }}
+      LAB_RESULT: ${{ needs.lab.result }}
+      BMP_REQUIRED: ${{ needs.changed-paths.outputs.bmp }}
+      BMP_RESULT: ${{ needs.bmp.result }}
+      METADATA_REQUIRED: ${{ needs.changed-paths.outputs.metadata }}
+      METADATA_RESULT: ${{ needs.metadata.result }}
+      GOVERNANCE_REQUIRED: ${{ needs.changed-paths.outputs.governance }}
+      GOVERNANCE_RESULT: ${{ needs.governance.result }}
+    steps:
+      - name: Require every selected check to pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CHANGED_PATHS_RESULT" != "success" ]]; then
+            echo "Changed-path classification failed: $CHANGED_PATHS_RESULT" >&2
+            exit 1
+          fi
+
+          require_selected_job() {
+            local name="$1"
+            local required="$2"
+            local result="$3"
+            if [[ "$required" == "true" && "$result" != "success" ]]; then
+              echo "$name was selected but did not pass: $result" >&2
+              exit 1
+            fi
+            if [[ "$required" != "true" && "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "$name was not selected but ended unexpectedly: $result" >&2
+              exit 1
+            fi
+          }
+
+          require_selected_job "Lab ledger checks" "$LAB_REQUIRED" "$LAB_RESULT"
+          require_selected_job "BMP boundary checks" "$BMP_REQUIRED" "$BMP_RESULT"
+          require_selected_job "GitHub policy syntax checks" "$METADATA_REQUIRED" "$METADATA_RESULT"
+          require_selected_job "Repository governance checks" "$GOVERNANCE_REQUIRED" "$GOVERNANCE_RESULT"
+          echo "All selected MagentaBench checks passed."

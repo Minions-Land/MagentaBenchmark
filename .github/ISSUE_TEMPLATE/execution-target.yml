@@ -1,0 +1,56 @@
+name: Execution target or adapter
+description: Propose or recover a Docker, AppContainer, E2B, or remote sandbox target.
+title: "[execution] "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Execution mode
+      options:
+        - docker
+        - appcontainer
+        - e2b
+        - remote-sandbox
+        - local-process
+    validations:
+      required: true
+  - type: input
+    id: lab-item
+    attributes:
+      label: Lab item ID
+      description: Create the immutable bmp-lab issue first; this GitHub issue is only a review pointer.
+      placeholder: e2b-backend-adapter
+    validations:
+      required: true
+  - type: textarea
+    id: identity
+    attributes:
+      label: Runtime identity and pin
+      description: State the launcher, image/template/runtime version, digest source, and reproducible probe. Never include credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Isolation, network, and lifecycle
+      description: Describe workspace boundary, effective network observation, secret names, timeout/retry policy, teardown, and artifact export before destruction.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and recovery
+      description: List receipts, standalone verification, durable record root, checkpoint/resume behavior, and the condition for moving beyond exploratory.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I will keep adapter implementation and protocol changes in separate PRs unless an explicit migration requires both.
+          required: true
+        - label: I will record environment variable names only and preserve failed attempts.
+          required: true

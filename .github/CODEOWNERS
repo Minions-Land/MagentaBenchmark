@@ -1,0 +1,25 @@
+# MagentaBench ownership policy.
+#
+# The repository settings must enable branch protection with
+# `require_code_owner_reviews=true`; this file alone is not an approval gate.
+# Lab issue/event files are intentionally split by path so unrelated work can
+# merge in parallel. Shared protocol files still require a BMP owner review.
+
+* @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+
+# Collaboration control plane: parallel changes are acceptable when the lab
+# ledger doctor is clean and the paths/leases do not overlap.
+/lab/ @DataLab-atom @PoorOtterBob @wpx-coder
+/MagentaBench/lab/ @DataLab-atom @PoorOtterBob @wpx-coder
+/tests/test_lab_operations.py @DataLab-atom @PoorOtterBob @wpx-coder
+/.github/ @DataLab-atom @wpx-coder
+
+# BMP protocol, adapters, registries, and evidence contracts: explicit owner
+# review is required; a lab-only approval is not sufficient.
+/MagentaBench/schemas/ @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/MagentaBench/runner/ @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/MagentaBench/adapters/ @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/plugins/ @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/registries/ @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/pyproject.toml @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26
+/uv.lock @ChengAoShen @DataLab-atom @PoorOtterBob @wpx-coder @CodeRider26

@@ -1,0 +1,56 @@
+name: Experiment blocker
+description: Record a reproducible infrastructure, verifier, provider, or recovery blocker.
+title: "[blocker] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is a coordination pointer. Create or update the immutable `lab/` item first; do not use the issue body as the source of progress truth.
+  - type: input
+    id: lab-item
+    attributes:
+      label: Lab item ID
+      description: The `bmp-lab` issue id that owns this blocker.
+      placeholder: tb-pinned-images
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Blocker category
+      options:
+        - infrastructure
+        - dependency
+        - verifier
+        - provider
+        - data
+        - code
+        - process
+        - unknown
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Expected and observed behavior
+      description: Include exact command, UTC time, return code, commit, and safe artifact references. Never include secrets.
+    validations:
+      required: true
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery action and acceptance condition
+      description: State the smallest next action and what evidence will resolve the blocker.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I checked the record for credentials and secret-bearing URLs.
+          required: true
+        - label: I did not classify infrastructure or verifier failure as an Agent score.
+          required: true

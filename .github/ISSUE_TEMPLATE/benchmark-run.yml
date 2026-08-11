@@ -1,0 +1,56 @@
+name: Benchmark run proposal
+description: Propose a preregistered exploratory or claim review run.
+title: "[run] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A GitHub issue does not authorize execution. Create a lab item, claim its scope, and pass the runbook gates first.
+  - type: input
+    id: lab-item
+    attributes:
+      label: Lab item ID
+      placeholder: magenta-single-case-pilot
+    validations:
+      required: true
+  - type: input
+    id: experiment
+    attributes:
+      label: Experiment TOML
+      placeholder: MagentaBench/conformance/experiments/terminal-bench-magenta-smoke.toml
+    validations:
+      required: true
+  - type: textarea
+    id: tuple
+    attributes:
+      label: Frozen experiment tuple
+      description: Benchmark commit/case, subject/model/provider binding, budgets, ordering, repetitions, verifier, image digests, and record root policy.
+    validations:
+      required: true
+  - type: dropdown
+    id: purpose
+    attributes:
+      label: Purpose
+      options:
+        - exploratory
+        - claim review
+    validations:
+      required: true
+  - type: textarea
+    id: gates
+    attributes:
+      label: Preflight and evidence plan
+      description: List commands, expected gates, and durable artifact locations. Do not paste credential values or unverified scores.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checks
+      options:
+        - label: I will use a fresh durable record root and retain failed attempts.
+          required: true
+        - label: I will label output exploratory until standalone verification and all claim gates pass.
+          required: true

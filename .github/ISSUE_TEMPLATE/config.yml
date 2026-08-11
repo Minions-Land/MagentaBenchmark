@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Experiment runbook
+    url: https://github.com/Minions-Land/MagentaBenchmark/blob/main/docs/EXPERIMENT_RUNBOOK.md
+    about: Recover and preflight an experiment before opening a coordination issue.
+  - name: Lab operations guide
+    url: https://github.com/Minions-Land/MagentaBenchmark/blob/main/docs/LAB_OPERATIONS.md
+    about: Record ownership, blockers, checkpoints, and run links through bmp-lab.

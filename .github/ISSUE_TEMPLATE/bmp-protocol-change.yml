@@ -1,0 +1,40 @@
+name: BMP protocol change proposal
+description: Propose a change to protocol identity, schemas, execution, metrics, or claim gates.
+title: "[protocol] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Protocol changes require explicit BMP owner review. Keep implementation separate from any lab coordination issue and do not silently change a denominator or claim rule.
+  - type: textarea
+    id: invariant
+    attributes:
+      label: Invariant and motivation
+      description: State the current contract, the failure it prevents, and why the change is necessary.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Identity and compatibility impact
+      description: Explain manifest/registry/schema digests, replay, old records, HCP boundary, and migration behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests and independent verification
+      description: Give focused tests, registry lock checks, boundary audits, and any retained evidence required.
+    validations:
+      required: true
+  - type: checkboxes
+    id: approval
+    attributes:
+      label: Review requirements
+      options:
+        - label: I will mark the PR as having BMP protocol impact and request CODEOWNER review.
+          required: true
+        - label: I will not present conformance or exploratory output as a model claim.
+          required: true

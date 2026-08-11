@@ -1,0 +1,118 @@
+name: BMP protocol review gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: bmp-protocol-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changed-paths:
+    name: Detect protocol paths
+    runs-on: ubuntu-latest
+    outputs:
+      protocol: ${{ steps.detect.outputs.protocol }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          protocol=false
+          while IFS= read -r path; do
+            case "$path" in
+              MagentaBench/adapters/*|MagentaBench/schemas/*|MagentaBench/runner/*|plugins/*|registries/*|pyproject.toml|uv.lock)
+                protocol=true
+                ;;
+            esac
+          done < <(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA")
+          printf 'protocol=%s\n' "$protocol" >> "$GITHUB_OUTPUT"
+
+  require-explicit-approval:
+    name: Protocol review required gate
+    needs: changed-paths
+    if: always()
+    runs-on: ubuntu-latest
+    env:
+      CHANGED_PATHS_RESULT: ${{ needs.changed-paths.result }}
+      PROTOCOL_CHANGED: ${{ needs.changed-paths.outputs.protocol }}
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      PR_REPOSITORY: ${{ github.repository }}
+      PROTOCOL_CODEOWNERS: '["ChengAoShen","DataLab-atom","PoorOtterBob","wpx-coder","CodeRider26"]'
+    steps:
+      - name: Require changed-path detection
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CHANGED_PATHS_RESULT" != "success" ]]; then
+            echo "Protocol path detection failed: $CHANGED_PATHS_RESULT" >&2
+            exit 1
+          fi
+      - name: Record that protocol approval is not required
+        if: env.PROTOCOL_CHANGED != 'true'
+        run: echo "No protected BMP protocol path changed."
+      - name: Require the protocol impact declaration
+        if: env.PROTOCOL_CHANGED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -Fqi -- "[x] I have requested BMP protocol-owner approval" <<<"${PR_BODY:-}"; then
+            echo "Core BMP paths changed, but the PR does not acknowledge protocol-owner approval." >&2
+            echo "Check the required protocol approval item in the PR template." >&2
+            exit 1
+          fi
+      - name: Require a current CODEOWNER approval
+        if: env.PROTOCOL_CHANGED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          reviews="$(
+            gh api --paginate --slurp \
+              "repos/${PR_REPOSITORY}/pulls/${PR_NUMBER}/reviews"
+          )"
+          approved="$(
+            jq -r \
+              --arg head "$HEAD_SHA" \
+              --argjson owners "$PROTOCOL_CODEOWNERS" \
+              '
+                add
+                | map(select(
+                    .state == "APPROVED"
+                    or .state == "CHANGES_REQUESTED"
+                    or .state == "DISMISSED"
+                  ))
+                | group_by(.user.login)
+                | map(max_by(.id))
+                | map(select(
+                    .state == "APPROVED"
+                    and .commit_id == $head
+                    and (.user.login as $login | $owners | index($login))
+                  ))
+                | map(.user.login)
+                | unique
+                | join(", ")
+              ' <<<"$reviews"
+          )"
+          if [[ -z "$approved" ]]; then
+            echo "A listed BMP CODEOWNER must approve the current head commit $HEAD_SHA." >&2
+            echo "Stale, dismissed, non-owner, and changes-requested reviews do not satisfy this gate." >&2
+            exit 1
+          fi
+          echo "Current CODEOWNER approvals: $approved"

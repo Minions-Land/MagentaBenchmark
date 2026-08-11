@@ -66,6 +66,22 @@ exactly-once and it does not replace persisted report verification. See
 [`docs/LAB_OPERATIONS.md`](docs/LAB_OPERATIONS.md) and
 [`lab/README.md`](lab/README.md).
 
+Experiment design is kept in one independently mergeable bundle per
+experiment. The bundle pins the BMP declaration digest and execution target
+without duplicating live status or changing BMP semantics:
+
+```bash
+uv run bmp-collab validate
+uv run bmp-collab next
+uv run bmp-collab modes
+uv run bmp-collab changes --base-ref origin/main
+```
+
+Use [`docs/EXPERIMENT_COLLABORATION.md`](docs/EXPERIMENT_COLLABORATION.md) for
+the bundle format, Docker/AppContainer/E2B adapter boundary, merge policy, and
+recovery workflow. `experiments/` is intentionally discovered dynamically;
+there is no hand-maintained global experiment board.
+
 ## Execution Chain
 
 An experiment flows through:
@@ -85,6 +101,9 @@ bytes.
   preflight, first-run procedure, artifact handling, and release gates.
 - [`docs/LAB_OPERATIONS.md`](docs/LAB_OPERATIONS.md): multi-agent ownership,
   leases, idempotent event records, checkpoints, and interruption recovery.
+- [`docs/EXPERIMENT_COLLABORATION.md`](docs/EXPERIMENT_COLLABORATION.md):
+  merge-friendly experiment bundles, execution targets, GitHub review, and
+  Agent entrypoints.
 - [`docs/EXPERIMENT_MATRIX.md`](docs/EXPERIMENT_MATRIX.md): the current
   runnable, exploratory, blocked, and deferred experiment inventory.
 - [`docs/EXPERIMENT_PLAN.md`](docs/EXPERIMENT_PLAN.md): the high-level staged

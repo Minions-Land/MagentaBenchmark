@@ -1,0 +1,57 @@
+name: Recovery handoff
+description: Hand off interrupted work through a verified lab checkpoint.
+title: "[recovery] "
+labels:
+  - documentation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        GitHub is a review pointer, not the recovery source of truth. Record the checkpoint through `bmp-lab`, verify it with `bmp-lab recover`, and never paste credential values here.
+  - type: input
+    id: lab-item
+    attributes:
+      label: Lab item ID
+      description: The immutable lab issue that owns the interrupted scope.
+      placeholder: magenta-single-case-pilot
+    validations:
+      required: true
+  - type: input
+    id: checkpoint
+    attributes:
+      label: Checkpoint event ID and revision
+      description: Identify the committed checkpoint event and the revision printed by bmp-lab.
+    validations:
+      required: true
+  - type: textarea
+    id: tree-state
+    attributes:
+      label: Git and worktree state
+      description: Record branch, commit, dirty paths, and a reviewed patch or content-addressed artifact reference when the tree was dirty.
+    validations:
+      required: true
+  - type: textarea
+    id: resume
+    attributes:
+      label: Resume plan
+      description: Record the structured argv, required environment variable names only, and the single next action. Do not include environment values or authenticated URLs.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Recovery artifacts
+      description: List durable locators, sizes, and SHA-256 digests. Scratch-only `.runs/` paths are insufficient.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Recovery checks
+      options:
+        - label: I ran `bmp-lab doctor` and `bmp-lab recover` and reviewed every reported mismatch.
+          required: true
+        - label: I removed credential values and secret-bearing URLs from this handoff and its referenced patch.
+          required: true
+        - label: The next operator must reacquire or confirm the lease before editing and use a fresh record root for a new execution.
+          required: true
