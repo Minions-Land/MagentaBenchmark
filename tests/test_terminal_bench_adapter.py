@@ -68,6 +68,22 @@ def _bind_harbor_executable(run, executable: Path):
     )
 
 
+def _bind_pinned_source_path(compiler: Compiler, source: Path) -> None:
+    """Relocate the external checkout while preserving its declared commit."""
+
+    original_lookup = compiler._lookup
+
+    def lookup(kind: str, entry_id: str):
+        spec, declaration_path = original_lookup(kind, entry_id)
+        if (kind, entry_id) == ("dataset", "dataset.terminal-bench-2.1"):
+            spec = spec.model_copy(
+                update={"source": str(source.resolve(strict=True))}
+            )
+        return spec, declaration_path
+
+    compiler._lookup = lookup
+
+
 def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(
     tmp_path: Path, terminal_bench_source: Path, bind_registry_source
 ) -> None:
@@ -96,19 +112,20 @@ def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(
 
 @pytest.mark.external_checkout
 def test_terminal_bench_loader_accepts_complete_release_case_set(
-    tmp_path: Path, terminal_bench_release_source: Path
+    tmp_path: Path,
+    terminal_bench_release_source: Path,
 ) -> None:
     """Replay the pinned 89-case release when its checkout is provisioned."""
 
     compiler = Compiler(ROOT)
-    dataset, declaration_path = compiler._lookup(
-        "dataset", "dataset.terminal-bench-2.1"
-    )
-    compiler._registry_cache[("dataset", "dataset.terminal-bench-2.1")] = (
-        dataset.model_copy(update={"source": str(terminal_bench_release_source)}),
-        declaration_path,
-    )
+    declared, _ = compiler._lookup("dataset", "dataset.terminal-bench-2.1")
+    _bind_pinned_source_path(compiler, terminal_bench_release_source)
     compiled = compiler.compile(REGEX_EXPERIMENT)[0]
+    assert (
+        Path(compiled.manifest.dataset.source)
+        == terminal_bench_release_source.resolve()
+    )
+    assert compiled.manifest.dataset.commit == declared.commit
     protocol = compiled.manifest.execution.protocol.model_copy(
         update={"case_order": "fixed", "explicit_case_ids": ()}
     )

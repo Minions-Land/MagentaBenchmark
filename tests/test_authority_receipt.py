@@ -15,6 +15,7 @@ from MagentaBench.runner.evidence import artifact_ref
 ROOT = Path(__file__).parents[1]
 RECEIPT = ROOT / "docs" / "authority" / "magenta-hcp-authority.json"
 BOUNDARY_LAW = ROOT / "docs" / "governance" / "bmp-boundary-law.md"
+AUDIT = ROOT / "scripts" / "audit_hcp_boundary.sh"
 
 
 def _tracked_path_map() -> dict[str, str]:
@@ -101,6 +102,21 @@ def _write_hermetic_receipt(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return receipt
+
+
+def test_tracked_audit_rules_ref_matches_repository_bytes() -> None:
+    """Keep the required CI gate bound to its tracked audit script bytes."""
+
+    payload = json.loads(RECEIPT.read_text(encoding="utf-8"))
+    recorded = payload["audit_rules_ref"]
+    recorded_path = Path(recorded["path"])
+    recorded_root = recorded_path.parents[1]
+    assert recorded_path.relative_to(recorded_root) == Path(
+        "scripts/audit_hcp_boundary.sh"
+    )
+    observed = artifact_ref(AUDIT)
+    assert recorded["sha256"] == observed.sha256
+    assert recorded["size_bytes"] == observed.size_bytes
 
 
 @pytest.mark.external_checkout
