@@ -131,8 +131,8 @@ def _bundle_table(report: ValidationReport) -> str:
 
 def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
     lines = [
-        "| Mode | Configured | Verifier boundary | Maximum label | Backends |",
-        "| --- | --- | --- | --- | --- |",
+        "| Mode | Configured | Verifier boundary | Maximum label | Work item | Backends |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
     for item in modes:
         backends = ", ".join(entry["backend_id"] for entry in item["backends"]) or "-"
@@ -144,6 +144,7 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
                     "yes" if item["configured"] else "no",
                     "closed" if item["standalone_verifier_boundary_closed"] else "open",
                     item["maximum_evidence_label"],
+                    item["lab_issue"] or "-",
                     backends,
                 )
             )

@@ -6,12 +6,12 @@
   "isolation_boundary": "task-container",
   "lab_issue": null,
   "mode": "docker",
+  "network_policy": "benchmark-defined",
   "network_observation_required": true,
   "registered_backend_ids": [
     "aose.docker.immutable",
     "harbor.0.20.0",
-    "harbor.0.20.0.terminal-bench",
-    "harbor.local-shim"
+    "harbor.0.20.0.terminal-bench"
   ],
   "required_identity_evidence": [
     "immutable image id or digest",
@@ -28,5 +28,6 @@
     "effective network policy and observation",
     "stdout stderr verifier and terminal attempt artifacts",
     "container removal observation after export"
-  ]
+  ],
+  "workspace_lifecycle": "persist-on-failure"
 }

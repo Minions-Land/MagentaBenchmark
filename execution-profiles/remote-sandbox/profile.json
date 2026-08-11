@@ -4,8 +4,9 @@
   "evidence_ceiling": "exploratory",
   "format": "magentabench-execution-profile-v1",
   "isolation_boundary": "microvm",
-  "lab_issue": "execution-target-contract",
+  "lab_issue": "remote-sandbox-backend-adapter",
   "mode": "remote-sandbox",
+  "network_policy": "allowlist",
   "network_observation_required": true,
   "registered_backend_ids": [],
   "required_identity_evidence": [
@@ -22,5 +23,6 @@
     "observed isolation and network boundary",
     "artifact export completion before destruction",
     "standalone-verifier activation receipt for the provider adapter"
-  ]
+  ],
+  "workspace_lifecycle": "persist-on-failure"
 }

@@ -11,6 +11,9 @@ Each mode owns one directory so unrelated adapters can evolve in parallel:
 execution-profiles/<mode>/profile.json
 ```
 
-Validate the JSON shape with `schema.json`, then satisfy every listed identity,
-runtime, recovery, and teardown receipt in the backend adapter. Live progress
-belongs to the linked `lab/` issue, not to these profiles.
+Each profile declares the workspace lifecycle and network policy plus every
+required identity, runtime, recovery, and teardown receipt. Run
+`uv run --frozen bmp-collab validate` and `uv run --frozen bmp-collab modes`;
+they validate `schema.json` and reject drift from backend registrations,
+verifier boundaries, or linked `lab/` work. Live progress belongs to the linked
+issue, not to these profiles.

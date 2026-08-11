@@ -6,6 +6,7 @@
   "isolation_boundary": "task-container",
   "lab_issue": "appcontainer-backend-adapter",
   "mode": "appcontainer",
+  "network_policy": "allowlist",
   "network_observation_required": true,
   "registered_backend_ids": [],
   "required_identity_evidence": [
@@ -23,5 +24,6 @@
     "effective network boundary activation",
     "artifact export receipt before teardown",
     "standalone-verifier support for the adapter boundary"
-  ]
+  ],
+  "workspace_lifecycle": "persist-on-failure"
 }

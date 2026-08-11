@@ -6,9 +6,11 @@
   "isolation_boundary": "process",
   "lab_issue": null,
   "mode": "local-process",
+  "network_policy": "benchmark-defined",
   "network_observation_required": true,
   "registered_backend_ids": [
     "fake.local",
+    "harbor.local-shim",
     "subprocess.echo"
   ],
   "required_identity_evidence": [
@@ -25,5 +27,6 @@
     "effective process network policy and observation",
     "stdout stderr and output content references",
     "usage values remain null when unobserved"
-  ]
+  ],
+  "workspace_lifecycle": "persist-on-failure"
 }

@@ -41,12 +41,21 @@
         "remote-sandbox"
       ]
     },
+    "network_policy": {
+      "enum": [
+        "disabled",
+        "benchmark-defined",
+        "allowlist"
+      ]
+    },
     "network_observation_required": {
       "const": true
     },
     "registered_backend_ids": {
       "items": {
+        "maxLength": 128,
         "minLength": 1,
+        "pattern": "^[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?$",
         "type": "string"
       },
       "type": "array",
@@ -54,7 +63,9 @@
     },
     "required_identity_evidence": {
       "items": {
+        "maxLength": 500,
         "minLength": 1,
+        "pattern": "^[^\\r\\n\\u0000]+$",
         "type": "string"
       },
       "minItems": 1,
@@ -63,7 +74,9 @@
     },
     "required_recovery_evidence": {
       "items": {
+        "maxLength": 500,
         "minLength": 1,
+        "pattern": "^[^\\r\\n\\u0000]+$",
         "type": "string"
       },
       "minItems": 1,
@@ -72,12 +85,20 @@
     },
     "required_runtime_evidence": {
       "items": {
+        "maxLength": 500,
         "minLength": 1,
+        "pattern": "^[^\\r\\n\\u0000]+$",
         "type": "string"
       },
       "minItems": 1,
       "type": "array",
       "uniqueItems": true
+    },
+    "workspace_lifecycle": {
+      "enum": [
+        "ephemeral",
+        "persist-on-failure"
+      ]
     }
   },
   "required": [
@@ -86,6 +107,8 @@
     "lab_issue",
     "registered_backend_ids",
     "isolation_boundary",
+    "workspace_lifecycle",
+    "network_policy",
     "credential_recording",
     "network_observation_required",
     "artifact_export_before_destroy",
@@ -93,6 +116,49 @@
     "required_runtime_evidence",
     "required_recovery_evidence",
     "evidence_ceiling"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "registered_backend_ids": {
+            "maxItems": 0
+          }
+        },
+        "required": [
+          "registered_backend_ids"
+        ]
+      },
+      "then": {
+        "properties": {
+          "evidence_ceiling": {
+            "const": "exploratory"
+          },
+          "lab_issue": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_ceiling": {
+            "const": "bmp-gated"
+          }
+        },
+        "required": [
+          "evidence_ceiling"
+        ]
+      },
+      "then": {
+        "properties": {
+          "registered_backend_ids": {
+            "minItems": 1
+          }
+        }
+      }
+    }
   ],
   "type": "object"
 }

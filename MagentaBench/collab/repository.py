@@ -11,6 +11,8 @@ from pathlib import Path, PurePosixPath
 import re
 from typing import Any, Iterable, Mapping
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError as JsonSchemaSchemaError
 from pydantic import ValidationError
 
 try:  # Python 3.11+
@@ -217,6 +219,11 @@ def _normalized_changed_path(value: str) -> str:
 def _path_class(path: str) -> str:
     if path.startswith("experiments/"):
         return "experiment-bundle"
+    if (
+        path.startswith("execution-profiles/")
+        or path == "docs/governance/EXECUTION_MODES.md"
+    ):
+        return "execution-target"
     if path.startswith("lab/issues/") or path in {"lab/README.md", "MagentaBench/lab/__init__.py"}:
         return "lab-ledger"
     if path.startswith("MagentaBench/lab/") or path == "tests/test_lab_operations.py":
@@ -426,9 +433,9 @@ class ExperimentRepository:
         return backends
 
     def execution_modes(self) -> tuple[dict[str, Any], ...]:
-        """Return the registered backend inventory plus explicit adapter gaps."""
+        """Return validated profiles joined to backends and lab work items."""
 
-        grouped: dict[ExecutionMode, list[dict[str, str]]] = {
+        grouped: dict[ExecutionMode, list[dict[str, Any]]] = {
             mode: [] for mode in ExecutionMode
         }
         for backend_id, (path, backend) in self._backends().items():
@@ -440,40 +447,191 @@ class ExperimentRepository:
                     "boundary": boundary,
                     "declaration": path.relative_to(self.root).as_posix(),
                     "kind": str(backend.get("kind")),
+                    "standalone_verifier_boundary_closed": (
+                        self._backend_verifier_boundary_closed(backend)
+                    ),
                 }
             )
-        return tuple(
-            {
-                "configured": bool(grouped[mode]),
-                "backends": sorted(grouped[mode], key=lambda item: item["backend_id"]),
-                "mode": mode.value,
-                "standalone_verifier_boundary_closed": self._verifier_boundary_closed(mode),
-                "maximum_evidence_label": (
-                    "claim-candidate"
-                    if grouped[mode] and self._verifier_boundary_closed(mode)
-                    else "exploratory"
-                ),
+        profiles = self._execution_profiles()
+        try:
+            lab_states = {
+                state.issue.issue_id: state for state in LabStore(self.root).list()
             }
-            for mode in ExecutionMode
+        except LabError as exc:
+            raise CollaborationError(f"cannot load execution-profile lab links: {exc}") from exc
+
+        results: list[dict[str, Any]] = []
+        for mode in ExecutionMode:
+            profile_path, profile = profiles[mode]
+            backends = sorted(grouped[mode], key=lambda item: item["backend_id"])
+            declared_ids = list(profile["registered_backend_ids"])
+            expected_ids = [item["backend_id"] for item in backends]
+            if declared_ids != sorted(declared_ids):
+                raise CollaborationError(
+                    f"execution profile {mode.value} backend ids must be sorted"
+                )
+            if declared_ids != expected_ids:
+                raise CollaborationError(
+                    f"execution profile {mode.value} backend ids drift: "
+                    f"expected {expected_ids}, observed {declared_ids}"
+                )
+            expected_boundary = {
+                ExecutionMode.local_process: "process",
+                ExecutionMode.docker: "task-container",
+                ExecutionMode.appcontainer: "task-container",
+                ExecutionMode.e2b: "microvm",
+                ExecutionMode.remote_sandbox: "microvm",
+            }[mode]
+            if profile["isolation_boundary"] != expected_boundary:
+                raise CollaborationError(
+                    f"execution profile {mode.value} isolation boundary drift: "
+                    f"expected {expected_boundary}, observed {profile['isolation_boundary']}"
+                )
+            if any(item["boundary"] != expected_boundary for item in backends):
+                raise CollaborationError(
+                    f"registered backend boundary differs from the {mode.value} profile"
+                )
+            boundary_closed = bool(backends) and all(
+                item["standalone_verifier_boundary_closed"] for item in backends
+            )
+            expected_ceiling = "bmp-gated" if boundary_closed else "exploratory"
+            if profile["evidence_ceiling"] != expected_ceiling:
+                raise CollaborationError(
+                    f"execution profile {mode.value} evidence ceiling drift: "
+                    f"expected {expected_ceiling}, observed {profile['evidence_ceiling']}"
+                )
+            lab_issue = profile["lab_issue"]
+            if not backends and lab_issue is None:
+                raise CollaborationError(
+                    f"unconfigured execution profile {mode.value} requires a lab_issue"
+                )
+            if lab_issue is not None and lab_issue not in lab_states:
+                raise CollaborationError(
+                    f"execution profile {mode.value} references missing lab issue {lab_issue!r}"
+                )
+            if (
+                not backends
+                and lab_issue is not None
+                and lab_states[lab_issue].status in {LabStatus.done, LabStatus.cancelled}
+            ):
+                raise CollaborationError(
+                    f"unconfigured execution profile {mode.value} links terminal lab issue "
+                    f"{lab_issue!r}"
+                )
+            results.append(
+                {
+                    "backends": backends,
+                    "configured": bool(backends),
+                    "declared_evidence_ceiling": profile["evidence_ceiling"],
+                    "isolation_boundary": profile["isolation_boundary"],
+                    "lab_issue": lab_issue,
+                    "lab_status": (
+                        None if lab_issue is None else lab_states[lab_issue].status.value
+                    ),
+                    "maximum_evidence_label": (
+                        "claim-candidate" if boundary_closed else "exploratory"
+                    ),
+                    "mode": mode.value,
+                    "network_policy": profile["network_policy"],
+                    "profile": profile_path.relative_to(self.root).as_posix(),
+                    "standalone_verifier_boundary_closed": boundary_closed,
+                    "workspace_lifecycle": profile["workspace_lifecycle"],
+                }
+            )
+        return tuple(results)
+
+    def _execution_profiles(
+        self,
+    ) -> dict[ExecutionMode, tuple[Path, Mapping[str, Any]]]:
+        root = self.root / "execution-profiles"
+        if root.is_symlink() or not root.is_dir():
+            raise CollaborationError("execution-profiles must be a regular directory")
+        schema_path = self._project_file(
+            "execution-profiles/schema.json", label="execution profile schema"
         )
+        schema = _json_without_duplicate_keys(schema_path.read_bytes(), path=schema_path)
+        if not isinstance(schema, dict):
+            raise CollaborationError("execution profile schema must be a JSON object")
+        try:
+            Draft202012Validator.check_schema(schema)
+        except JsonSchemaSchemaError as exc:
+            raise CollaborationError(f"invalid execution profile schema: {exc.message}") from exc
+        validator = Draft202012Validator(schema)
+
+        expected_names = {mode.value for mode in ExecutionMode}
+        for entry in root.iterdir():
+            if entry.name in {"README.md", "schema.json"}:
+                if entry.is_symlink() or not entry.is_file():
+                    raise CollaborationError(
+                        f"execution profile metadata is non-regular: {entry}"
+                    )
+                continue
+            if (
+                entry.is_symlink()
+                or not entry.is_dir()
+                or entry.name not in expected_names
+            ):
+                raise CollaborationError(f"unknown execution profile entry: {entry}")
+
+        profiles: dict[ExecutionMode, tuple[Path, Mapping[str, Any]]] = {}
+        for mode in ExecutionMode:
+            relative = f"execution-profiles/{mode.value}/profile.json"
+            path = self._project_file(relative, label=f"{mode.value} execution profile")
+            profile = _json_without_duplicate_keys(path.read_bytes(), path=path)
+            if not isinstance(profile, dict):
+                raise CollaborationError(
+                    f"execution profile must be a JSON object: {relative}"
+                )
+            _reject_secret_material(profile, path=relative)
+            failures = sorted(
+                validator.iter_errors(profile),
+                key=lambda item: tuple(str(part) for part in item.absolute_path),
+            )
+            if failures:
+                failure = failures[0]
+                location = (
+                    ".".join(str(part) for part in failure.absolute_path) or "<root>"
+                )
+                raise CollaborationError(
+                    f"invalid execution profile {relative} at {location}: {failure.message}"
+                )
+            if profile["mode"] != mode.value:
+                raise CollaborationError(
+                    f"execution profile mode {profile['mode']!r} must match "
+                    f"directory {mode.value!r}"
+                )
+            profiles[mode] = (path, profile)
+        return profiles
 
     @staticmethod
     def _verifier_boundary_closed(mode: ExecutionMode) -> bool:
         return mode in {ExecutionMode.local_process, ExecutionMode.docker}
 
     @staticmethod
+    def _backend_verifier_boundary_closed(backend: Mapping[str, Any]) -> bool:
+        return backend.get("adapter") in {
+            "fake",
+            "subprocess",
+            "harbor-shim",
+            "aose-docker",
+            "harbor",
+        }
+
+    @staticmethod
     def _backend_mode(backend: Mapping[str, Any]) -> tuple[ExecutionMode, str]:
         adapter = backend.get("adapter")
         defaults = backend.get("defaults")
         defaults = defaults if isinstance(defaults, dict) else {}
-        if adapter in {"aose-docker", "harbor"} or defaults.get("environment_type") == "docker":
-            return ExecutionMode.docker, "task-container"
         if adapter in {"fake", "subprocess", "harbor-shim"}:
             return ExecutionMode.local_process, "process"
+        if adapter in {"aose-docker", "harbor"}:
+            return ExecutionMode.docker, "task-container"
         if adapter == "appcontainer":
             return ExecutionMode.appcontainer, "task-container"
         if adapter == "e2b":
             return ExecutionMode.e2b, "microvm"
+        if defaults.get("environment_type") == "docker":
+            return ExecutionMode.docker, "task-container"
         return ExecutionMode.remote_sandbox, "microvm"
 
     @staticmethod
@@ -559,7 +717,7 @@ class ExperimentRepository:
             )
         if (
             bundle.purpose == BundlePurpose.claim
-            and not self._verifier_boundary_closed(expected_mode)
+            and not self._backend_verifier_boundary_closed(backend)
         ):
             raise CollaborationError(
                 "claim bundles require a closed standalone-verifier boundary; "
@@ -653,6 +811,10 @@ class ExperimentRepository:
             backends = self._backends()
         except CollaborationError as exc:
             return ValidationReport(errors=(Finding("backend-registry", str(exc)),))
+        try:
+            self.execution_modes()
+        except CollaborationError as exc:
+            errors.append(Finding("execution-profiles", str(exc), "execution-profiles"))
         try:
             lab = LabStore(self.root)
             doctor = lab.doctor(at=evaluated_at)

@@ -6,6 +6,7 @@
   "isolation_boundary": "microvm",
   "lab_issue": "e2b-backend-adapter",
   "mode": "e2b",
+  "network_policy": "allowlist",
   "network_observation_required": true,
   "registered_backend_ids": [],
   "required_identity_evidence": [
@@ -23,5 +24,6 @@
     "command exit usage and provider activation receipts",
     "durable artifact export manifest before sandbox destruction",
     "standalone-verifier support for the microvm boundary"
-  ]
+  ],
+  "workspace_lifecycle": "persist-on-failure"
 }
