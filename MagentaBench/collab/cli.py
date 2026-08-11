@@ -139,7 +139,12 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for item in modes:
-        backends = ", ".join(entry["backend_id"] for entry in item["backends"]) or "-"
+        backends = ", ".join(
+            entry["backend_id"]
+            if entry["configured"]
+            else f"{entry['backend_id']} (registered-only)"
+            for entry in item["backends"]
+        ) or "-"
         lines.append(
             "| "
             + " | ".join(

@@ -22,6 +22,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 
 from MagentaBench.lab import LabIssueState, LabStatus, LabStore
 from MagentaBench.lab.store import LabError, utc_now
+from MagentaBench.schemas.compiler import load_backend_spec
+from MagentaBench.schemas.models import AdapterCapability
 
 from .models import (
     BUNDLE_FORMAT,
@@ -462,15 +464,59 @@ class ExperimentRepository:
         for path in sorted(root.rglob("*.toml")):
             if path.is_symlink() or not path.is_file():
                 raise CollaborationError(f"backend declaration is non-regular: {path}")
-            document = _toml(path)
-            backend = document.get("backend")
-            backend_id = backend.get("id") if isinstance(backend, dict) else None
-            if not isinstance(backend_id, str):
-                raise CollaborationError(f"backend declaration has no string id: {path}")
+            try:
+                backend_spec = load_backend_spec(path)
+            except (OSError, ValueError, ValidationError) as exc:
+                raise CollaborationError(
+                    f"invalid backend declaration {path}: {exc}"
+                ) from exc
+            backend = backend_spec.model_dump(mode="python")
+            backend_id = backend_spec.id
             if backend_id in backends:
                 raise CollaborationError(f"duplicate backend id: {backend_id}")
             backends[backend_id] = (path, backend)
         return backends
+
+    def _backend_factory_adapters(self) -> frozenset[str]:
+        """Return backend adapters with a declared, usable factory policy."""
+
+        builtins = {"fake", "subprocess"}
+        root = self.root / "registries/adapters"
+        if root.is_symlink() or not root.is_dir():
+            raise CollaborationError("registries/adapters must be a regular directory")
+        factories = set(builtins)
+        seen: set[str] = set()
+        for path in sorted(root.rglob("*.toml")):
+            if path.is_symlink() or not path.is_file():
+                raise CollaborationError(f"adapter declaration is non-regular: {path}")
+            document = _toml(path)
+            raw = document.get("adapter")
+            if not isinstance(raw, dict):
+                raise CollaborationError(f"adapter declaration has no [adapter] table: {path}")
+            try:
+                capability = AdapterCapability.model_validate(raw)
+            except ValidationError as exc:
+                raise CollaborationError(
+                    f"invalid adapter declaration {path}: {exc}"
+                ) from exc
+            if capability.adapter_kind != "backend_factory":
+                continue
+            if capability.adapter in seen:
+                raise CollaborationError(
+                    f"duplicate backend_factory capability for adapter {capability.adapter!r}"
+                )
+            seen.add(capability.adapter)
+            if capability.backend_default_read_set is None:
+                raise CollaborationError(
+                    f"backend_factory capability {capability.id!r} lacks a default read-set"
+                )
+            if capability.adapter not in capability.supported_backend_adapters:
+                raise CollaborationError(
+                    f"backend_factory capability {capability.id!r} does not support "
+                    f"its adapter {capability.adapter!r}"
+                )
+            factories.add(capability.adapter)
+        return frozenset(factories)
 
     def execution_modes(self) -> tuple[dict[str, Any], ...]:
         """Return validated profiles joined to backends and lab work items."""
@@ -478,6 +524,7 @@ class ExperimentRepository:
         grouped: dict[ExecutionMode, list[dict[str, Any]]] = {
             mode: [] for mode in ExecutionMode
         }
+        factory_adapters = self._backend_factory_adapters()
         for backend_id, (path, backend) in self._backends().items():
             mode, boundary = self._backend_mode(backend)
             grouped[mode].append(
@@ -487,6 +534,7 @@ class ExperimentRepository:
                     "boundary": boundary,
                     "declaration": path.relative_to(self.root).as_posix(),
                     "kind": str(backend.get("kind")),
+                    "configured": str(backend.get("adapter")) in factory_adapters,
                     "standalone_verifier_boundary_closed": (
                         self._backend_verifier_boundary_closed(backend)
                     ),
@@ -532,8 +580,10 @@ class ExperimentRepository:
                 raise CollaborationError(
                     f"registered backend boundary differs from the {mode.value} profile"
                 )
-            boundary_closed = bool(backends) and all(
-                item["standalone_verifier_boundary_closed"] for item in backends
+            configured_backends = [item for item in backends if item["configured"]]
+            boundary_closed = bool(configured_backends) and all(
+                item["standalone_verifier_boundary_closed"]
+                for item in configured_backends
             )
             expected_ceiling = "bmp-gated" if boundary_closed else "exploratory"
             if profile["evidence_ceiling"] != expected_ceiling:
@@ -573,7 +623,7 @@ class ExperimentRepository:
             results.append(
                 {
                     "backends": backends,
-                    "configured": bool(backends),
+                    "configured": bool(configured_backends),
                     "declared_evidence_ceiling": profile["evidence_ceiling"],
                     "isolation_boundary": profile["isolation_boundary"],
                     "lab_issue": lab_issue,
@@ -759,6 +809,10 @@ class ExperimentRepository:
         _, backend = backends[bundle.execution.backend_id]
         expected_mode, expected_boundary = self._backend_mode(backend)
         _, mode_profile = self._execution_profiles()[expected_mode]
+        if backend.get("adapter") not in self._backend_factory_adapters():
+            raise CollaborationError(
+                f"backend adapter {backend.get('adapter')!r} lacks a validated backend_factory capability"
+            )
         if bundle.execution.mode != expected_mode:
             raise CollaborationError(
                 f"bundle execution mode {bundle.execution.mode.value!r} differs from "
@@ -1020,6 +1074,27 @@ class ExperimentRepository:
             raise CollaborationError(f"unknown backend: {backend_id}")
         _, backend = backends[backend_id]
         execution_mode, isolation_boundary = self._backend_mode(backend)
+        workspace_lifecycle = "persist-on-failure"
+        network_policy = "benchmark-defined"
+        if (self.root / "execution-profiles").is_dir():
+            mode_inventory = {
+                item["mode"]: item for item in self.execution_modes()
+            }
+            selected_mode = mode_inventory[execution_mode.value]
+            selected_backend = next(
+                (
+                    item
+                    for item in selected_mode["backends"]
+                    if item["backend_id"] == backend_id
+                ),
+                None,
+            )
+            if selected_backend is None or not selected_backend["configured"]:
+                raise CollaborationError(
+                    f"backend {backend_id!r} is registered but has no usable backend_factory"
+                )
+            workspace_lifecycle = selected_mode["workspace_lifecycle"]
+            network_policy = selected_mode["network_policy"]
         selected_metrics = primary_metrics or (str(metrics[0]),)
         bundle = ExperimentBundle(
             format=BUNDLE_FORMAT,
@@ -1044,8 +1119,8 @@ class ExperimentRepository:
                 mode=execution_mode,
                 backend_id=backend_id,
                 isolation_boundary=isolation_boundary,
-                workspace_lifecycle="persist-on-failure",
-                network_policy="benchmark-defined",
+                workspace_lifecycle=workspace_lifecycle,
+                network_policy=network_policy,
                 artifact_export_required=True,
                 preflight_argv=("bash", "scripts/preflight_experiment.sh", normalized_spec),
                 run_argv=(
