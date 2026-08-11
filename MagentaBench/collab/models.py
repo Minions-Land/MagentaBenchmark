@@ -34,10 +34,17 @@ class BundleModel(BaseModel):
 def portable_path(value: str, *, label: str) -> str:
     if not value or "\\" in value or "\x00" in value or "\n" in value or "\r" in value:
         raise ValueError(f"{label} must be a non-empty, single-line POSIX path")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    parts = value.split("/")
+    if (
+        value.startswith("/")
+        or value.endswith("/")
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
         raise ValueError(f"{label} must be a normalized repository-relative path")
-    return path.as_posix()
+    path = PurePosixPath(value)
+    if path.is_absolute():
+        raise ValueError(f"{label} must be a normalized repository-relative path")
+    return value
 
 
 def _unique(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:
@@ -55,8 +62,19 @@ def _single_line(value: str, *, label: str) -> str:
 def _safe_argv(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:
     if not values or any(not value or "\x00" in value or "\n" in value or "\r" in value for value in values):
         raise ValueError(f"{label} must contain non-empty, single-line arguments")
-    if values[0] in {"bash", "sh", "python", "python3"} and "-c" in values[1:]:
-        raise ValueError(f"{label} must not embed an opaque shell or Python program")
+    interpreters = {"bash", "sh", "dash", "zsh", "python", "python3"}
+
+    def is_code_flag(value: str) -> bool:
+        return value == "-c" or (
+            value.startswith("-")
+            and not value.startswith("--")
+            and "c" in value[1:]
+        )
+
+    for index, value in enumerate(values[:-1]):
+        executable = PurePosixPath(value).name.casefold()
+        if executable in interpreters and any(is_code_flag(argument) for argument in values[index + 1 :]):
+            raise ValueError(f"{label} must not embed an opaque shell or Python program")
     credential_option = re.compile(
         r"(?i)(?:^|[-_])(?:api[-_]?key|access[-_]?token|auth[-_]?token|"
         r"bearer[-_]?token|token|password|secret|credential)s?$"
@@ -80,7 +98,7 @@ def _safe_argv(values: tuple[str, ...], *, label: str) -> tuple[str, ...]:
                 raise ValueError(f"{label} URI arguments must not contain userinfo")
             for key, _ in parse_qsl(parsed.query, keep_blank_values=True):
                 normalized = key.casefold().replace("-", "_")
-                if any(
+                if normalized in {"apikey", "api_key"} or any(
                     part in {"credential", "key", "password", "secret", "sig", "signature", "token"}
                     for part in normalized.split("_")
                 ):

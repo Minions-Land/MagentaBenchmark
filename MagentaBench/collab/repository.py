@@ -208,12 +208,10 @@ def _bundle_model_input(raw: Any) -> Any:
 
 
 def _normalized_changed_path(value: str) -> str:
-    if not value or "\\" in value or "\x00" in value or "\n" in value or "\r" in value:
-        raise CollaborationError(f"changed path is not a normalized POSIX path: {value!r}")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise CollaborationError(f"changed path is not repository-relative: {value!r}")
-    return path.as_posix()
+    try:
+        return portable_path(value, label="changed path")
+    except ValueError as exc:
+        raise CollaborationError(str(exc)) from exc
 
 
 def _path_class(path: str) -> str:
@@ -444,27 +442,24 @@ class ExperimentRepository:
                     "kind": str(backend.get("kind")),
                 }
             )
-        verifier_closed = {
-            ExecutionMode.local_process: True,
-            ExecutionMode.docker: True,
-            ExecutionMode.appcontainer: False,
-            ExecutionMode.e2b: False,
-            ExecutionMode.remote_sandbox: False,
-        }
         return tuple(
             {
                 "configured": bool(grouped[mode]),
                 "backends": sorted(grouped[mode], key=lambda item: item["backend_id"]),
                 "mode": mode.value,
-                "standalone_verifier_boundary_closed": verifier_closed[mode],
+                "standalone_verifier_boundary_closed": self._verifier_boundary_closed(mode),
                 "maximum_evidence_label": (
                     "claim-candidate"
-                    if grouped[mode] and verifier_closed[mode]
+                    if grouped[mode] and self._verifier_boundary_closed(mode)
                     else "exploratory"
                 ),
             }
             for mode in ExecutionMode
         )
+
+    @staticmethod
+    def _verifier_boundary_closed(mode: ExecutionMode) -> bool:
+        return mode in {ExecutionMode.local_process, ExecutionMode.docker}
 
     @staticmethod
     def _backend_mode(backend: Mapping[str, Any]) -> tuple[ExecutionMode, str]:
@@ -561,6 +556,14 @@ class ExperimentRepository:
         if bundle.execution.isolation_boundary != expected_boundary:
             raise CollaborationError(
                 "bundle isolation_boundary differs from the registered backend class"
+            )
+        if (
+            bundle.purpose == BundlePurpose.claim
+            and not self._verifier_boundary_closed(expected_mode)
+        ):
+            raise CollaborationError(
+                "claim bundles require a closed standalone-verifier boundary; "
+                f"{expected_mode.value} remains exploratory"
             )
         repetitions = protocol.get("rollouts_per_case")
         if repetitions != bundle.design.repetitions_per_case:

@@ -12,7 +12,7 @@ from MagentaBench.collab import (
     ExperimentRepository,
     classify_changed_paths,
 )
-from MagentaBench.collab.models import BundleEvidence
+from MagentaBench.collab.models import BundleEvidence, ExecutionMode, portable_path
 
 
 ROOT = Path(__file__).parents[1]
@@ -34,27 +34,61 @@ def test_execution_modes_keep_unregistered_cloud_targets_exploratory() -> None:
     assert modes["docker"]["standalone_verifier_boundary_closed"] is True
     assert modes["appcontainer"]["configured"] is False
     assert modes["e2b"]["maximum_evidence_label"] == "exploratory"
+    assert not ExperimentRepository._verifier_boundary_closed(ExecutionMode.e2b)
 
 
 def test_bundle_commands_reject_secret_options_and_opaque_shells() -> None:
-    with pytest.raises(ValidationError):
-        BundleExecution(
-            mode="docker",
-            backend_id="harbor.test",
-            isolation_boundary="task-container",
-            workspace_lifecycle="persist-on-failure",
-            network_policy="benchmark-defined",
-            preflight_argv=("bash", "-c", "echo unsafe"),
-            run_argv=("uv", "run", "bmp-run", "spec.toml", "--record-root", "{record_root}"),
-            record_root_template="{artifact_root}/demo/{run_id}",
-        )
-    with pytest.raises(ValidationError):
+    for argv in (
+        ("bash", "-c", "echo unsafe"),
+        ("/bin/bash", "-ec", "echo unsafe"),
+        ("uv", "run", "python", "-c", "print('unsafe')"),
+    ):
+        with pytest.raises(ValidationError, match="opaque shell or Python"):
+            BundleExecution(
+                mode=ExecutionMode.docker,
+                backend_id="harbor.test",
+                isolation_boundary="task-container",
+                workspace_lifecycle="persist-on-failure",
+                network_policy="benchmark-defined",
+                preflight_argv=argv,
+                run_argv=(
+                    "uv",
+                    "run",
+                    "bmp-run",
+                    "spec.toml",
+                    "--record-root",
+                    "{record_root}",
+                ),
+                record_root_template="{artifact_root}/demo/{run_id}",
+            )
+    with pytest.raises(ValidationError, match="credential-bearing"):
         BundleEvidence(
             classification="exploratory",
             required_files=("record_index.json",),
             verifier_argv=("uv", "run", "bmp-verify-report", "--api-key=secret", "{report}"),
             retention_policy="retain bytes",
         )
+    with pytest.raises(ValidationError, match="credential fields"):
+        BundleEvidence(
+            classification="exploratory",
+            required_files=("record_index.json",),
+            verifier_argv=(
+                "uv",
+                "run",
+                "bmp-verify-report",
+                "https://example.test/report?apikey=secret",
+                "{report}",
+            ),
+            retention_policy="retain bytes",
+        )
+
+
+@pytest.mark.parametrize("value", ("./a", "a//b", "a/./b", "a/../b", "a/"))
+def test_collaboration_paths_reject_noncanonical_spellings(value: str) -> None:
+    with pytest.raises(ValueError, match="normalized"):
+        portable_path(value, label="test path")
+    with pytest.raises(ValueError, match="normalized"):
+        classify_changed_paths((value,))
 
 
 def test_change_scope_requires_explicit_protocol_review_and_registry_lock() -> None:
