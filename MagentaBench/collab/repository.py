@@ -461,6 +461,7 @@ class ExperimentRepository:
             raise CollaborationError(f"cannot load execution-profile lab links: {exc}") from exc
 
         results: list[dict[str, Any]] = []
+        linked_issues: set[str] = set()
         for mode in ExecutionMode:
             profile_path, profile = profiles[mode]
             backends = sorted(grouped[mode], key=lambda item: item["backend_id"])
@@ -501,21 +502,32 @@ class ExperimentRepository:
                     f"expected {expected_ceiling}, observed {profile['evidence_ceiling']}"
                 )
             lab_issue = profile["lab_issue"]
-            if not backends and lab_issue is None:
+            if not boundary_closed and lab_issue is None:
                 raise CollaborationError(
-                    f"unconfigured execution profile {mode.value} requires a lab_issue"
+                    f"open-boundary execution profile {mode.value} requires a lab_issue"
                 )
             if lab_issue is not None and lab_issue not in lab_states:
                 raise CollaborationError(
                     f"execution profile {mode.value} references missing lab issue {lab_issue!r}"
                 )
+            if lab_issue is not None and lab_issue in linked_issues:
+                raise CollaborationError(
+                    f"execution profile lab issue {lab_issue!r} is linked by multiple modes"
+                )
+            if lab_issue is not None:
+                linked_issues.add(lab_issue)
+                if "execution" not in lab_states[lab_issue].issue.labels:
+                    raise CollaborationError(
+                        f"execution profile {mode.value} lab issue {lab_issue!r} "
+                        "lacks the execution label"
+                    )
             if (
-                not backends
+                not boundary_closed
                 and lab_issue is not None
                 and lab_states[lab_issue].status in {LabStatus.done, LabStatus.cancelled}
             ):
                 raise CollaborationError(
-                    f"unconfigured execution profile {mode.value} links terminal lab issue "
+                    f"open-boundary execution profile {mode.value} links terminal lab issue "
                     f"{lab_issue!r}"
                 )
             results.append(
@@ -706,6 +718,7 @@ class ExperimentRepository:
             raise CollaborationError(f"bundle references unknown backend: {bundle.execution.backend_id}")
         _, backend = backends[bundle.execution.backend_id]
         expected_mode, expected_boundary = self._backend_mode(backend)
+        _, mode_profile = self._execution_profiles()[expected_mode]
         if bundle.execution.mode != expected_mode:
             raise CollaborationError(
                 f"bundle execution mode {bundle.execution.mode.value!r} differs from "
@@ -714,6 +727,14 @@ class ExperimentRepository:
         if bundle.execution.isolation_boundary != expected_boundary:
             raise CollaborationError(
                 "bundle isolation_boundary differs from the registered backend class"
+            )
+        if bundle.execution.workspace_lifecycle != mode_profile["workspace_lifecycle"]:
+            raise CollaborationError(
+                "bundle workspace_lifecycle differs from the selected execution profile"
+            )
+        if bundle.execution.network_policy != mode_profile["network_policy"]:
+            raise CollaborationError(
+                "bundle network_policy differs from the selected execution profile"
             )
         if (
             bundle.purpose == BundlePurpose.claim

@@ -9,6 +9,8 @@ import pytest
 
 from MagentaBench.collab import CollaborationError, ExperimentRepository
 from MagentaBench.collab.repository import classify_changed_paths
+from MagentaBench.lab import LabStore
+from MagentaBench.lab.store import utc_now
 
 
 ROOT = Path(__file__).parents[1]
@@ -50,6 +52,18 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
         ),
         ("e2b", "isolation_boundary", "process", "isolation boundary drift"),
         ("e2b", "lab_issue", "missing-adapter-work", "missing lab issue"),
+        (
+            "e2b",
+            "lab_issue",
+            "appcontainer-backend-adapter",
+            "linked by multiple modes",
+        ),
+        (
+            "e2b",
+            "lab_issue",
+            "magenta-single-case-pilot",
+            "lacks the execution label",
+        ),
     ),
 )
 def test_execution_modes_reject_cross_repository_profile_drift(
@@ -68,6 +82,29 @@ def test_execution_modes_reject_cross_repository_profile_drift(
     )
 
     with pytest.raises(CollaborationError, match=message):
+        repository.execution_modes()
+
+
+def test_open_verifier_boundary_requires_a_live_adapter_work_item(
+    tmp_path: Path,
+) -> None:
+    repository = _profile_repository(tmp_path)
+    (tmp_path / "registries/backends/e2b-test.toml").write_text(
+        "[backend]\n"
+        'id = "e2b.test"\n'
+        'kind = "remote"\n'
+        'adapter = "e2b"\n',
+        encoding="utf-8",
+    )
+    path = tmp_path / "execution-profiles/e2b/profile.json"
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    profile["registered_backend_ids"] = ["e2b.test"]
+    profile["lab_issue"] = None
+    path.write_text(
+        json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(CollaborationError, match="requires a lab_issue"):
         repository.execution_modes()
 
 
@@ -92,6 +129,39 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
         required_identity_evidence=("template identity\ncredential text",),
     )
     assert list(validator.iter_errors(unsafe_evidence))
+
+    trailing_newline = dict(profile, lab_issue="e2b-backend-adapter\n")
+    assert list(validator.iter_errors(trailing_newline))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("network_policy", "disabled"),
+        ("workspace_lifecycle", "ephemeral"),
+    ),
+)
+def test_bundle_placement_must_match_its_execution_profile(
+    field: str, value: str
+) -> None:
+    repository = ExperimentRepository(ROOT)
+    path = ROOT / "experiments/terminal-bench-magenta-smoke/bundle.json"
+    bundle = repository.load_bundle(path)
+    mutated_execution = bundle.execution.model_copy(update={field: value})
+    mutated = bundle.model_copy(update={"execution": mutated_execution})
+    lab = LabStore(ROOT)
+    states = {state.issue.issue_id: state for state in lab.list()}
+
+    with pytest.raises(CollaborationError, match=field):
+        repository._validate_bundle(
+            path,
+            mutated,
+            protocols=repository._protocols(),
+            backends=repository._backends(),
+            lab=lab,
+            states=states,
+            at=utc_now(),
+        )
 
 
 def test_execution_profile_changes_have_an_explicit_non_protocol_class() -> None:
