@@ -13,11 +13,11 @@ target requirements live in `execution-profiles/<mode>/profile.json`.
 
 | Mode | Registry state | Isolation | Current ceiling | Work item |
 | --- | --- | --- | --- | --- |
-| `local-process` | fake/subprocess registered | process | BMP-gated | none |
-| `docker` | AOSE Docker and Harbor registered | task container | BMP-gated | benchmark-specific blockers remain in `lab/` |
+| `local-process` | fake/subprocess configured; Harbor shim registered-only | process | BMP-gated for configured backends | none |
+| `docker` | Harbor configured; AOSE Docker registered-only until its factory capability is present | task container | BMP-gated for configured backends | benchmark-specific blockers remain in `lab/` |
 | `appcontainer` | no concrete runtime or adapter | task container | exploratory | `appcontainer-backend-adapter` |
 | `e2b` | no adapter | microVM | exploratory | `e2b-backend-adapter` |
-| `remote-sandbox` | extension slot only | microVM | exploratory | `execution-target-contract` |
+| `remote-sandbox` | extension slot only | microVM | exploratory | `remote-sandbox-backend-adapter` |
 
 `BMP-gated` does not mean claim-ready. It means the mode has a closed mapping
 in the current standalone verifier and may proceed through all normal gates.
