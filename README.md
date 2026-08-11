@@ -45,6 +45,27 @@ the retained probes, and authority receipt to verify independently. The exact
 commands and the recovery procedure are in
 [`docs/EXPERIMENT_RUNBOOK.md`](docs/EXPERIMENT_RUNBOOK.md).
 
+## Multi-Agent Collaboration
+
+Active ownership, blockers, leases, checkpoints, and linked runs live in the
+immutable `lab/` ledger. Check it before editing shared scope or launching an
+experiment:
+
+```bash
+uv run bmp-lab doctor
+uv run bmp-lab status
+uv run bmp-lab show <issue-id>
+uv run bmp-lab recover <issue-id>
+```
+
+Claim the issue's declared write scope, publish the lease to the team's
+canonical Git ref, renew it before expiry, and checkpoint before interruptible
+work. Release the lease before criterion-complete review and `done`. The ledger
+coordinates work; it does not make benchmark execution or provider calls
+exactly-once and it does not replace persisted report verification. See
+[`docs/LAB_OPERATIONS.md`](docs/LAB_OPERATIONS.md) and
+[`lab/README.md`](lab/README.md).
+
 ## Execution Chain
 
 An experiment flows through:
@@ -62,6 +83,8 @@ bytes.
 
 - [`docs/EXPERIMENT_RUNBOOK.md`](docs/EXPERIMENT_RUNBOOK.md): recovery,
   preflight, first-run procedure, artifact handling, and release gates.
+- [`docs/LAB_OPERATIONS.md`](docs/LAB_OPERATIONS.md): multi-agent ownership,
+  leases, idempotent event records, checkpoints, and interruption recovery.
 - [`docs/EXPERIMENT_MATRIX.md`](docs/EXPERIMENT_MATRIX.md): the current
   runnable, exploratory, blocked, and deferred experiment inventory.
 - [`docs/EXPERIMENT_PLAN.md`](docs/EXPERIMENT_PLAN.md): the high-level staged

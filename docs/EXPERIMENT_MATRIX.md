@@ -1,9 +1,21 @@
 # Experiment Matrix
 
-This matrix is the current planning source for MagentaBench. "Runnable" means
-the checked-in protocol can execute with its declared subject and backend; it
-does not mean that the result is a real-model score. "Exploratory" means the
-artifact may be retained and independently verified but cannot support a claim.
+This matrix is the stable experiment inventory, readiness definition, and phase
+plan for MagentaBench. It is not the live multi-agent progress board. Use the
+following source boundaries:
+
+| State | Source of truth |
+| --- | --- |
+| Active owner, status, blocker, dependency, lease, checkpoint, and run linkage | `lab/`, reduced by `bmp-lab status` |
+| Stable experiment inventory, readiness conditions, and staged plan | This matrix and immutable experiment definitions |
+| Result, claim, and evidence status | Persisted report, record index, referenced bytes, standalone verifier, and `EVIDENCE.md` |
+
+Record real-time changes as immutable lab events instead of asking multiple
+contributors to edit this file. Update the matrix only when the stable
+inventory, readiness contract, or phase plan changes. "Runnable" means the
+checked-in protocol can execute with its declared subject and backend; it does
+not mean that the result is a real-model score. "Exploratory" means the artifact
+may be retained and independently verified but cannot support a claim.
 "Blocked" means the missing dependency or capability must be resolved first.
 
 ## Current Inventory
@@ -53,8 +65,8 @@ editing the final report.
 
 ## Planned First Wave
 
-1. **Checkpoint:** preserve the interrupted worktree and decide the dependency
-   source policy for uv.lock.
+1. **Checkpoint:** preserve the interrupted worktree, record a resumable lab
+   checkpoint, and decide the dependency source policy for uv.lock.
 2. **Infrastructure:** restore the exact Terminal-Bench images and make the
    verifier's in-container uvx dependency deterministic.
 3. **Activation:** register one real subject and one execution capability. Start
@@ -69,8 +81,11 @@ editing the final report.
    gates may be published.
 
 The pilot subject, provider, model, repetitions, budget, and case ID are still
-deliberate decisions for the experiment owner. The matrix must be updated with
-those exact values before compilation; do not infer them from historical prose.
+deliberate decisions for the experiment owner. Bind those exact values in the
+preregistration and immutable experiment definition before compilation. Update
+this matrix when that stable plan changes; record owner, blockers, checkpoints,
+and run/report paths through lab events instead of historical prose or live
+matrix edits.
 
 ## Deferred Research Regimes
 
@@ -91,3 +106,6 @@ Use exactly one label in the run index:
 - claim: all gates and independent verification are positive.
 
 The current matrix contains no valid claim row.
+
+These labels describe evidence, not collaboration workflow. A lab issue marked
+`done` does not change an artifact label and cannot create a claim row.

@@ -20,6 +20,7 @@ bmp-verify-authority = "MagentaBench.schemas.verification:authority_main"
 bmp-compile = "MagentaBench.runner.cli:compile_main"
 bmp-run = "MagentaBench.runner.cli:run_main"
 bmp-config = "MagentaBench.runner.configuration_cli:main"
+bmp-lab = "MagentaBench.lab.cli:main"
 
 [project.optional-dependencies]
 test = [

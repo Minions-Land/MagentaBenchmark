@@ -19,6 +19,8 @@ and claim publication. A failed gate stops promotion to the next stage.
    score, comparison, leaderboard value, or model claim.
 6. "claim" is an output state, not an intention. It is permitted only after
    every primitive gate and standalone verifier pass from persisted bytes.
+7. Use the `lab/` ledger for active ownership, blockers, write scopes, run
+   linkage, and recovery checkpoints. Its `done` state is not benchmark proof.
 
 ## 2. Recovery After Interruption
 
@@ -52,6 +54,8 @@ storage.
 The checkpoint is usable only when all of these have a recorded return code:
 
 ~~~bash
+uv run bmp-lab doctor
+uv run bmp-lab status --format json
 git status --porcelain=v2 --branch
 git diff --check
 uv sync --frozen --extra test
@@ -59,6 +63,19 @@ uv run --extra test pytest -q
 PYTHONDONTWRITEBYTECODE=1 uv run python -m compileall -q MagentaBench plugins tests
 bash scripts/audit_hcp_boundary.sh
 ~~~
+
+If `bmp-lab doctor` returns nonzero, stop new shared or expensive experiments
+until the ledger is reconciled. Review warnings as well, especially an expired
+or otherwise missing live lease on active work, a dirty checkpoint, an artifact
+that points only into scratch `.runs/`, or an external locator whose bytes
+cannot be verified locally. A finished report available only through an
+external locator is an error, not a verified run. `bmp-lab status` is the
+collaboration board; it is neither an experiment claim gate nor evidence that a
+reported run occurred.
+`scripts/preflight_experiment.sh` also matches the experiment path against lab
+issues. A matching `open`, `planned`, or `blocked` issue, or active work without
+a live lease, stops preflight before execution. Resolve and review the recorded
+conditions; do not bypass the gate by deleting or editing ledger records.
 
 Verify generated JSON schemas in a temporary directory and compare them to
 "MagentaBench/schemas/json". Verify the 104-entry registry lock from the
@@ -219,6 +236,37 @@ At the end of each stage, write one of these explicit decisions:
 - "blocked": an external dependency or missing adapter prevents execution;
 - "failed": the experiment executed and produced a classified failure.
 
-The experiment matrix is the source of truth for which decision is currently
-allowed. Update it with the exact record/report path and verification command;
-do not replace a blocked or exploratory row with a score narrative.
+The experiment matrix defines the stable inventory and readiness conditions.
+Record the live owner, blocker, checkpoint, stage decision, and record/report
+link as immutable lab events; do not turn the matrix into a hand-maintained
+multi-writer status board. A promotion is valid only when the linked persisted
+report, record index, referenced evidence, and standalone verifier support it.
+Do not replace a blocked or exploratory entry with a score narrative.
+
+## 9. Idempotency and Recovery Boundary
+
+`bmp-lab` provides replayable collaboration state, idempotently retryable event
+requests, and serialization for cooperating processes that share one local
+ledger. It does not make Pipeline execution, model/provider calls, external
+side effects, or billing exactly-once. Its local lease is not a cross-machine
+distributed lock; see `docs/LAB_OPERATIONS.md` for the required canonical Git
+workflow.
+
+The current Pipeline also has these recovery limits:
+
+- the record root has no cross-process exclusive lock, and its non-empty check
+  has a time-of-check/time-of-use window;
+- `events.jsonl` is an unlocked read-modify-write operation, while Pipeline
+  `atomic_write_bytes` uses a fixed `<name>.tmp` path;
+- no attempt-level write-ahead lifecycle ledger surrounds provider launch;
+- checkpoint recovery supports only a limited completed parent-run prefix, and
+  multi-case checkpoint identity fails closed;
+- checked-in Terminal-Bench, SWE-bench, and first-wave protocols currently use
+  `checkpoint_policy=disabled`; and
+- a crash after request launch but before durable completion can cause a retry
+  to repeat a provider call and its charge.
+
+Use a fresh record root for each new execution and reuse one only for an
+explicitly validated resume. Never run concurrent writers against it; retain
+all partial artifacts and inspect provider-side request/billing history before
+retrying an interrupted real-model attempt.

@@ -54,3 +54,6 @@ jobs/
 .cache/
 *.tmp
 *.log
+
+# Local coordination mutex; immutable lab issue/event records remain tracked.
+/lab/.lab.lock

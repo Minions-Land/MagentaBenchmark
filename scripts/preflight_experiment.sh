@@ -48,6 +48,53 @@ cd -- "$ROOT"
 printf '[preflight] project: %s\n' "$ROOT"
 printf '[preflight] experiment: %s\n' "$relative_experiment"
 
+printf '[preflight] validating recoverable lab ledger...\n'
+uv run bmp-lab --project-root "$ROOT" doctor
+uv run bmp-lab --project-root "$ROOT" status --format markdown
+uv run python - "$ROOT" "$relative_experiment" <<'PY'
+from pathlib import Path
+import sys
+
+from MagentaBench.lab import LabStatus, LabStore
+from MagentaBench.lab.store import utc_now
+
+root = Path(sys.argv[1])
+experiment = sys.argv[2]
+matching = [
+    state
+    for state in LabStore(root).list()
+    if state.issue.experiment == experiment
+]
+if not matching:
+    print(
+        "[preflight] WARNING: no lab issue binds this experiment; "
+        "record ownership before shared or expensive execution."
+    )
+    raise SystemExit(0)
+
+blocked: list[str] = []
+now = utc_now()
+for state in matching:
+    if state.status in {LabStatus.open, LabStatus.planned, LabStatus.blocked}:
+        blocked.append(f"{state.issue.issue_id}={state.status.value}")
+    elif state.status in {LabStatus.running, LabStatus.verifying}:
+        if state.active_lease(now) is None:
+            blocked.append(f"{state.issue.issue_id}={state.status.value}/no-live-lease")
+if blocked:
+    print(
+        "[preflight] BLOCKED by lab issue state: " + ", ".join(sorted(blocked)),
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+print(
+    "[preflight] lab issue gate OK: "
+    + ", ".join(
+        f"{state.issue.issue_id}={state.status.value}" for state in matching
+    )
+)
+PY
+printf '[preflight] lab ledger OK\n'
+
 printf '[preflight] verifying registry lock...\n'
 uv run python - "$ROOT" <<'PY'
 from pathlib import Path
