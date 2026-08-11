@@ -1,0 +1,1 @@
+{"actor":"codex/root","created_at":"2026-08-11T10:41:19.600600Z","event_id":"status-collab-merge-base-diff-ready-v2","format":"magentabench-lab-event-v1","issue_id":"collab-merge-base-diff-v2","kind":"status","note":"The isolated regression test is ready.","previous_revision":"6ea5b2277e73f548cfbcbd39992a457fdf2d2a2903e229d12cbb33200ab09c1d","sequence":3,"status":"ready"}

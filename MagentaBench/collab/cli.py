@@ -187,7 +187,13 @@ def _git_changed_paths(root: Path, base_ref: str, head_ref: str) -> tuple[str, .
         _git_output(root, ("rev-parse", "--verify", f"{base_ref}^{{commit}}"))
         output = _git_output(
             root,
-            ("diff", "--name-only", "--diff-filter=ACMRDTUXB", "-z", base_ref, head_ref),
+            (
+                "diff",
+                "--name-only",
+                "--diff-filter=ACMRDTUXB",
+                "-z",
+                f"{base_ref}...{head_ref}",
+            ),
         )
     return tuple(
         value.decode("utf-8")
