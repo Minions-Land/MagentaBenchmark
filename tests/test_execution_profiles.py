@@ -17,7 +17,12 @@ ROOT = Path(__file__).parents[1]
 
 
 def _profile_repository(tmp_path: Path) -> ExperimentRepository:
-    for relative in ("execution-profiles", "registries/backends", "lab"):
+    for relative in (
+        "execution-profiles",
+        "registries/backends",
+        "registries/adapters",
+        "lab",
+    ):
         shutil.copytree(ROOT / relative, tmp_path / relative)
     return ExperimentRepository(tmp_path)
 
@@ -39,6 +44,18 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert modes["e2b"]["lab_issue"] == "e2b-backend-adapter"
     assert modes["e2b"]["lab_status"] not in {None, "done", "cancelled"}
     assert modes["e2b"]["maximum_evidence_label"] == "exploratory"
+
+
+def test_backend_readiness_does_not_promote_inactive_registered_adapters() -> None:
+    modes = {item["mode"]: item for item in ExperimentRepository(ROOT).execution_modes()}
+    local = {item["backend_id"]: item for item in modes["local-process"]["backends"]}
+    docker = {item["backend_id"]: item for item in modes["docker"]["backends"]}
+
+    assert local["fake.local"]["configured"] is True
+    assert local["subprocess.echo"]["configured"] is True
+    assert local["harbor.local-shim"]["configured"] is False
+    assert docker["harbor.0.20.0"]["configured"] is True
+    assert docker["aose.docker.immutable"]["configured"] is False
 
 
 @pytest.mark.parametrize(
@@ -105,6 +122,22 @@ def test_open_verifier_boundary_requires_a_live_adapter_work_item(
     )
 
     with pytest.raises(CollaborationError, match="requires a lab_issue"):
+        repository.execution_modes()
+
+
+def test_malformed_backend_declaration_fails_strict_parsing(tmp_path: Path) -> None:
+    repository = _profile_repository(tmp_path)
+    (tmp_path / "registries/backends/bad.toml").write_text(
+        "[backend]\n"
+        'id = "bad.backend"\n'
+        'kind = "container"\n'
+        'adapter = "aose-docker"\n'
+        'image = "not-an-image-digest"\n'
+        'digest = "not-a-digest"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(CollaborationError, match="invalid backend declaration"):
         repository.execution_modes()
 
 
