@@ -10,11 +10,11 @@ ROOT = Path(__file__).parents[1]
 # Retained for when whole_harness is reactivated: the pinned image and local task
 # data that the full container-contract assertions require.
 IMAGE = "sha256:8b54d62b3ff7fb4521b4291d5c0622d54c25333786996e8d807c66d2d748c222"
-AOSE = Path("/mnt/aliyunsb/BioAgent/AOSEBench")
-DATA = Path("/mnt/aliyunsb/BioAgent/BiomniBench-DA/Data")
 
 
-def test_aose_coding_agent_path_is_inactive_without_capabilities() -> None:
+def test_aose_coding_agent_path_is_inactive_without_capabilities(
+    aosebench_source: Path, bind_registry_source
+) -> None:
     """AOSE stays fail-closed until its production adapters are registered.
 
     Deactivation is evidenced, not inferred: the recorded bundle under
@@ -31,5 +31,23 @@ def test_aose_coding_agent_path_is_inactive_without_capabilities() -> None:
     """
     experiments = ROOT / "MagentaBench/conformance/experiments"
     for name in ("aose-zero-cost-run-a.toml", "aose-zero-cost-run-b.toml"):
+        compiler = Compiler(ROOT)
+        bind_registry_source(
+            compiler,
+            "dataset",
+            "dataset.aosebench.biomnibench-da.v1",
+            aosebench_source,
+        )
+        bind_registry_source(
+            compiler,
+            "subject",
+            "aose.dryrun.true" if name.endswith("a.toml") else "aose.dryrun.echo",
+            aosebench_source,
+        )
+        assert Path(
+            compiler._dataset_artifact(
+                "dataset.aosebench.biomnibench-da.v1"
+            ).source
+        ) == aosebench_source.resolve()
         with pytest.raises(CompilationError, match="missing required adapter capabilities"):
-            Compiler(ROOT).compile(experiments / name)
+            compiler.compile(experiments / name)

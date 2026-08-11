@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-from pathlib import Path
 from dataclasses import replace
+from functools import partial
+from pathlib import Path
+import sys
 
 import pytest
 
 from MagentaBench.runner.adapter_registry import AdapterRegistry, verify_resolved_case_set
 from MagentaBench.runner.backend.harbor import (
-    DEFAULT_HARBOR_EXECUTABLE,
     HarborBackend,
     HarborConfigurationError,
     build_job_config,
@@ -15,6 +16,7 @@ from MagentaBench.runner.backend.harbor import (
 )
 from MagentaBench.runner.compiler import Compiler
 from MagentaBench.runner.evidence import artifact_ref
+import plugins.terminal_bench.adapter as terminal_bench_adapter
 from plugins.terminal_bench.adapter import TerminalBenchCase, TerminalBenchLoader
 from MagentaBench.runner.adapter_registry import AdapterRegistryError
 
@@ -24,16 +26,52 @@ REGEX_EXPERIMENT = ROOT / "MagentaBench/conformance/experiments/terminal-bench-r
 MAGENTA_EXPERIMENT = ROOT / "MagentaBench/conformance/experiments/terminal-bench-magenta-smoke.toml"
 
 
-def _compiled():
-    return Compiler(ROOT).compile(REGEX_EXPERIMENT)[0]
+def _compiled(source: Path, bind_registry_source):
+    compiler = Compiler(ROOT)
+    bind_registry_source(
+        compiler,
+        "dataset",
+        "dataset.terminal-bench-2.1",
+        source,
+    )
+    compiled = compiler.compile(REGEX_EXPERIMENT)[0]
+    assert Path(compiled.manifest.dataset.source) == source.resolve()
+    return compiled
 
 
-def _magenta_compiled():
-    return Compiler(ROOT).compile(MAGENTA_EXPERIMENT)[0]
+def _magenta_compiled(source: Path, bind_registry_source):
+    compiler = Compiler(ROOT)
+    bind_registry_source(
+        compiler,
+        "dataset",
+        "dataset.terminal-bench-2.1",
+        source,
+    )
+    compiled = compiler.compile(MAGENTA_EXPERIMENT)[0]
+    assert Path(compiled.manifest.dataset.source) == source.resolve()
+    return compiled
 
 
-def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(tmp_path: Path) -> None:
-    run = _compiled()
+def _bind_harbor_executable(run, executable: Path):
+    version, digest = HarborBackend._inspect_executable(str(executable))
+    backend = run.manifest.execution.backend.model_copy(
+        update={
+            "executable": str(executable),
+            "version": version,
+            "digest": digest,
+        }
+    )
+    execution = run.manifest.execution.model_copy(update={"backend": backend})
+    return replace(
+        run,
+        manifest=run.manifest.model_copy(update={"execution": execution}),
+    )
+
+
+def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(
+    tmp_path: Path, terminal_bench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
     registry = AdapterRegistry.from_project(
         ROOT,
         required_capabilities=AdapterRegistry.required_capability_keys((run,)),
@@ -56,8 +94,21 @@ def test_terminal_bench_loader_replays_explicit_case_and_contract_refs(tmp_path:
     assert all(Path(ref.path).is_file() for ref in case.verifier_contract_refs)
 
 
-def test_terminal_bench_loader_accepts_complete_case_set(tmp_path: Path) -> None:
-    compiled = _compiled()
+@pytest.mark.external_checkout
+def test_terminal_bench_loader_accepts_complete_release_case_set(
+    tmp_path: Path, terminal_bench_release_source: Path
+) -> None:
+    """Replay the pinned 89-case release when its checkout is provisioned."""
+
+    compiler = Compiler(ROOT)
+    dataset, declaration_path = compiler._lookup(
+        "dataset", "dataset.terminal-bench-2.1"
+    )
+    compiler._registry_cache[("dataset", "dataset.terminal-bench-2.1")] = (
+        dataset.model_copy(update={"source": str(terminal_bench_release_source)}),
+        declaration_path,
+    )
+    compiled = compiler.compile(REGEX_EXPERIMENT)[0]
     protocol = compiled.manifest.execution.protocol.model_copy(
         update={"case_order": "fixed", "explicit_case_ids": ()}
     )
@@ -81,8 +132,19 @@ def test_terminal_bench_loader_accepts_complete_case_set(tmp_path: Path) -> None
     assert len(loader.load(run, resolved).cases) == 89
 
 
-def test_terminal_bench_staging_is_allowlisted_and_toctou_checked(tmp_path: Path) -> None:
-    run = _compiled()
+def test_terminal_bench_staging_is_allowlisted_and_toctou_checked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    terminal_bench_source: Path,
+    bind_registry_source,
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
+    executable = Path(sys.executable).resolve(strict=True)
+    monkeypatch.setattr(
+        terminal_bench_adapter,
+        "HarborBackend",
+        partial(HarborBackend, harbor_executable=executable),
+    )
     task = tmp_path / "task"
     (task / "environment").mkdir(parents=True)
     (task / "tests").mkdir(parents=True)
@@ -108,10 +170,10 @@ def test_terminal_bench_staging_is_allowlisted_and_toctou_checked(tmp_path: Path
         case_set_digest="a" * 64,
         allow_internet=False,
     )
-    backend = AdapterRegistry.from_project(
-        ROOT,
-        required_capabilities=AdapterRegistry.required_capability_keys((run,)),
-    ).backend_factory(run).build(run, record_root=tmp_path / "records", workspace_root=tmp_path / "work")
+    backend = terminal_bench_adapter.TerminalBenchHarborBackend(
+        tmp_path / "records",
+        timeout_seconds=run.manifest.execution.budget.max_wall_seconds,
+    )
     staged, _ = backend._stage_task(run, case, "attempt-0000")
     assert not (staged / "solution").exists()
     assert not (staged / "README.md").exists()
@@ -123,16 +185,20 @@ def test_terminal_bench_staging_is_allowlisted_and_toctou_checked(tmp_path: Path
         backend._stage_task(run, case, "attempt-0000")
 
 
-def test_terminal_bench_subject_selects_native_harbor_agent() -> None:
-    run = _compiled()
+def test_terminal_bench_subject_selects_native_harbor_agent(
+    terminal_bench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
     assert harbor_agent_name(run.manifest.subject) == "nop"
     config = build_job_config(run, task_path=ROOT)
     assert config["agents"][0]["name"] == "nop"
     assert "tasks" in config and "datasets" not in config
 
 
-def test_magenta_subject_selects_pinned_custom_agent_and_provider_env() -> None:
-    run = _magenta_compiled()
+def test_magenta_subject_selects_pinned_custom_agent_and_provider_env(
+    terminal_bench_source: Path, bind_registry_source
+) -> None:
+    run = _magenta_compiled(terminal_bench_source, bind_registry_source)
     config = build_job_config(run)
     agent = config["agents"][0]
     assert agent["import_path"] == "plugins.terminal_bench.magenta_agent:MagentaAgent"
@@ -147,11 +213,15 @@ def test_magenta_subject_selects_pinned_custom_agent_and_provider_env() -> None:
     assert "name" not in agent
 
 
-def test_harbor_task_path_and_execution_identity_fail_closed(tmp_path: Path) -> None:
-    run = _compiled()
+def test_harbor_task_path_and_execution_identity_fail_closed(
+    tmp_path: Path, terminal_bench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
+    executable = Path(sys.executable).resolve(strict=True)
+    run = _bind_harbor_executable(run, executable)
     backend = HarborBackend(
         tmp_path / "records",
-        harbor_executable=DEFAULT_HARBOR_EXECUTABLE,
+        harbor_executable=executable,
         timeout_seconds=1,
     )
     with pytest.raises(HarborConfigurationError, match="invalid execution id"):
@@ -166,8 +236,13 @@ def test_harbor_task_path_and_execution_identity_fail_closed(tmp_path: Path) -> 
         backend.run(run, task_path=tmp_path, execution_id="attempt-0001")
 
 
-def test_terminal_bench_network_fields_are_strict(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    run = _compiled()
+def test_terminal_bench_network_fields_are_strict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    terminal_bench_source: Path,
+    bind_registry_source,
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
     source = tmp_path / "bench"
     task = source / "tasks" / "demo"
     task.mkdir(parents=True)

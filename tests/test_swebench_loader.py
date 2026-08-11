@@ -17,8 +17,19 @@ from MagentaBench.runner.compiler import CompilationError, Compiler
 ROOT = Path(__file__).parents[1]
 
 
-def _compiled_loader_run():
+def _fixture_compiler(source: Path, bind_registry_source) -> Compiler:
     compiler = Compiler(ROOT)
+    bind_registry_source(
+        compiler,
+        "dataset",
+        "dataset.swebench.lite.local.v1",
+        source,
+    )
+    return compiler
+
+
+def _compiled_loader_run(source: Path, bind_registry_source):
+    compiler = _fixture_compiler(source, bind_registry_source)
     base = compiler.compile(
         ROOT / "MagentaBench/conformance/experiments/fake-sweep.toml"
     )[0]
@@ -36,6 +47,7 @@ def _compiled_loader_run():
             ),
         }
     )
+    assert Path(manifest.dataset.source) == source.resolve()
     return replace(base, manifest=manifest)
 
 
@@ -65,9 +77,9 @@ def test_swebench_loader_capability_is_source_closed() -> None:
 
 
 def test_swebench_loader_activates_one_explicit_case_without_oracle(
-    tmp_path: Path,
+    tmp_path: Path, swebench_source: Path, bind_registry_source
 ) -> None:
-    run = _compiled_loader_run()
+    run = _compiled_loader_run(swebench_source, bind_registry_source)
     loader = _loader(run)
     resolved = loader.resolve(run, tmp_path / "case-sets")
     verify_resolved_case_set(
@@ -103,8 +115,10 @@ def test_swebench_loader_activates_one_explicit_case_without_oracle(
     assert case.case_set_digest == loaded.artifact.canonical_digest()
 
 
-def test_swebench_contract_byte_drift_is_rejected(tmp_path: Path) -> None:
-    run = _compiled_loader_run()
+def test_swebench_contract_byte_drift_is_rejected(
+    tmp_path: Path, swebench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled_loader_run(swebench_source, bind_registry_source)
     loader = _loader(run)
     resolved = loader.resolve(run, tmp_path / "case-sets")
     public_path = Path(resolved.artifact.cases[0].public_input_ref.path)
@@ -121,8 +135,10 @@ def test_swebench_contract_byte_drift_is_rejected(tmp_path: Path) -> None:
         )
 
 
-def test_swebench_loader_rejects_missing_explicit_case(tmp_path: Path) -> None:
-    run = _compiled_loader_run()
+def test_swebench_loader_rejects_missing_explicit_case(
+    tmp_path: Path, swebench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled_loader_run(swebench_source, bind_registry_source)
     protocol = run.manifest.execution.protocol
     assert protocol is not None
     mutated_protocol = protocol.model_copy(
@@ -143,8 +159,10 @@ def test_swebench_loader_rejects_missing_explicit_case(tmp_path: Path) -> None:
         _loader(mutated).resolve(mutated, tmp_path / "case-sets")
 
 
-def test_swebench_loader_rejects_unpinned_image(tmp_path: Path) -> None:
-    run = _compiled_loader_run()
+def test_swebench_loader_rejects_unpinned_image(
+    tmp_path: Path, swebench_source: Path, bind_registry_source
+) -> None:
+    run = _compiled_loader_run(swebench_source, bind_registry_source)
     dataset = run.manifest.dataset
     config = dict(dataset.config)
     config["image_digests"] = {}
@@ -159,7 +177,7 @@ def test_swebench_loader_rejects_unpinned_image(tmp_path: Path) -> None:
 
 
 def test_swebench_production_compile_fails_closed_without_execution_capability(
-    tmp_path: Path,
+    tmp_path: Path, swebench_source: Path, bind_registry_source
 ) -> None:
     experiment = tmp_path / "swebench-production.toml"
     experiment.write_text(
@@ -188,7 +206,7 @@ max_cost = 0.0
         encoding="utf-8",
     )
 
-    compiler = Compiler(ROOT)
+    compiler = _fixture_compiler(swebench_source, bind_registry_source)
     assert compiler._adapter_capability_artifact("swebench", "execution") is None
     with pytest.raises(
         CompilationError,

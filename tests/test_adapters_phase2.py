@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import pytest
 
 from MagentaBench.adapters.benchmarks.aosebench import (
-    AoseBenchConfigurationError,
     build_docker_command,
     check_outputs,
     load_task,
@@ -33,9 +31,6 @@ from MagentaBench.schemas import (
     ProvenanceRecord,
     RunStatus,
 )
-
-
-AOSE = Path("/mnt/aliyunsb/BioAgent/AOSEBench")
 
 
 def _magenta_manifest(sequence: int) -> dict[str, object]:
@@ -149,8 +144,10 @@ def _magenta_stream(*, terminal: dict[str, object] | None = None) -> str:
     )
 
 
-def test_aosebench_task_contract_and_output_check(tmp_path: Path) -> None:
-    task = load_task(AOSE, "da-1-3")
+def test_aosebench_task_contract_and_output_check(
+    tmp_path: Path, aosebench_source: Path
+) -> None:
+    task = load_task(aosebench_source, "da-1-3")
     assert task.instruction_path.name == "instruction.md"
     assert task.rubric_path.name == "rubric.txt"
     assert task.agent_timeout_seconds == 3600.0

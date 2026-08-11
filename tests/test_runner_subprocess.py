@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import platform
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -8,12 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from MagentaBench.runner.backend.subprocess import SubprocessBackend
+from MagentaBench.runner.backend.subprocess import (
+    SubprocessBackend,
+    SubprocessConfigurationError,
+)
 from MagentaBench.runner.compiler import (
     CompiledRun,
     Compiler,
-    canonical_manifest_json,
-    sha256_bytes,
 )
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.runner.scheduler import Scheduler
@@ -40,19 +42,22 @@ def _with_timeout(run: CompiledRun, seconds: float) -> CompiledRun:
     budget = Budget(max_tokens=0, max_wall_seconds=seconds, max_cost=0.0)
     execution = run.manifest.execution.model_copy(update={"budget": budget})
     manifest = run.manifest.model_copy(update={"execution": execution})
-    canonical = canonical_manifest_json(manifest)
     return replace(run, manifest=manifest)
 
 
-def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> None:
+def test_echo_agent_runs_through_full_subprocess_pipeline(
+    tmp_path: Path, bind_host_subprocess_backend
+) -> None:
     records = tmp_path / "records"
     workspaces = tmp_path / "workspaces"
     backend = SubprocessBackend(records, workspace_root=workspaces)
 
+    pipeline = Pipeline(
+        ROOT, records, backend=backend, allow_test_override=True
+    )
+    executable = bind_host_subprocess_backend(pipeline.compiler)
     with pytest.raises(ValueError, match="test override evidence"):
-        Pipeline(
-            ROOT, records, backend=backend, allow_test_override=True
-        ).run(EXPERIMENT)
+        pipeline.run(EXPERIMENT)
 
     bundle_paths = sorted(records.rglob("evidence_bundle.json"))
     assert len(bundle_paths) == 4
@@ -60,7 +65,7 @@ def test_echo_agent_runs_through_full_subprocess_pipeline(tmp_path: Path) -> Non
     for bundle_path in bundle_paths:
         bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
         statuses.append(bundle["status"])
-        assert bundle["provenance"]["executable"] == "/usr/bin/echo"
+        assert bundle["provenance"]["executable"] == str(executable)
         assert bundle["provenance"]["test_override"] == {
             "reason": "explicit allow_test_override=true",
             "forced_purpose": "exploratory",
@@ -127,19 +132,22 @@ def test_subprocess_timeout_is_classified_and_keeps_failure_workspace(
 
 
 def test_environment_receipt_is_carried_into_evidence_provenance(
-    tmp_path: Path,
+    tmp_path: Path, bind_host_subprocess_backend
 ) -> None:
-    spec = EnvironmentSpec(id="echo-env", python_version="3.11")
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    spec = EnvironmentSpec(id="echo-env", python_version=python_version)
     receipt = EnvironmentReceipt(
         spec_id=spec.id,
         spec_digest=spec.canonical_digest(),
-        python_executable="/usr/bin/python3.11",
-        python_version="3.11.13",
+        python_executable=str(Path(sys.executable).resolve()),
+        python_version=platform.python_version(),
         installed_packages=(),
         build_duration_seconds=0.0,
         built_at="2026-08-06T16:00:00+00:00",
     )
-    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    compiler = Compiler(ROOT, allow_test_override=True)
+    bind_host_subprocess_backend(compiler)
+    run = compiler.compile(EXPERIMENT)[0]
     backend = SubprocessBackend(
         tmp_path / "records",
         workspace_root=tmp_path / "workspaces",
@@ -147,6 +155,30 @@ def test_environment_receipt_is_carried_into_evidence_provenance(
     )
     case = backend.execute(run)
     assert case.bundle.provenance.environment_receipt == receipt
+
+
+def test_subprocess_rejects_executable_digest_drift(
+    tmp_path: Path, bind_host_subprocess_backend
+) -> None:
+    compiler = Compiler(ROOT, allow_test_override=True)
+    bind_host_subprocess_backend(compiler)
+    compiled = compiler.compile(EXPERIMENT)[0]
+    backend_spec = compiled.manifest.execution.backend.model_copy(
+        update={"digest": "0" * 64}
+    )
+    execution = compiled.manifest.execution.model_copy(
+        update={"backend": backend_spec}
+    )
+    run = replace(
+        compiled,
+        manifest=compiled.manifest.model_copy(update={"execution": execution}),
+    )
+
+    with pytest.raises(
+        SubprocessConfigurationError,
+        match="executable digest does not match backend pin",
+    ):
+        SubprocessBackend(tmp_path / "records").execute(run)
 
 
 def test_provenance_does_not_serialize_api_key_values() -> None:
@@ -200,8 +232,12 @@ def test_subprocess_environment_does_not_inherit_secrets(
     assert result.bundle.verifier_evidence.details["actual"] == "BMP_OK"
 
 
-def test_subprocess_scheduler_uses_distinct_attempt_namespaces(tmp_path: Path) -> None:
-    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+def test_subprocess_scheduler_uses_distinct_attempt_namespaces(
+    tmp_path: Path, bind_host_subprocess_backend
+) -> None:
+    compiler = Compiler(ROOT, allow_test_override=True)
+    bind_host_subprocess_backend(compiler)
+    run = compiler.compile(EXPERIMENT)[0]
     protocol = run.manifest.execution.protocol.model_copy(
         update={
             "rollouts_per_case": 2,
@@ -212,7 +248,6 @@ def test_subprocess_scheduler_uses_distinct_attempt_namespaces(tmp_path: Path) -
     )
     execution = run.manifest.execution.model_copy(update={"protocol": protocol})
     manifest = run.manifest.model_copy(update={"execution": execution})
-    canonical = canonical_manifest_json(manifest)
     run = replace(run, manifest=manifest)
     backend = SubprocessBackend(
         tmp_path / "records", workspace_root=tmp_path / "work"

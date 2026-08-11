@@ -1,8 +1,8 @@
 {
   "audit_rules_ref": {
     "path": "/mnt/aliyunsb/aralacai/MagentaBench/scripts/audit_hcp_boundary.sh",
-    "sha256": "979af4dda6868a7c18df1e27e5cf9e23667c4ec72f42b7f06c2eb418749adcfb",
-    "size_bytes": 4649
+    "sha256": "feb4552d8a8e121e9e6d83072bd3f2d249275dff0c6d38b25f109e46e6f2dc95",
+    "size_bytes": 9824
   },
   "authority_documents": [
     {
