@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from MagentaBench.schemas import (
     EnvironmentReceipt,
@@ -35,6 +36,24 @@ from .fake import CaseExecution
 
 DEFAULT_HARBOR_EXECUTABLE = "/root/.local/share/uv/tools/harbor/bin/harbor"
 _CASE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_VERIFIER_ENV_ALLOWLIST = frozenset(
+    {
+        "UV_DEFAULT_INDEX",
+        "UV_HTTP_RETRIES",
+        "UV_HTTP_TIMEOUT",
+        "UV_INSTALLER_GITHUB_BASE_URL",
+        "UV_NO_PROGRESS",
+        "UV_PYTHON_INSTALL_MIRROR",
+    }
+)
+_VERIFIER_HTTPS_ENV = frozenset(
+    {
+        "UV_DEFAULT_INDEX",
+        "UV_INSTALLER_GITHUB_BASE_URL",
+        "UV_PYTHON_INSTALL_MIRROR",
+    }
+)
 
 
 class HarborConfigurationError(ValueError):
@@ -117,6 +136,70 @@ def _agent_environment_names(model_name: str | None, declared: Any) -> tuple[str
     if preferred is None:
         return names
     return tuple(item for item in names if item in preferred)
+
+
+def _verifier_environment(declared: Any) -> dict[str, str]:
+    """Validate registered, non-secret verifier bootstrap values.
+
+    These values are projected into Harbor's verifier phase only.  Keeping a
+    small allowlist here prevents a backend declaration from smuggling provider
+    credentials or unrelated ambient configuration into an official verifier.
+    """
+
+    if declared is None:
+        return {}
+    if not isinstance(declared, Mapping):
+        raise HarborConfigurationError("backend.defaults.verifier_env must be a table")
+    environment: dict[str, str] = {}
+    for raw_name, raw_value in declared.items():
+        if not isinstance(raw_name, str) or _ENV_NAME.fullmatch(raw_name) is None:
+            raise HarborConfigurationError(
+                "backend.defaults.verifier_env names must be uppercase environment names"
+            )
+        if raw_name not in _VERIFIER_ENV_ALLOWLIST:
+            raise HarborConfigurationError(
+                f"backend.defaults.verifier_env contains unsupported name {raw_name!r}"
+            )
+        if not isinstance(raw_value, str) or not raw_value or raw_value != raw_value.strip():
+            raise HarborConfigurationError(
+                f"backend.defaults.verifier_env.{raw_name} must be a non-empty string"
+            )
+        if "${" in raw_value or "\n" in raw_value or "\r" in raw_value:
+            raise HarborConfigurationError(
+                f"backend.defaults.verifier_env.{raw_name} must be a literal single-line value"
+            )
+        if raw_name in _VERIFIER_HTTPS_ENV:
+            parsed = urlsplit(raw_value)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise HarborConfigurationError(
+                    f"backend.defaults.verifier_env.{raw_name} must be an unauthenticated HTTPS URL"
+                )
+        elif raw_name == "UV_NO_PROGRESS":
+            if raw_value not in {"0", "1"}:
+                raise HarborConfigurationError(
+                    "backend.defaults.verifier_env.UV_NO_PROGRESS must be 0 or 1"
+                )
+        else:
+            try:
+                numeric = int(raw_value)
+            except ValueError as exc:
+                raise HarborConfigurationError(
+                    f"backend.defaults.verifier_env.{raw_name} must be an integer string"
+                ) from exc
+            upper_bound = 600 if raw_name == "UV_HTTP_TIMEOUT" else 20
+            if numeric < 1 or numeric > upper_bound or str(numeric) != raw_value:
+                raise HarborConfigurationError(
+                    f"backend.defaults.verifier_env.{raw_name} is outside its accepted range"
+                )
+        environment[raw_name] = raw_value
+    return environment
 
 
 def build_job_config(
@@ -221,6 +304,9 @@ def build_job_config(
             }
         ],
     }
+    verifier_env = _verifier_environment(defaults.get("verifier_env"))
+    if verifier_env:
+        config["verifier"] = {"env": verifier_env}
     if attempts != 1:
         config["n_attempts"] = attempts
     resolved_environment_type = environment_type or str(

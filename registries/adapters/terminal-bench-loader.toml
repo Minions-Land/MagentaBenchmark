@@ -6,6 +6,6 @@ bmp_version = "0.1"
 adapter_kind = "benchmark_loader"
 source = "."
 entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchLoader"
-digest = "cc3693b881cecf092b2247d8174bf2169b95e0609d3415b04e52b5385447088c"
+digest = "85c9e26be074cbb85d04c577df72a4ab891846bb8ada180704c59b5bee05cd04"
 supported_benchmark_kinds = ["custom"]
 supported_backend_adapters = ["harbor"]
