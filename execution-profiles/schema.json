@@ -218,6 +218,13 @@
         "required": [
           "readiness_probe_argv"
         ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "readiness_probe_argv"
+          ]
+        }
       }
     }
   ],

@@ -213,6 +213,9 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
     shell_probe = dict(apptainer, readiness_probe_argv=("bash", "-c", "true"))
     assert list(validator.iter_errors(shell_probe))
 
+    foreign_probe = dict(profile, readiness_probe_argv=("bash", "-c", "true"))
+    assert list(validator.iter_errors(foreign_probe))
+
 
 def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
     tmp_path: Path,
@@ -338,7 +341,7 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
             False
             if str(path).endswith("cgroup.controllers")
             else True
-            if str(path) == "/usr/bin/fusermount3"
+            if str(path) in {"/usr/bin/fusermount3", "/usr/bin/squashfuse"}
             else original_exists(path)
         ),
     )
@@ -358,6 +361,8 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
             if name == "newgidmap"
             else "/usr/bin/fusermount3"
             if name == "fusermount3"
+            else "/usr/bin/squashfuse"
+            if name == "squashfuse"
             else None
         ),
     )
@@ -382,7 +387,7 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
         "rootless_principal": True,
         "user_namespace": True,
         "fuse_device": True,
-        "fuse_helper": True,
+        "squashfuse": True,
         "persistent_storage": True,
     }, baseline
     assert baseline["host_ready"] is True
@@ -390,6 +395,69 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
     assert strict["host_ready"] is False
     assert strict["required_checks"]["subordinate_ids"] is False
     assert strict["required_checks"]["cgroup_v2"] is False
+
+
+def test_apptainer_readiness_rejects_wrong_launcher_and_missing_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"wrong launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    for name in ("cache", "tmp", "artifacts"):
+        (tmp_path / name).mkdir()
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        if argv[-1] == "--version":
+            return 0, "not-apptainer 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=not-apptainer\nPACKAGE_VERSION=1.5.3"
+        return 1, "unavailable"
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which", lambda name: None
+    )
+
+    report = probe_apptainer(
+        launcher_value=str(launcher),
+        cache_dir=str(tmp_path / "cache"),
+        tmp_dir=str(tmp_path / "tmp"),
+        artifact_root=str(tmp_path / "artifacts"),
+        image=str(tmp_path / "missing.sif"),
+        require_fakeroot=False,
+        require_cgroup_v2=False,
+        require_gpu=False,
+    )
+
+    assert report["launcher"]["installed"] is False
+    assert report["required_checks"]["installed"] is False
+    assert report["required_checks"]["image_available"] is False
+    assert report["host_ready"] is False
+
+
+def test_readiness_subprocess_uses_a_minimal_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_subprocess_run(argv: tuple[str, ...], **kwargs: object) -> object:
+        observed.update(kwargs)
+        return type("Completed", (), {"returncode": 0, "stdout": "ok"})()
+
+    monkeypatch.setenv("MAGENTABENCH_SENTINEL_SECRET", "must-not-leak")
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.subprocess.run", fake_subprocess_run
+    )
+
+    from scripts.check_execution_profiles import _run
+
+    assert _run(("/usr/bin/true",)) == (0, "ok")
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "MAGENTABENCH_SENTINEL_SECRET" not in environment
 
 
 @pytest.mark.parametrize(

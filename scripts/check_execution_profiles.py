@@ -21,6 +21,15 @@ import sys
 from typing import Any, Mapping, Sequence
 
 
+_SAFE_SUBPROCESS_ENV = {
+    "HOME": "/nonexistent",
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+}
+_APPTAINER_VERSION_PREFIX = "apptainer version "
+
+
 def _safe_text(value: str, *, label: str) -> str:
     if not value or any(character in value for character in ("\x00", "\r", "\n")):
         raise ValueError(f"{label} must be non-empty single-line text")
@@ -35,6 +44,7 @@ def _run(argv: Sequence[str], *, timeout: float = 15.0) -> tuple[int, str]:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             check=False,
+            env=_SAFE_SUBPROCESS_ENV,
             text=True,
             timeout=timeout,
         )
@@ -107,7 +117,28 @@ def _subordinate_id_entry(path: Path, username: str) -> bool:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    return any(line.split(":", 1)[0] == username for line in lines if ":" in line)
+    for line in lines:
+        fields = line.split(":")
+        if len(fields) != 3 or fields[0] != username:
+            continue
+        try:
+            start, count = (int(value) for value in fields[1:])
+        except ValueError:
+            continue
+        if start > 0 and count > 0:
+            return True
+    return False
+
+
+def _executable_path(*candidates: str | None) -> str | None:
+    return next(
+        (
+            str(Path(candidate).resolve())
+            for candidate in candidates
+            if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK)
+        ),
+        None,
+    )
 
 
 def _gpu_observation() -> dict[str, Any]:
@@ -153,13 +184,12 @@ def probe_apptainer(
     require_gpu: bool,
 ) -> dict[str, Any]:
     launcher = _resolve_executable(launcher_value, "apptainer")
-    installed = launcher is not None
+    installed = False
     version = None
     buildcfg: dict[str, str] = {}
     launcher_identity = None
     if launcher is not None:
         rc, output = _run((str(launcher), "--version"))
-        installed = rc == 0
         version = _single_line(output) if rc == 0 else None
         rc, output = _run((str(launcher), "buildcfg"))
         if rc == 0:
@@ -174,7 +204,17 @@ def probe_apptainer(
                     "APPTAINER_CONFDIR",
                     "APPTAINER_SUID_INSTALL",
                 }:
-                    buildcfg[key] = value
+                    buildcfg[key] = _single_line(value)
+        version_number = (
+            version.removeprefix(_APPTAINER_VERSION_PREFIX)
+            if version and version.startswith(_APPTAINER_VERSION_PREFIX)
+            else None
+        )
+        installed = (
+            version_number is not None
+            and buildcfg.get("PACKAGE_NAME") == "apptainer"
+            and buildcfg.get("PACKAGE_VERSION") == version_number
+        )
         metadata = launcher.stat()
         launcher_identity = {
             "path": str(launcher),
@@ -210,19 +250,13 @@ def probe_apptainer(
     except OSError:
         fuse_device = False
     prefix_bin = None if launcher is None else launcher.parent
-    fuse_helpers = [
+    fusermount = _executable_path(
         shutil.which("fusermount3"),
         None if prefix_bin is None else str(prefix_bin / "fusermount3"),
+    )
+    squashfuse = _executable_path(
         shutil.which("squashfuse"),
         None if prefix_bin is None else str(prefix_bin / "squashfuse"),
-    ]
-    fuse_helper = next(
-        (
-            str(Path(candidate).resolve())
-            for candidate in fuse_helpers
-            if candidate and Path(candidate).is_file() and os.access(candidate, os.X_OK)
-        ),
-        None,
     )
     cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
 
@@ -269,7 +303,7 @@ def probe_apptainer(
         "rootless_principal": rootless_principal,
         "user_namespace": userns_ok,
         "fuse_device": fuse_device,
-        "fuse_helper": fuse_helper is not None,
+        "squashfuse": squashfuse is not None,
         "persistent_storage": storage_ready,
     }
     if require_fakeroot:
@@ -279,6 +313,8 @@ def probe_apptainer(
         required_checks["cgroup_v2"] = cgroup_v2
     if require_gpu:
         required_checks["gpu_visible"] = bool(gpu["visible"])
+    if image_observation["configured"]:
+        required_checks["image_available"] = bool(image_observation["exists"])
     host_ready = all(required_checks.values())
     return {
         "format": "magentabench-apptainer-readiness-v1",
@@ -302,7 +338,8 @@ def probe_apptainer(
             "newgidmap": newgidmap,
             "subordinate_ids": subordinate_ids,
             "fuse_device": fuse_device,
-            "fuse_helper": fuse_helper,
+            "fusermount": fusermount,
+            "squashfuse": squashfuse,
             "cgroup_v2": cgroup_v2,
         },
         "requirements": {
