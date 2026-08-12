@@ -15,6 +15,7 @@ target requirements live in `execution-profiles/<mode>/profile.json`.
 | --- | --- | --- | --- | --- |
 | `local-process` | fake/subprocess configured; Harbor shim registered-only | process | BMP-gated for configured backends | none |
 | `docker` | Harbor configured; AOSE Docker registered-only until its factory capability is present | task container | BMP-gated for configured backends | benchmark-specific blockers remain in `lab/` |
+| `apptainer` | host readiness probe only; no registered backend | task container | exploratory | `apptainer-backend-adapter` |
 | `appcontainer` | no concrete runtime or adapter | task container | exploratory | `appcontainer-backend-adapter` |
 | `e2b` | no adapter | microVM | exploratory | `e2b-backend-adapter` |
 | `remote-sandbox` | extension slot only | microVM | exploratory | `remote-sandbox-backend-adapter` |
@@ -53,6 +54,22 @@ Use immutable image identity, an observed launcher digest/version, read-only
 task mounts where applicable, a fresh workspace, and a retained container
 receipt. An image tag alone is insufficient. Export all indexed evidence before
 container removal and preserve the workspace on incomplete execution.
+
+### Apptainer
+
+Apptainer is the rootless HPC/container placement and is distinct from the
+provider-neutral `AppContainer` slot. The checked-in profile and read-only host
+probe can observe an absolute launcher path, launcher digest/version/build
+configuration, non-root user namespaces, subordinate IDs, FUSE, cgroup v2,
+persistent storage, optional GPU visibility, and whether a configured image
+path exists. The probe never pulls, builds, inspects, or executes an image.
+
+This mode has no registered backend today, remains `exploratory`, and cannot be
+selected for a BMP execution. The linked `apptainer-backend-adapter` work item
+must separately bind a launcher and SIF/sandbox identity, implement effective
+bind/overlay/network/GPU arguments, export artifacts, persist cancellation and
+teardown receipts, and close standalone verification. Host readiness is not a
+runtime activation receipt and does not upgrade evidence.
 
 ### AppContainer
 

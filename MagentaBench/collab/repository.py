@@ -567,6 +567,7 @@ class ExperimentRepository:
             expected_boundary = {
                 ExecutionMode.local_process: "process",
                 ExecutionMode.docker: "task-container",
+                ExecutionMode.apptainer: "task-container",
                 ExecutionMode.appcontainer: "task-container",
                 ExecutionMode.e2b: "microvm",
                 ExecutionMode.remote_sandbox: "microvm",
@@ -728,10 +729,14 @@ class ExperimentRepository:
             return ExecutionMode.local_process, "process"
         if adapter in {"aose-docker", "harbor"}:
             return ExecutionMode.docker, "task-container"
+        if adapter == "apptainer":
+            return ExecutionMode.apptainer, "task-container"
         if adapter == "appcontainer":
             return ExecutionMode.appcontainer, "task-container"
         if adapter == "e2b":
             return ExecutionMode.e2b, "microvm"
+        if defaults.get("environment_type") == "apptainer":
+            return ExecutionMode.apptainer, "task-container"
         if defaults.get("environment_type") == "docker":
             return ExecutionMode.docker, "task-container"
         return ExecutionMode.remote_sandbox, "microvm"

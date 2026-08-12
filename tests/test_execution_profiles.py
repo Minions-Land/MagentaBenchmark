@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
+import stat
 
 from jsonschema import Draft202012Validator
 import pytest
@@ -11,6 +12,7 @@ from MagentaBench.collab import CollaborationError, ExperimentRepository
 from MagentaBench.collab.repository import classify_changed_paths
 from MagentaBench.lab import LabStore
 from MagentaBench.lab.store import utc_now
+from scripts.check_execution_profiles import probe_apptainer
 
 
 ROOT = Path(__file__).parents[1]
@@ -44,6 +46,12 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert modes["e2b"]["lab_issue"] == "e2b-backend-adapter"
     assert modes["e2b"]["lab_status"] not in {None, "done", "cancelled"}
     assert modes["e2b"]["maximum_evidence_label"] == "exploratory"
+    assert modes["apptainer"]["backends"] == []
+    assert modes["apptainer"]["configured"] is False
+    assert modes["apptainer"]["isolation_boundary"] == "task-container"
+    assert modes["apptainer"]["lab_issue"] == "apptainer-backend-adapter"
+    assert modes["apptainer"]["lab_status"] not in {None, "done", "cancelled"}
+    assert modes["apptainer"]["maximum_evidence_label"] == "exploratory"
 
 
 def test_backend_readiness_does_not_promote_inactive_registered_adapters() -> None:
@@ -125,6 +133,33 @@ def test_open_verifier_boundary_requires_a_live_adapter_work_item(
         repository.execution_modes()
 
 
+def test_apptainer_registered_backend_stays_unconfigured_and_exploratory(
+    tmp_path: Path,
+) -> None:
+    repository = _profile_repository(tmp_path)
+    (tmp_path / "registries/backends/apptainer-test.toml").write_text(
+        "[backend]\n"
+        'id = "apptainer.test"\n'
+        'kind = "container"\n'
+        'adapter = "apptainer"\n',
+        encoding="utf-8",
+    )
+    path = tmp_path / "execution-profiles/apptainer/profile.json"
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    profile["registered_backend_ids"] = ["apptainer.test"]
+    path.write_text(
+        json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    modes = {item["mode"]: item for item in repository.execution_modes()}
+    apptainer = modes["apptainer"]
+    assert apptainer["configured"] is False
+    assert apptainer["standalone_verifier_boundary_closed"] is False
+    assert apptainer["maximum_evidence_label"] == "exploratory"
+    assert apptainer["backends"][0]["configured"] is False
+    assert apptainer["backends"][0]["standalone_verifier_boundary_closed"] is False
+
+
 def test_malformed_backend_declaration_fails_strict_parsing(tmp_path: Path) -> None:
     repository = _profile_repository(tmp_path)
     (tmp_path / "registries/backends/bad.toml").write_text(
@@ -165,6 +200,85 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
 
     trailing_newline = dict(profile, lab_issue="e2b-backend-adapter\n")
     assert list(validator.iter_errors(trailing_newline))
+
+    apptainer = json.loads(
+        (ROOT / "execution-profiles/apptainer/profile.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    missing_probe = dict(apptainer)
+    missing_probe.pop("readiness_probe_argv")
+    assert list(validator.iter_errors(missing_probe))
+
+    shell_probe = dict(apptainer, readiness_probe_argv=("bash", "-c", "true"))
+    assert list(validator.iter_errors(shell_probe))
+
+
+def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"read-only launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    cache = tmp_path / "cache"
+    temporary = tmp_path / "tmp"
+    artifacts = tmp_path / "artifacts"
+    image = tmp_path / "task.sif"
+    for directory in (cache, temporary, artifacts):
+        directory.mkdir()
+    image.write_bytes(b"image path fixture\n")
+
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        commands.append(tuple(argv))
+        if argv[-1] == "--version":
+            return 0, "apptainer version 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=apptainer\nPACKAGE_VERSION=1.5.3"
+        if "--user" in argv:
+            return 0, ""
+        if argv[0].endswith("findmnt"):
+            return 0, "ext4"
+        raise AssertionError(f"unexpected probe command: {argv!r}")
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which",
+        lambda name: (
+            "/usr/bin/unshare"
+            if name == "unshare"
+            else "/usr/bin/findmnt" if name == "findmnt" else None
+        ),
+    )
+
+    report = probe_apptainer(
+        launcher_value=str(launcher),
+        cache_dir=str(cache),
+        tmp_dir=str(temporary),
+        artifact_root=str(artifacts),
+        image=str(image),
+        require_gpu=False,
+        environ={"USER": "fixture-user"},
+    )
+
+    assert report["launcher"]["installed"] is True
+    assert report["launcher"]["identity"]["path"] == str(launcher.resolve())
+    assert report["image"] == {
+        "configured": True,
+        "exists": True,
+        "path": str(image.resolve()),
+        "kind": "sif-or-file",
+        "identity_verified": False,
+    }
+    assert report["host_ready"] is False
+    assert report["required_checks"]["rootless_principal"] is False
+    assert all(
+        "exec" not in command and "pull" not in command for command in commands
+    )
 
 
 @pytest.mark.parametrize(
