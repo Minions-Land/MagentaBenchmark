@@ -154,11 +154,12 @@ Prefer immutable, content-addressed artifacts for review evidence. If a
 completed or cancelled issue cites a repository-relative source file and that
 file later changes, `bmp-lab doctor` accepts the snapshot only when the same
 path has the exact recorded digest and size in the complete current `HEAD`
-ancestry. Side branches, tags, and remote-tracking refs that are not reachable
-from `HEAD` cannot supply the snapshot. Active issues still require the current
-bytes to match. Missing current paths, absolute paths, external URIs, and
-symlinks never use this fallback. Shallow clones and timed-out or malformed Git
-inspection fail closed; required CI jobs therefore fetch full history.
+first-parent history. Side branches, tags, remote-tracking refs, and merge
+second parents cannot supply the snapshot. Active issues still require the
+current bytes to match. Missing current paths, absolute paths, external URIs,
+and symlinks never use this fallback. Shallow clones, a mismatched Git top
+level, and timed-out or malformed Git inspection fail closed; required CI jobs
+therefore fetch full history.
 
 ## 6. Lease and Write-Scope Workflow
 

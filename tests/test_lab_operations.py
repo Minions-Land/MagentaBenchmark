@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import subprocess
 
@@ -1213,6 +1214,54 @@ def test_doctor_rejects_terminal_review_snapshot_only_on_unmerged_branch(
     assert any("artifact digest drift" in message for message in result["errors"])
 
 
+def test_doctor_rejects_review_snapshot_only_on_merge_second_parent(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    base = project / "README.md"
+    base.write_text("base\n", encoding="utf-8")
+    _commit_all(project, "create canonical base")
+    canonical_branch = _git(project, "branch", "--show-current").stdout.strip()
+
+    _git(project, "switch", "-c", "merged-review")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="second-parent-review"
+    )
+    _finish_terminal_review(store, "second-parent-review")
+    _commit_all(project, "retain review on merge second parent")
+
+    _git(project, "switch", canonical_branch)
+    _git(project, "checkout", "merged-review", "--", "lab")
+    (project / "src/reviewed.txt").parent.mkdir(parents=True, exist_ok=True)
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "import ledger with current source bytes")
+    merged_review = _git(project, "rev-parse", "merged-review").stdout.strip()
+    canonical = _git(project, "rev-parse", "HEAD").stdout.strip()
+    merge_tree = _git(project, "write-tree").stdout.strip()
+    merge = subprocess.run(
+        ("git", "commit-tree", merge_tree, "-p", canonical, "-p", merged_review),
+        cwd=project,
+        input="merge review branch\n",
+        check=True,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "MagentaBench Tests",
+            "GIT_AUTHOR_EMAIL": "magentabench-tests@example.invalid",
+            "GIT_COMMITTER_NAME": "MagentaBench Tests",
+            "GIT_COMMITTER_EMAIL": "magentabench-tests@example.invalid",
+        },
+    ).stdout.strip()
+    _git(project, "reset", "--hard", merge)
+
+    result = LabStore(project).doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
 def test_doctor_rejects_terminal_review_history_in_shallow_repository(
     tmp_path: Path,
 ) -> None:
@@ -1315,6 +1364,30 @@ def test_doctor_fails_closed_on_noncanonical_git_object_ids(
     result = store.doctor()
     assert result["ok"] is False
     assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_ignores_ambient_git_repository_redirection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="ambient-git-review"
+    )
+    _finish_terminal_review(store, "ambient-git-review")
+    _commit_all(project, "retain version one review")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    _git(unrelated, "init")
+    monkeypatch.setenv("GIT_DIR", str(unrelated / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(unrelated))
+
+    assert store.doctor()["ok"] is True
 
 
 def test_doctor_rejects_missing_terminal_review_source_even_if_git_retains_it(
