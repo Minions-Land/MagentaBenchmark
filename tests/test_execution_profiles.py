@@ -297,6 +297,13 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
     launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
     for name in ("cache", "tmp", "artifacts"):
         (tmp_path / name).mkdir()
+    fuse = tmp_path / "fuse"
+    fuse.write_bytes(b"fixture\n")
+    fusermount = tmp_path / "fusermount3"
+    squashfuse = tmp_path / "squashfuse"
+    for helper in (fusermount, squashfuse):
+        helper.write_bytes(b"fixture\n")
+        helper.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
     def fake_run(
         argv: tuple[str, ...], *, timeout: float = 15.0
@@ -321,29 +328,8 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
         "scripts.check_execution_profiles._subordinate_id_entry",
         lambda path, username: False,
     )
-    original_exists = Path.exists
-    original_stat = Path.stat
     monkeypatch.setattr(
-        "scripts.check_execution_profiles.Path.exists",
-        lambda path: True if str(path) == "/dev/fuse" else original_exists(path),
-    )
-    monkeypatch.setattr(
-        "scripts.check_execution_profiles.Path.stat",
-        lambda path: (
-            type("FuseStat", (), {"st_mode": stat.S_IFCHR})()
-            if str(path) == "/dev/fuse"
-            else original_stat(path)
-        ),
-    )
-    monkeypatch.setattr(
-        "scripts.check_execution_profiles.Path.is_file",
-        lambda path: (
-            False
-            if str(path).endswith("cgroup.controllers")
-            else True
-            if str(path) in {"/usr/bin/fusermount3", "/usr/bin/squashfuse"}
-            else original_exists(path)
-        ),
+        "scripts.check_execution_profiles._fuse_device_available", lambda path: True
     )
     monkeypatch.setattr(
         "scripts.check_execution_profiles.os.access", lambda path, mode: True
@@ -359,10 +345,6 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
             if name == "newuidmap"
             else "/usr/bin/newgidmap"
             if name == "newgidmap"
-            else "/usr/bin/fusermount3"
-            if name == "fusermount3"
-            else "/usr/bin/squashfuse"
-            if name == "squashfuse"
             else None
         ),
     )
@@ -376,10 +358,22 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
         "require_gpu": False,
     }
     baseline = probe_apptainer(
-        **common, require_fakeroot=False, require_cgroup_v2=False
+        **common,
+        require_fakeroot=False,
+        require_cgroup_v2=False,
+        fuse_device_path=fuse,
+        cgroup_controllers_path=tmp_path / "missing-cgroup",
+        fusermount_value=str(fusermount),
+        squashfuse_value=str(squashfuse),
     )
     strict = probe_apptainer(
-        **common, require_fakeroot=True, require_cgroup_v2=True
+        **common,
+        require_fakeroot=True,
+        require_cgroup_v2=True,
+        fuse_device_path=fuse,
+        cgroup_controllers_path=tmp_path / "missing-cgroup",
+        fusermount_value=str(fusermount),
+        squashfuse_value=str(squashfuse),
     )
 
     assert baseline["required_checks"] == {

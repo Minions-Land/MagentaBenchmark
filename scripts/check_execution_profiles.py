@@ -141,6 +141,13 @@ def _executable_path(*candidates: str | None) -> str | None:
     )
 
 
+def _fuse_device_available(path: Path) -> bool:
+    try:
+        return path.exists() and stat.S_ISCHR(path.stat().st_mode)
+    except OSError:
+        return False
+
+
 def _gpu_observation() -> dict[str, Any]:
     launcher = shutil.which("nvidia-smi")
     if launcher is None:
@@ -182,6 +189,10 @@ def probe_apptainer(
     require_fakeroot: bool,
     require_cgroup_v2: bool,
     require_gpu: bool,
+    fuse_device_path: Path = Path("/dev/fuse"),
+    cgroup_controllers_path: Path = Path("/sys/fs/cgroup/cgroup.controllers"),
+    fusermount_value: str | None = None,
+    squashfuse_value: str | None = None,
 ) -> dict[str, Any]:
     launcher = _resolve_executable(launcher_value, "apptainer")
     installed = False
@@ -244,21 +255,19 @@ def probe_apptainer(
         _subordinate_id_entry(Path("/etc/subgid"), username)
     )
 
-    fuse = Path("/dev/fuse")
-    try:
-        fuse_device = fuse.exists() and stat.S_ISCHR(fuse.stat().st_mode)
-    except OSError:
-        fuse_device = False
+    fuse_device = _fuse_device_available(fuse_device_path)
     prefix_bin = None if launcher is None else launcher.parent
     fusermount = _executable_path(
+        fusermount_value,
         shutil.which("fusermount3"),
         None if prefix_bin is None else str(prefix_bin / "fusermount3"),
     )
     squashfuse = _executable_path(
+        squashfuse_value,
         shutil.which("squashfuse"),
         None if prefix_bin is None else str(prefix_bin / "squashfuse"),
     )
-    cgroup_v2 = Path("/sys/fs/cgroup/cgroup.controllers").is_file()
+    cgroup_v2 = cgroup_controllers_path.is_file()
 
     storage = {
         "cache": _path_observation(cache_dir, label="APPTAINER_CACHEDIR"),
