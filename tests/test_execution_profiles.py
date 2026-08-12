@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
+import stat
 
 from jsonschema import Draft202012Validator
 import pytest
@@ -11,6 +12,7 @@ from MagentaBench.collab import CollaborationError, ExperimentRepository
 from MagentaBench.collab.repository import classify_changed_paths
 from MagentaBench.lab import LabStore
 from MagentaBench.lab.store import utc_now
+from scripts.check_execution_profiles import probe_apptainer
 
 
 ROOT = Path(__file__).parents[1]
@@ -44,6 +46,12 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert modes["e2b"]["lab_issue"] == "e2b-backend-adapter"
     assert modes["e2b"]["lab_status"] not in {None, "done", "cancelled"}
     assert modes["e2b"]["maximum_evidence_label"] == "exploratory"
+    assert modes["apptainer"]["backends"] == []
+    assert modes["apptainer"]["configured"] is False
+    assert modes["apptainer"]["isolation_boundary"] == "task-container"
+    assert modes["apptainer"]["lab_issue"] == "apptainer-backend-adapter"
+    assert modes["apptainer"]["lab_status"] not in {None, "done", "cancelled"}
+    assert modes["apptainer"]["maximum_evidence_label"] == "exploratory"
 
 
 def test_backend_readiness_does_not_promote_inactive_registered_adapters() -> None:
@@ -125,6 +133,33 @@ def test_open_verifier_boundary_requires_a_live_adapter_work_item(
         repository.execution_modes()
 
 
+def test_apptainer_registered_backend_stays_unconfigured_and_exploratory(
+    tmp_path: Path,
+) -> None:
+    repository = _profile_repository(tmp_path)
+    (tmp_path / "registries/backends/apptainer-test.toml").write_text(
+        "[backend]\n"
+        'id = "apptainer.test"\n'
+        'kind = "container"\n'
+        'adapter = "apptainer"\n',
+        encoding="utf-8",
+    )
+    path = tmp_path / "execution-profiles/apptainer/profile.json"
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    profile["registered_backend_ids"] = ["apptainer.test"]
+    path.write_text(
+        json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    modes = {item["mode"]: item for item in repository.execution_modes()}
+    apptainer = modes["apptainer"]
+    assert apptainer["configured"] is False
+    assert apptainer["standalone_verifier_boundary_closed"] is False
+    assert apptainer["maximum_evidence_label"] == "exploratory"
+    assert apptainer["backends"][0]["configured"] is False
+    assert apptainer["backends"][0]["standalone_verifier_boundary_closed"] is False
+
+
 def test_malformed_backend_declaration_fails_strict_parsing(tmp_path: Path) -> None:
     repository = _profile_repository(tmp_path)
     (tmp_path / "registries/backends/bad.toml").write_text(
@@ -165,6 +200,263 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
 
     trailing_newline = dict(profile, lab_issue="e2b-backend-adapter\n")
     assert list(validator.iter_errors(trailing_newline))
+
+    apptainer = json.loads(
+        (ROOT / "execution-profiles/apptainer/profile.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    missing_probe = dict(apptainer)
+    missing_probe.pop("readiness_probe_argv")
+    assert list(validator.iter_errors(missing_probe))
+
+    shell_probe = dict(apptainer, readiness_probe_argv=("bash", "-c", "true"))
+    assert list(validator.iter_errors(shell_probe))
+
+    foreign_probe = dict(profile, readiness_probe_argv=("bash", "-c", "true"))
+    assert list(validator.iter_errors(foreign_probe))
+
+
+def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"read-only launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    cache = tmp_path / "cache"
+    temporary = tmp_path / "tmp"
+    artifacts = tmp_path / "artifacts"
+    image = tmp_path / "task.sif"
+    for directory in (cache, temporary, artifacts):
+        directory.mkdir()
+    image.write_bytes(b"image path fixture\n")
+
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        commands.append(tuple(argv))
+        if argv[-1] == "--version":
+            return 0, "apptainer version 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=apptainer\nPACKAGE_VERSION=1.5.3"
+        if "--user" in argv:
+            return 0, ""
+        if argv[0].endswith("findmnt"):
+            return 0, "ext4"
+        raise AssertionError(f"unexpected probe command: {argv!r}")
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr("scripts.check_execution_profiles.os.geteuid", lambda: 0)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.pwd.getpwuid",
+        lambda uid: type("Passwd", (), {"pw_name": "root"})(),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which",
+        lambda name: (
+            "/usr/bin/unshare"
+            if name == "unshare"
+            else "/usr/bin/findmnt" if name == "findmnt" else None
+        ),
+    )
+
+    report = probe_apptainer(
+        launcher_value=str(launcher),
+        cache_dir=str(cache),
+        tmp_dir=str(temporary),
+        artifact_root=str(artifacts),
+        image=str(image),
+        require_fakeroot=False,
+        require_cgroup_v2=False,
+        require_gpu=False,
+    )
+
+    assert report["launcher"]["installed"] is True
+    assert report["launcher"]["identity"]["path"] == str(launcher.resolve())
+    assert report["image"] == {
+        "configured": True,
+        "exists": True,
+        "path": str(image.resolve()),
+        "kind": "sif-or-file",
+        "identity_verified": False,
+    }
+    assert report["host_ready"] is False
+    assert report["required_checks"]["rootless_principal"] is False
+    assert "uidmap_helpers" not in report["required_checks"]
+    assert "subordinate_ids" not in report["required_checks"]
+    assert "cgroup_v2" not in report["required_checks"]
+    assert all(
+        "exec" not in command and "pull" not in command for command in commands
+    )
+
+
+def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"read-only launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    for name in ("cache", "tmp", "artifacts"):
+        (tmp_path / name).mkdir()
+    fuse = tmp_path / "fuse"
+    fuse.write_bytes(b"fixture\n")
+    fusermount = tmp_path / "fusermount3"
+    squashfuse = tmp_path / "squashfuse"
+    for helper in (fusermount, squashfuse):
+        helper.write_bytes(b"fixture\n")
+        helper.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        if argv[-1] == "--version":
+            return 0, "apptainer version 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=apptainer\nPACKAGE_VERSION=1.5.3"
+        if "--user" in argv:
+            return 0, ""
+        if argv[0].endswith("findmnt"):
+            return 0, "ext4"
+        raise AssertionError(f"unexpected probe command: {argv!r}")
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr("scripts.check_execution_profiles.os.geteuid", lambda: 1000)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.pwd.getpwuid",
+        lambda uid: type("Passwd", (), {"pw_name": "fixture-user"})(),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles._subordinate_id_entry",
+        lambda path, username: False,
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles._fuse_device_available", lambda path: True
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.os.access", lambda path, mode: True
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which",
+        lambda name: (
+            "/usr/bin/unshare"
+            if name == "unshare"
+            else "/usr/bin/findmnt"
+            if name == "findmnt"
+            else "/usr/bin/newuidmap"
+            if name == "newuidmap"
+            else "/usr/bin/newgidmap"
+            if name == "newgidmap"
+            else None
+        ),
+    )
+
+    common = {
+        "launcher_value": str(launcher),
+        "cache_dir": str(tmp_path / "cache"),
+        "tmp_dir": str(tmp_path / "tmp"),
+        "artifact_root": str(tmp_path / "artifacts"),
+        "image": None,
+        "require_gpu": False,
+    }
+    baseline = probe_apptainer(
+        **common,
+        require_fakeroot=False,
+        require_cgroup_v2=False,
+        fuse_device_path=fuse,
+        cgroup_controllers_path=tmp_path / "missing-cgroup",
+        fusermount_value=str(fusermount),
+        squashfuse_value=str(squashfuse),
+    )
+    strict = probe_apptainer(
+        **common,
+        require_fakeroot=True,
+        require_cgroup_v2=True,
+        fuse_device_path=fuse,
+        cgroup_controllers_path=tmp_path / "missing-cgroup",
+        fusermount_value=str(fusermount),
+        squashfuse_value=str(squashfuse),
+    )
+
+    assert baseline["required_checks"] == {
+        "installed": True,
+        "rootless_principal": True,
+        "user_namespace": True,
+        "fuse_device": True,
+        "squashfuse": True,
+        "persistent_storage": True,
+    }, baseline
+    assert baseline["host_ready"] is True
+    assert baseline["rootless"]["username"] == "fixture-user"
+    assert strict["host_ready"] is False
+    assert strict["required_checks"]["subordinate_ids"] is False
+    assert strict["required_checks"]["cgroup_v2"] is False
+
+
+def test_apptainer_readiness_rejects_wrong_launcher_and_missing_image(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"wrong launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    for name in ("cache", "tmp", "artifacts"):
+        (tmp_path / name).mkdir()
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        if argv[-1] == "--version":
+            return 0, "not-apptainer 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=not-apptainer\nPACKAGE_VERSION=1.5.3"
+        return 1, "unavailable"
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which", lambda name: None
+    )
+
+    report = probe_apptainer(
+        launcher_value=str(launcher),
+        cache_dir=str(tmp_path / "cache"),
+        tmp_dir=str(tmp_path / "tmp"),
+        artifact_root=str(tmp_path / "artifacts"),
+        image=str(tmp_path / "missing.sif"),
+        require_fakeroot=False,
+        require_cgroup_v2=False,
+        require_gpu=False,
+    )
+
+    assert report["launcher"]["installed"] is False
+    assert report["required_checks"]["installed"] is False
+    assert report["required_checks"]["image_available"] is False
+    assert report["host_ready"] is False
+
+
+def test_readiness_subprocess_uses_a_minimal_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_subprocess_run(argv: tuple[str, ...], **kwargs: object) -> object:
+        observed.update(kwargs)
+        return type("Completed", (), {"returncode": 0, "stdout": "ok"})()
+
+    monkeypatch.setenv("MAGENTABENCH_SENTINEL_SECRET", "must-not-leak")
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.subprocess.run", fake_subprocess_run
+    )
+
+    from scripts.check_execution_profiles import _run
+
+    assert _run(("/usr/bin/true",)) == (0, "ok")
+    environment = observed["env"]
+    assert isinstance(environment, dict)
+    assert "MAGENTABENCH_SENTINEL_SECRET" not in environment
 
 
 @pytest.mark.parametrize(

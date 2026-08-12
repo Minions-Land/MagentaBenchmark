@@ -43,6 +43,7 @@
       "enum": [
         "local-process",
         "docker",
+        "apptainer",
         "appcontainer",
         "e2b",
         "remote-sandbox"
@@ -70,6 +71,19 @@
       },
       "type": "array",
       "uniqueItems": true
+    },
+    "readiness_probe_argv": {
+      "items": {
+        "maxLength": 500,
+        "minLength": 1,
+        "not": {
+          "pattern": "[\\r\\n\\u0000]"
+        },
+        "pattern": "^[^\\r\\n\\u0000]+$",
+        "type": "string"
+      },
+      "minItems": 2,
+      "type": "array"
     },
     "required_identity_evidence": {
       "items": {
@@ -175,6 +189,41 @@
           "registered_backend_ids": {
             "minItems": 1
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "apptainer"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "properties": {
+          "readiness_probe_argv": {
+            "const": [
+              "uv",
+              "run",
+              "python",
+              "scripts/check_execution_profiles.py",
+              "apptainer"
+            ]
+          }
+        },
+        "required": [
+          "readiness_probe_argv"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "readiness_probe_argv"
+          ]
         }
       }
     }

@@ -1,0 +1,37 @@
+{
+  "artifact_export_before_destroy": true,
+  "credential_recording": "environment-names-only",
+  "evidence_ceiling": "exploratory",
+  "format": "magentabench-execution-profile-v1",
+  "isolation_boundary": "task-container",
+  "lab_issue": "apptainer-backend-adapter",
+  "mode": "apptainer",
+  "network_policy": "benchmark-defined",
+  "network_observation_required": true,
+  "readiness_probe_argv": [
+    "uv",
+    "run",
+    "python",
+    "scripts/check_execution_profiles.py",
+    "apptainer"
+  ],
+  "registered_backend_ids": [],
+  "required_identity_evidence": [
+    "absolute Apptainer launcher path digest version and build configuration",
+    "content-addressed SIF or reproducible sandbox image identity",
+    "GPU driver and injected library identity when NVIDIA passthrough is enabled"
+  ],
+  "required_recovery_evidence": [
+    "persistent cache scratch and result locators outside the container workspace",
+    "timeout signal escalation and terminal process state",
+    "retained sandbox overlay or content-addressed recovery artifact on failure",
+    "fresh record root for every new execution"
+  ],
+  "required_runtime_evidence": [
+    "non-root principal plus observed user namespace fakeroot FUSE and cgroup mode readiness",
+    "effective contain bind mount writable overlay and network arguments",
+    "container exit stdout stderr usage and accelerator observations",
+    "artifact export completion and standalone verification before teardown"
+  ],
+  "workspace_lifecycle": "persist-on-failure"
+}

@@ -114,6 +114,7 @@ class BundlePurpose(str, Enum):
 class ExecutionMode(str, Enum):
     local_process = "local-process"
     docker = "docker"
+    apptainer = "apptainer"
     appcontainer = "appcontainer"
     e2b = "e2b"
     remote_sandbox = "remote-sandbox"
