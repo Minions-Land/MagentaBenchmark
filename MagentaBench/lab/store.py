@@ -26,8 +26,6 @@ except ImportError:  # pragma: no cover - unsupported platforms fail closed
 from .models import (
     LAB_ID_PATTERN,
     LabArtifactRef,
-    LabBlocker,
-    LabCheckpoint,
     LabEvent,
     LabEventKind,
     LabIssue,
@@ -65,6 +63,8 @@ class LabMutation:
 
 
 _Model = TypeVar("_Model", bound=BaseModel)
+_GIT_HISTORY_TIMEOUT_SECONDS = 10
+_GIT_OBJECT_ID_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
 _SECRET_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
@@ -215,7 +215,7 @@ def _git_history_contains_artifact(
     locator: str,
     ref: LabArtifactRef,
 ) -> bool:
-    """Return whether reachable Git history contains the exact path bytes."""
+    """Return whether complete ``HEAD`` ancestry contains the exact path bytes."""
 
     try:
         relative = PurePosixPath(locator)
@@ -225,21 +225,34 @@ def _git_history_contains_artifact(
             or any(part in {"", ".", ".."} for part in relative.parts)
         ):
             return False
-        revisions = subprocess.run(
-            ("git", "rev-list", "--all", "--", locator),
+        shallow = subprocess.run(
+            ("git", "rev-parse", "--is-shallow-repository"),
             cwd=project_root,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             check=False,
             text=True,
+            timeout=_GIT_HISTORY_TIMEOUT_SECONDS,
         )
-    except (OSError, ValueError):
+        if shallow.returncode != 0 or shallow.stdout.strip() != "false":
+            return False
+        revisions = subprocess.run(
+            ("git", "rev-list", "HEAD", "--", locator),
+            cwd=project_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+            timeout=_GIT_HISTORY_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired, ValueError):
         return False
     if revisions.returncode != 0:
         return False
     for revision in revisions.stdout.splitlines():
-        if re.fullmatch(r"[0-9a-f]{40,64}", revision) is None:
+        if _GIT_OBJECT_ID_PATTERN.fullmatch(revision) is None:
             return False
         try:
             blob = subprocess.run(
@@ -249,8 +262,9 @@ def _git_history_contains_artifact(
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 check=False,
+                timeout=_GIT_HISTORY_TIMEOUT_SECONDS,
             )
-        except OSError:
+        except (OSError, subprocess.TimeoutExpired):
             return False
         if (
             blob.returncode == 0
