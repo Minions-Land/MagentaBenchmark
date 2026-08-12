@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import multiprocessing
 from pathlib import Path
+import subprocess
 
 import pytest
 from pydantic import ValidationError
@@ -70,6 +71,115 @@ def _concurrent_note(project_root: str, lab_root: str, event_id: str) -> None:
         created_at=T0 + timedelta(seconds=1),
         note=f"completed {event_id}",
     )
+
+
+def _git(project: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ("git", *argv),
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _commit_all(project: Path, message: str) -> None:
+    _git(project, "add", ".")
+    _git(
+        project,
+        "-c",
+        "user.name=MagentaBench Tests",
+        "-c",
+        "user.email=magentabench-tests@example.invalid",
+        "commit",
+        "-m",
+        message,
+    )
+
+
+def _terminal_review_with_source_snapshot(
+    project: Path,
+    *,
+    issue_id: str,
+) -> tuple[LabStore, LabArtifactRef]:
+    store = LabStore(project)
+    source = project / "src/reviewed.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("version one\n", encoding="utf-8")
+    store.open_issue(_issue(issue_id))
+    store.append_event(
+        issue_id,
+        "ready",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=1),
+        status=LabStatus.ready,
+    )
+    store.append_event(
+        issue_id,
+        "claim",
+        LabEventKind.claim,
+        "alice",
+        created_at=T0 + timedelta(seconds=2),
+        owner="alice",
+        lease_id=f"lease-{issue_id}",
+        lease_ttl_seconds=3600,
+        lease_base_commit=HEAD,
+        lease_branch=f"work/{issue_id}",
+    )
+    store.append_event(
+        issue_id,
+        "running",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=3),
+        status=LabStatus.running,
+    )
+    store.append_event(
+        issue_id,
+        "checkpoint",
+        LabEventKind.checkpoint,
+        "alice",
+        created_at=T0 + timedelta(seconds=4),
+        checkpoint=LabCheckpoint(
+            git_head=HEAD,
+            git_branch=f"work/{issue_id}",
+            worktree_clean=True,
+            resume_argv=("uv", "run", "bmp-lab", "recover", issue_id),
+            next_action="Verify the source snapshot.",
+        ),
+    )
+    store.append_event(
+        issue_id,
+        "verifying",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=5),
+        status=LabStatus.verifying,
+    )
+    store.append_event(
+        issue_id,
+        "release",
+        LabEventKind.release,
+        "alice",
+        created_at=T0 + timedelta(seconds=6),
+        lease_id=f"lease-{issue_id}",
+    )
+    ref = artifact_ref_from_path(source, project_root=project)
+    store.append_event(
+        issue_id,
+        "review",
+        LabEventKind.review,
+        "alice",
+        created_at=T0 + timedelta(seconds=7),
+        review=LabReview(
+            verdict=LabReviewVerdict.approved,
+            summary="The source snapshot satisfies the criterion.",
+            accepted_criteria=("verified",),
+            evidence_refs=(ref,),
+        ),
+    )
+    return store, ref
 
 
 def test_issue_creation_and_event_retry_are_idempotent(tmp_path: Path) -> None:
@@ -1014,6 +1124,76 @@ def test_doctor_detects_content_addressed_artifact_drift(tmp_path: Path) -> None
     )
     assert store.doctor()["ok"] is True
     artifact.write_text("drift\n", encoding="utf-8")
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_recovers_terminal_review_source_snapshot_from_git_history(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(project, issue_id="git-review")
+    store.append_event(
+        "git-review",
+        "done",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=8),
+        status=LabStatus.done,
+    )
+    _commit_all(project, "retain version one review")
+
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    assert store.doctor()["ok"] is True
+
+
+def test_doctor_rejects_terminal_review_digest_absent_from_git_history(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, ref = _terminal_review_with_source_snapshot(project, issue_id="bad-history")
+    event_path = project / "lab/issues/bad-history/events/review.json"
+    event = LabEvent.model_validate_json(event_path.read_bytes(), strict=True)
+    assert event.review is not None
+    fabricated_ref = ref.model_copy(update={"sha256": "f" * 64})
+    fabricated_review = event.review.model_copy(update={"evidence_refs": (fabricated_ref,)})
+    fabricated_event = event.model_copy(update={"review": fabricated_review})
+    event_path.write_bytes(canonical_json_bytes(fabricated_event))
+    store.append_event(
+        "bad-history",
+        "done",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=8),
+        status=LabStatus.done,
+    )
+    _commit_all(project, "retain fabricated review reference")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_keeps_non_terminal_review_evidence_fail_closed(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(project, issue_id="active-review")
+    _commit_all(project, "retain active review")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update active reviewed source")
+
     result = store.doctor()
     assert result["ok"] is False
     assert any("artifact digest drift" in message for message in result["errors"])

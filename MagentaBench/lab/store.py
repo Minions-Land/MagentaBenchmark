@@ -8,6 +8,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shlex
+import subprocess
 import tempfile
 import threading
 from contextlib import contextmanager
@@ -207,6 +208,55 @@ def _reject_symlink_ancestors(path: Path, *, label: str) -> None:
     for candidate in (path, *path.parents):
         if candidate.is_symlink():
             raise LabDriftError(f"{label} contains a symlink: {candidate}")
+
+
+def _git_history_contains_artifact(
+    project_root: Path,
+    locator: str,
+    ref: LabArtifactRef,
+) -> bool:
+    """Return whether reachable Git history contains the exact path bytes."""
+
+    try:
+        relative = PurePosixPath(locator)
+        if (
+            relative.is_absolute()
+            or not relative.parts
+            or any(part in {"", ".", ".."} for part in relative.parts)
+        ):
+            return False
+        revisions = subprocess.run(
+            ("git", "rev-list", "--all", "--", locator),
+            cwd=project_root,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+        )
+    except (OSError, ValueError):
+        return False
+    if revisions.returncode != 0:
+        return False
+    for revision in revisions.stdout.splitlines():
+        try:
+            blob = subprocess.run(
+                ("git", "show", f"{revision}:{locator}"),
+                cwd=project_root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        except OSError:
+            return False
+        if (
+            blob.returncode == 0
+            and len(blob.stdout) == ref.size_bytes
+            and _sha256(blob.stdout) == ref.sha256
+        ):
+            return True
+    return False
 
 
 def artifact_ref_from_path(
@@ -893,6 +943,7 @@ class LabStore:
             ref: LabArtifactRef,
             *,
             verify_report: bool = False,
+            allow_terminal_git_history: bool = False,
         ) -> None:
             if "://" in ref.locator:
                 message = (
@@ -925,6 +976,10 @@ class LabStore:
                 return
             content = path.read_bytes()
             if len(content) != ref.size_bytes or _sha256(content) != ref.sha256:
+                if allow_terminal_git_history and portable and _git_history_contains_artifact(
+                    self.project_root, ref.locator, ref
+                ):
+                    return
                 errors.append(f"{issue_id}: {label} artifact digest drift: {ref.locator}")
                 return
             if verify_report:
@@ -983,7 +1038,13 @@ class LabStore:
                     check_ref(issue_id, f"checkpoint artifact[{index}]", ref)
             if state.latest_review is not None:
                 for index, ref in enumerate(state.latest_review.evidence_refs):
-                    check_ref(issue_id, f"review evidence[{index}]", ref)
+                    check_ref(
+                        issue_id,
+                        f"review evidence[{index}]",
+                        ref,
+                        allow_terminal_git_history=state.status
+                        in {LabStatus.done, LabStatus.cancelled},
+                    )
             for run in state.runs:
                 if run.report_ref is not None:
                     check_ref(

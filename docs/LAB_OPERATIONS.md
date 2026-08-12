@@ -150,6 +150,13 @@ Entering `done` requires all of the following:
 Those conditions govern work-item completion only. Benchmark promotion still
 depends on the report and evidence gates in `docs/EXPERIMENT_RUNBOOK.md`.
 
+Prefer immutable, content-addressed artifacts for review evidence. If a
+completed or cancelled issue cites a repository-relative source file and that
+file later changes, `bmp-lab doctor` accepts the snapshot only when the same
+path has the exact recorded digest and size in reachable Git history. Active
+issues still require the current bytes to match, and shallow clones can never
+be used for this recovery check; required CI jobs therefore fetch full history.
+
 ## 6. Lease and Write-Scope Workflow
 
 Before editing or starting a shared resource:
