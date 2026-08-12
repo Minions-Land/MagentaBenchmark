@@ -484,6 +484,10 @@ def test_readiness_subprocess_uses_a_minimal_environment(
         ("image", "https:/user:SENTINEL@example.invalid/task.sif"),
         ("image", "user:SENTINEL@example.invalid/task.sif"),
         ("image", r"C:\\tmp\\SENTINEL.sif"),
+        ("image", "./https://user:SENTINEL@example.invalid/task.sif"),
+        ("image", "/tmp/ssh://user:SENTINEL@example.invalid/task.sif"),
+        ("image", "task.sif?token=SENTINEL"),
+        ("image", "task.sif#credential=SENTINEL"),
     ),
 )
 def test_apptainer_readiness_rejects_uri_locators_without_echoing_values(
@@ -522,6 +526,10 @@ def test_apptainer_readiness_rejects_uri_locators_without_echoing_values(
         "https:/user:SENTINEL@example.invalid/task.sif",
         "user:SENTINEL@example.invalid/task.sif",
         r"C:\\tmp\\SENTINEL.sif",
+        "./https://user:SENTINEL@example.invalid/task.sif",
+        "/tmp/ssh://user:SENTINEL@example.invalid/task.sif",
+        "task.sif?token=SENTINEL",
+        "task.sif#credential=SENTINEL",
     ),
 )
 def test_apptainer_readiness_cli_never_echoes_rejected_locator(

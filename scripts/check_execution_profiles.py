@@ -39,7 +39,14 @@ def _local_path_text(value: str, *, label: str) -> str:
     safe = _safe_text(value, label=label)
     normalized = safe.replace("\\", "/")
     parsed = urlsplit(normalized)
-    if parsed.scheme or parsed.netloc or "\\" in safe:
+    if (
+        parsed.scheme
+        or parsed.netloc
+        or "://" in normalized
+        or "?" in normalized
+        or "#" in normalized
+        or "\\" in safe
+    ):
         raise ValueError(f"{label} must be a local filesystem path")
     return safe
 
