@@ -65,6 +65,16 @@ class LabMutation:
 _Model = TypeVar("_Model", bound=BaseModel)
 _GIT_HISTORY_TIMEOUT_SECONDS = 10
 _GIT_OBJECT_ID_PATTERN = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})")
+_GIT_HISTORY_ENV = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_OPTIONAL_LOCKS": "0",
+    "GIT_TERMINAL_PROMPT": "0",
+    "HOME": "/nonexistent",
+    "LANG": "C",
+    "LC_ALL": "C",
+    "PATH": os.environ.get("PATH", os.defpath),
+}
 _SECRET_PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
@@ -225,9 +235,30 @@ def _git_history_contains_artifact(
             or any(part in {"", ".", ".."} for part in relative.parts)
         ):
             return False
+        top_level = subprocess.run(
+            ("git", "rev-parse", "--show-toplevel"),
+            cwd=project_root,
+            env=_GIT_HISTORY_ENV,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            text=True,
+            timeout=_GIT_HISTORY_TIMEOUT_SECONDS,
+        )
+        if top_level.returncode != 0:
+            return False
+        try:
+            observed_root = Path(top_level.stdout.strip()).resolve(strict=True)
+            expected_root = project_root.resolve(strict=True)
+        except OSError:
+            return False
+        if observed_root != expected_root:
+            return False
         shallow = subprocess.run(
             ("git", "rev-parse", "--is-shallow-repository"),
             cwd=project_root,
+            env=_GIT_HISTORY_ENV,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -238,8 +269,9 @@ def _git_history_contains_artifact(
         if shallow.returncode != 0 or shallow.stdout.strip() != "false":
             return False
         revisions = subprocess.run(
-            ("git", "rev-list", "HEAD", "--", locator),
+            ("git", "rev-list", "--first-parent", "HEAD", "--", locator),
             cwd=project_root,
+            env=_GIT_HISTORY_ENV,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -258,6 +290,7 @@ def _git_history_contains_artifact(
             blob = subprocess.run(
                 ("git", "show", f"{revision}:{locator}"),
                 cwd=project_root,
+                env=_GIT_HISTORY_ENV,
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
