@@ -19,6 +19,7 @@ import stat
 import subprocess
 import sys
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 
 _SAFE_SUBPROCESS_ENV = {
@@ -28,12 +29,19 @@ _SAFE_SUBPROCESS_ENV = {
     "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 }
 _APPTAINER_VERSION_PREFIX = "apptainer version "
-
-
 def _safe_text(value: str, *, label: str) -> str:
     if not value or any(character in value for character in ("\x00", "\r", "\n")):
         raise ValueError(f"{label} must be non-empty single-line text")
     return value
+
+
+def _local_path_text(value: str, *, label: str) -> str:
+    safe = _safe_text(value, label=label)
+    normalized = safe.replace("\\", "/")
+    parsed = urlsplit(normalized)
+    if parsed.scheme or parsed.netloc or "\\" in safe:
+        raise ValueError(f"{label} must be a local filesystem path")
+    return safe
 
 
 def _run(argv: Sequence[str], *, timeout: float = 15.0) -> tuple[int, str]:
@@ -65,7 +73,7 @@ def _resolve_executable(value: str | None, fallback: str) -> Path | None:
     candidate = value or shutil.which(fallback)
     if candidate is None:
         return None
-    candidate = _safe_text(candidate, label=f"{fallback} launcher")
+    candidate = _local_path_text(candidate, label=f"{fallback} launcher")
     if os.sep not in candidate:
         resolved = shutil.which(candidate)
         if resolved is None:
@@ -95,7 +103,7 @@ def _path_observation(value: str | None, *, label: str) -> dict[str, Any]:
             "path": None,
             "filesystem": None,
         }
-    safe = _safe_text(value, label=label)
+    safe = _local_path_text(value, label=label)
     path = Path(safe).expanduser().resolve(strict=False)
     exists = path.is_dir()
     filesystem = None
@@ -290,7 +298,7 @@ def probe_apptainer(
             "identity_verified": False,
         }
     else:
-        image_path = Path(_safe_text(image, label="Apptainer image")).expanduser()
+        image_path = Path(_local_path_text(image, label="Apptainer image")).expanduser()
         resolved_image = image_path.resolve(strict=False)
         image_observation = {
             "configured": True,

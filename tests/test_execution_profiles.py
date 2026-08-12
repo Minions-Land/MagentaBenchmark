@@ -12,7 +12,7 @@ from MagentaBench.collab import CollaborationError, ExperimentRepository
 from MagentaBench.collab.repository import classify_changed_paths
 from MagentaBench.lab import LabStore
 from MagentaBench.lab.store import utc_now
-from scripts.check_execution_profiles import probe_apptainer
+from scripts.check_execution_profiles import main, probe_apptainer
 
 
 ROOT = Path(__file__).parents[1]
@@ -212,6 +212,18 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
 
     shell_probe = dict(apptainer, readiness_probe_argv=("bash", "-c", "true"))
     assert list(validator.iter_errors(shell_probe))
+
+    syncing_probe = dict(
+        apptainer,
+        readiness_probe_argv=(
+            "uv",
+            "run",
+            "python",
+            "scripts/check_execution_profiles.py",
+            "apptainer",
+        ),
+    )
+    assert list(validator.iter_errors(syncing_probe))
 
     foreign_probe = dict(profile, readiness_probe_argv=("bash", "-c", "true"))
     assert list(validator.iter_errors(foreign_probe))
@@ -457,6 +469,72 @@ def test_readiness_subprocess_uses_a_minimal_environment(
     environment = observed["env"]
     assert isinstance(environment, dict)
     assert "MAGENTABENCH_SENTINEL_SECRET" not in environment
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("launcher_value", "https://user:sentinel@example.invalid/apptainer"),
+        ("cache_dir", "https://user:sentinel@example.invalid/cache"),
+        ("tmp_dir", "file:///tmp/sentinel"),
+        ("artifact_root", "ssh://user:sentinel@example.invalid/artifacts"),
+        ("image", "https://user:sentinel@example.invalid/task.sif"),
+        ("image", "//user:SENTINEL@example.invalid/task.sif"),
+        ("image", "FILE:/tmp/SENTINEL.sif"),
+        ("image", "https:/user:SENTINEL@example.invalid/task.sif"),
+        ("image", "user:SENTINEL@example.invalid/task.sif"),
+        ("image", r"C:\\tmp\\SENTINEL.sif"),
+    ),
+)
+def test_apptainer_readiness_rejects_uri_locators_without_echoing_values(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    arguments: dict[str, object] = {
+        "launcher_value": str(launcher),
+        "cache_dir": str(tmp_path),
+        "tmp_dir": str(tmp_path),
+        "artifact_root": str(tmp_path),
+        "image": None,
+        "require_fakeroot": False,
+        "require_cgroup_v2": False,
+        "require_gpu": False,
+    }
+    arguments[field] = value
+
+    with pytest.raises(ValueError) as error:
+        probe_apptainer(**arguments)
+
+    assert "sentinel" not in str(error.value)
+    assert "SENTINEL" not in str(error.value)
+    assert value not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        "//user:SENTINEL@example.invalid/task.sif",
+        "FILE:/tmp/SENTINEL.sif",
+        "https:/user:SENTINEL@example.invalid/task.sif",
+        "user:SENTINEL@example.invalid/task.sif",
+        r"C:\\tmp\\SENTINEL.sif",
+    ),
+)
+def test_apptainer_readiness_cli_never_echoes_rejected_locator(
+    capsys: pytest.CaptureFixture[str],
+    value: str,
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(("apptainer", "--image", value))
+
+    assert error.value.code == 2
+    captured = capsys.readouterr()
+    assert "SENTINEL" not in captured.out
+    assert "SENTINEL" not in captured.err
 
 
 @pytest.mark.parametrize(

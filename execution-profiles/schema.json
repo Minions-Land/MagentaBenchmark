@@ -209,6 +209,8 @@
             "const": [
               "uv",
               "run",
+              "--frozen",
+              "--no-sync",
               "python",
               "scripts/check_execution_profiles.py",
               "apptainer"

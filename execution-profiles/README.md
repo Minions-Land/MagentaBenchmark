@@ -24,7 +24,7 @@ execute a benchmark image, and success never registers a backend or raises the
 profile's evidence ceiling. Apptainer currently provides this host probe:
 
 ```bash
-uv run --frozen python scripts/check_execution_profiles.py apptainer
+uv run --frozen --no-sync python scripts/check_execution_profiles.py apptainer
 ```
 
 Set `APPTAINER_BIN`, `APPTAINER_CACHEDIR`, `APPTAINER_TMPDIR`, and
@@ -34,3 +34,6 @@ present. Pass `--require-fakeroot`, `--require-cgroup-v2`, and/or
 `--require-gpu` when those capabilities are prerequisites for the selected
 Benchmark. Only variable names and local metadata are reported; image identity
 remains a future backend receipt.
+
+Launcher, storage, and image inputs are local filesystem paths only. URI or
+authenticated URL syntax is rejected before it can be recorded or executed.
