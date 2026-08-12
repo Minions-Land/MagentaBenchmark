@@ -15,7 +15,7 @@ target requirements live in `execution-profiles/<mode>/profile.json`.
 | --- | --- | --- | --- | --- |
 | `local-process` | fake/subprocess configured; Harbor shim registered-only | process | BMP-gated for configured backends | none |
 | `docker` | Harbor configured; AOSE Docker registered-only until its factory capability is present | task container | BMP-gated for configured backends | benchmark-specific blockers remain in `lab/` |
-| `apptainer` | host readiness probe only; no registered backend | task container | exploratory | `apptainer-backend-adapter` |
+| `apptainer` | host readiness probe only; no registered backend | task container | exploratory | `apptainer-runtime-core` |
 | `appcontainer` | no concrete runtime or adapter | task container | exploratory | `appcontainer-backend-adapter` |
 | `e2b` | no adapter | microVM | exploratory | `e2b-backend-adapter` |
 | `remote-sandbox` | extension slot only | microVM | exploratory | `remote-sandbox-backend-adapter` |
@@ -67,11 +67,19 @@ requirements rather than universal Apptainer requirements. The probe never
 pulls, builds, inspects, or executes an image.
 
 This mode has no registered backend today, remains `exploratory`, and cannot be
-selected for a BMP execution. The linked `apptainer-backend-adapter` work item
-must separately bind a launcher and SIF/sandbox identity, implement effective
-bind/overlay/network/GPU arguments, export artifacts, persist cancellation and
-teardown receipts, and close standalone verification. Host readiness is not a
-runtime activation receipt and does not upgrade evidence.
+selected for a BMP execution. The linked `apptainer-runtime-core` work item
+must first bind a launcher and SIF/sandbox identity, implement effective
+bind/overlay/network/GPU arguments, export artifacts, and persist cancellation
+and teardown receipts. The separate `apptainer-verifier-boundary` work item
+must then close standalone verification. Host readiness is not a runtime
+activation receipt and does not upgrade evidence.
+
+NatureBench-specific translation belongs in the NatureBench repository on its
+dedicated `NatureBranch`; it must not import NatureBench task, scoring, hidden
+data, or runner source into MagentaBench. Until the generic runtime and verifier
+contracts are reviewed, that branch is planning-only: hold the NatureBench
+protocol and existing source fixed, and limit work to interface mapping and a
+future thin integration package owned by the NatureBench repository.
 
 ### AppContainer
 
