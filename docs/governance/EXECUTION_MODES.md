@@ -62,7 +62,9 @@ provider-neutral `AppContainer` slot. The checked-in profile and read-only host
 probe can observe an absolute launcher path, launcher digest/version/build
 configuration, non-root user namespaces, subordinate IDs, FUSE, cgroup v2,
 persistent storage, optional GPU visibility, and whether a configured image
-path exists. The probe never pulls, builds, inspects, or executes an image.
+path exists. Fakeroot, cgroup v2, and GPU visibility are explicit per-Benchmark
+requirements rather than universal Apptainer requirements. The probe never
+pulls, builds, inspects, or executes an image.
 
 This mode has no registered backend today, remains `exploratory`, and cannot be
 selected for a BMP execution. The linked `apptainer-backend-adapter` work item

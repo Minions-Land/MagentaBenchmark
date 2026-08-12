@@ -261,8 +261,9 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
         tmp_dir=str(temporary),
         artifact_root=str(artifacts),
         image=str(image),
+        require_fakeroot=False,
+        require_cgroup_v2=False,
         require_gpu=False,
-        environ={"USER": "fixture-user"},
     )
 
     assert report["launcher"]["installed"] is True
@@ -276,9 +277,119 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
     }
     assert report["host_ready"] is False
     assert report["required_checks"]["rootless_principal"] is False
+    assert "uidmap_helpers" not in report["required_checks"]
+    assert "subordinate_ids" not in report["required_checks"]
+    assert "cgroup_v2" not in report["required_checks"]
     assert all(
         "exec" not in command and "pull" not in command for command in commands
     )
+
+
+def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    launcher = tmp_path / "apptainer"
+    launcher.write_bytes(b"read-only launcher fixture\n")
+    launcher.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+    for name in ("cache", "tmp", "artifacts"):
+        (tmp_path / name).mkdir()
+
+    def fake_run(
+        argv: tuple[str, ...], *, timeout: float = 15.0
+    ) -> tuple[int, str]:
+        if argv[-1] == "--version":
+            return 0, "apptainer version 1.5.3"
+        if argv[-1] == "buildcfg":
+            return 0, "PACKAGE_NAME=apptainer\nPACKAGE_VERSION=1.5.3"
+        if "--user" in argv:
+            return 0, ""
+        if argv[0].endswith("findmnt"):
+            return 0, "ext4"
+        raise AssertionError(f"unexpected probe command: {argv!r}")
+
+    monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr("scripts.check_execution_profiles.os.geteuid", lambda: 1000)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.pwd.getpwuid",
+        lambda uid: type("Passwd", (), {"pw_name": "fixture-user"})(),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles._subordinate_id_entry",
+        lambda path, username: False,
+    )
+    original_exists = Path.exists
+    original_stat = Path.stat
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.Path.exists",
+        lambda path: True if str(path) == "/dev/fuse" else original_exists(path),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.Path.stat",
+        lambda path: (
+            type("FuseStat", (), {"st_mode": stat.S_IFCHR})()
+            if str(path) == "/dev/fuse"
+            else original_stat(path)
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.Path.is_file",
+        lambda path: (
+            False
+            if str(path).endswith("cgroup.controllers")
+            else True
+            if str(path) == "/usr/bin/fusermount3"
+            else original_exists(path)
+        ),
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.os.access", lambda path, mode: True
+    )
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.shutil.which",
+        lambda name: (
+            "/usr/bin/unshare"
+            if name == "unshare"
+            else "/usr/bin/findmnt"
+            if name == "findmnt"
+            else "/usr/bin/newuidmap"
+            if name == "newuidmap"
+            else "/usr/bin/newgidmap"
+            if name == "newgidmap"
+            else "/usr/bin/fusermount3"
+            if name == "fusermount3"
+            else None
+        ),
+    )
+
+    common = {
+        "launcher_value": str(launcher),
+        "cache_dir": str(tmp_path / "cache"),
+        "tmp_dir": str(tmp_path / "tmp"),
+        "artifact_root": str(tmp_path / "artifacts"),
+        "image": None,
+        "require_gpu": False,
+    }
+    baseline = probe_apptainer(
+        **common, require_fakeroot=False, require_cgroup_v2=False
+    )
+    strict = probe_apptainer(
+        **common, require_fakeroot=True, require_cgroup_v2=True
+    )
+
+    assert baseline["required_checks"] == {
+        "installed": True,
+        "rootless_principal": True,
+        "user_namespace": True,
+        "fuse_device": True,
+        "fuse_helper": True,
+        "persistent_storage": True,
+    }, baseline
+    assert baseline["host_ready"] is True
+    assert baseline["rootless"]["username"] == "fixture-user"
+    assert strict["host_ready"] is False
+    assert strict["required_checks"]["subordinate_ids"] is False
+    assert strict["required_checks"]["cgroup_v2"] is False
 
 
 @pytest.mark.parametrize(

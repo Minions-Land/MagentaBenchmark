@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import shutil
 import stat
 import subprocess
@@ -147,10 +148,10 @@ def probe_apptainer(
     tmp_dir: str | None,
     artifact_root: str | None,
     image: str | None,
+    require_fakeroot: bool,
+    require_cgroup_v2: bool,
     require_gpu: bool,
-    environ: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
-    environ = os.environ if environ is None else environ
     launcher = _resolve_executable(launcher_value, "apptainer")
     installed = launcher is not None
     version = None
@@ -182,8 +183,11 @@ def probe_apptainer(
             "mode": stat.S_IMODE(metadata.st_mode),
         }
 
-    username = environ.get("USER") or environ.get("LOGNAME") or str(os.geteuid())
     uid = os.geteuid()
+    try:
+        username = pwd.getpwuid(uid).pw_name
+    except KeyError:
+        username = str(uid)
     rootless_principal = uid != 0
     unshare = shutil.which("unshare")
     userns_ok = False
@@ -264,13 +268,15 @@ def probe_apptainer(
         "installed": installed,
         "rootless_principal": rootless_principal,
         "user_namespace": userns_ok,
-        "uidmap_helpers": uidmap_helpers,
-        "subordinate_ids": subordinate_ids,
         "fuse_device": fuse_device,
         "fuse_helper": fuse_helper is not None,
-        "cgroup_v2": cgroup_v2,
         "persistent_storage": storage_ready,
     }
+    if require_fakeroot:
+        required_checks["uidmap_helpers"] = uidmap_helpers
+        required_checks["subordinate_ids"] = subordinate_ids
+    if require_cgroup_v2:
+        required_checks["cgroup_v2"] = cgroup_v2
     if require_gpu:
         required_checks["gpu_visible"] = bool(gpu["visible"])
     host_ready = all(required_checks.values())
@@ -299,12 +305,18 @@ def probe_apptainer(
             "fuse_helper": fuse_helper,
             "cgroup_v2": cgroup_v2,
         },
+        "requirements": {
+            "fakeroot": require_fakeroot,
+            "cgroup_v2": require_cgroup_v2,
+            "gpu": require_gpu,
+        },
         "storage": storage,
         "image": image_observation,
         "gpu": gpu,
         "limitations": [
             "This probe does not pull, build, inspect, or execute an image.",
             "GPU visibility does not prove Apptainer --nv passthrough.",
+            "Fakeroot and cgroup v2 become gates only when explicitly required.",
             "Image identity and runtime behavior require a concrete backend receipt.",
             (
                 "Host readiness never upgrades a result beyond the profile evidence "
@@ -347,6 +359,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--image", default=os.environ.get("MAGENTABENCH_APPTAINER_IMAGE")
     )
+    parser.add_argument("--require-fakeroot", action="store_true")
+    parser.add_argument("--require-cgroup-v2", action="store_true")
     parser.add_argument("--require-gpu", action="store_true")
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
@@ -357,6 +371,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             tmp_dir=args.tmp_dir,
             artifact_root=args.artifact_root,
             image=args.image,
+            require_fakeroot=args.require_fakeroot,
+            require_cgroup_v2=args.require_cgroup_v2,
             require_gpu=args.require_gpu,
         )
     except (OSError, ValueError) as exc:

@@ -30,6 +30,7 @@ uv run --frozen python scripts/check_execution_profiles.py apptainer
 Set `APPTAINER_BIN`, `APPTAINER_CACHEDIR`, `APPTAINER_TMPDIR`, and
 `MAGENTABENCH_ARTIFACT_ROOT` to inspect a particular installation. Optionally
 set `MAGENTABENCH_APPTAINER_IMAGE` to check whether an expected image path is
-present and pass `--require-gpu` when GPU visibility is a host prerequisite.
-Only variable names and local metadata are reported; image identity remains a
-future backend receipt.
+present. Pass `--require-fakeroot`, `--require-cgroup-v2`, and/or
+`--require-gpu` when those capabilities are prerequisites for the selected
+Benchmark. Only variable names and local metadata are reported; image identity
+remains a future backend receipt.

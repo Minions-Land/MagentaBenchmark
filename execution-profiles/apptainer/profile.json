@@ -28,7 +28,7 @@
     "fresh record root for every new execution"
   ],
   "required_runtime_evidence": [
-    "non-root principal plus user namespace fakeroot FUSE and cgroup v2 readiness",
+    "non-root principal plus observed user namespace fakeroot FUSE and cgroup mode readiness",
     "effective contain bind mount writable overlay and network arguments",
     "container exit stdout stderr usage and accelerator observations",
     "artifact export completion and standalone verification before teardown"
