@@ -239,6 +239,8 @@ def _git_history_contains_artifact(
     if revisions.returncode != 0:
         return False
     for revision in revisions.stdout.splitlines():
+        if re.fullmatch(r"[0-9a-f]{40,64}", revision) is None:
+            return False
         try:
             blob = subprocess.run(
                 ("git", "show", f"{revision}:{locator}"),

@@ -1183,6 +1183,37 @@ def test_doctor_rejects_terminal_review_digest_absent_from_git_history(
     assert any("artifact digest drift" in message for message in result["errors"])
 
 
+def test_doctor_rejects_terminal_review_size_absent_from_git_history(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, ref = _terminal_review_with_source_snapshot(project, issue_id="bad-size")
+    event_path = project / "lab/issues/bad-size/events/review.json"
+    event = LabEvent.model_validate_json(event_path.read_bytes(), strict=True)
+    assert event.review is not None
+    fabricated_ref = ref.model_copy(update={"size_bytes": ref.size_bytes + 1})
+    fabricated_review = event.review.model_copy(update={"evidence_refs": (fabricated_ref,)})
+    fabricated_event = event.model_copy(update={"review": fabricated_review})
+    event_path.write_bytes(canonical_json_bytes(fabricated_event))
+    store.append_event(
+        "bad-size",
+        "done",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=8),
+        status=LabStatus.done,
+    )
+    _commit_all(project, "retain fabricated review size")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
 def test_doctor_keeps_non_terminal_review_evidence_fail_closed(
     tmp_path: Path,
 ) -> None:
