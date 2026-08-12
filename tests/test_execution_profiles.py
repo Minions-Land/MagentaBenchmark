@@ -249,6 +249,11 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
         raise AssertionError(f"unexpected probe command: {argv!r}")
 
     monkeypatch.setattr("scripts.check_execution_profiles._run", fake_run)
+    monkeypatch.setattr("scripts.check_execution_profiles.os.geteuid", lambda: 0)
+    monkeypatch.setattr(
+        "scripts.check_execution_profiles.pwd.getpwuid",
+        lambda uid: type("Passwd", (), {"pw_name": "root"})(),
+    )
     monkeypatch.setattr(
         "scripts.check_execution_profiles.shutil.which",
         lambda name: (
