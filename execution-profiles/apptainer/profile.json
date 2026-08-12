@@ -4,7 +4,7 @@
   "evidence_ceiling": "exploratory",
   "format": "magentabench-execution-profile-v1",
   "isolation_boundary": "task-container",
-  "lab_issue": "apptainer-backend-adapter",
+  "lab_issue": "apptainer-runtime-core",
   "mode": "apptainer",
   "network_policy": "benchmark-defined",
   "network_observation_required": true,
