@@ -11,6 +11,8 @@
   "readiness_probe_argv": [
     "uv",
     "run",
+    "--frozen",
+    "--no-sync",
     "python",
     "scripts/check_execution_profiles.py",
     "apptainer"
