@@ -182,6 +182,22 @@ def _terminal_review_with_source_snapshot(
     return store, ref
 
 
+def _finish_terminal_review(
+    store: LabStore,
+    issue_id: str,
+    *,
+    status: LabStatus = LabStatus.done,
+) -> None:
+    store.append_event(
+        issue_id,
+        status.value,
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=8),
+        status=status,
+    )
+
+
 def test_issue_creation_and_event_retry_are_idempotent(tmp_path: Path) -> None:
     store = LabStore(tmp_path)
     first = store.open_issue(_issue("idempotent"))
@@ -1136,20 +1152,188 @@ def test_doctor_recovers_terminal_review_source_snapshot_from_git_history(
     project.mkdir()
     _git(project, "init")
     store, _ = _terminal_review_with_source_snapshot(project, issue_id="git-review")
-    store.append_event(
-        "git-review",
-        "done",
-        LabEventKind.status,
-        "alice",
-        created_at=T0 + timedelta(seconds=8),
-        status=LabStatus.done,
-    )
+    _finish_terminal_review(store, "git-review")
     _commit_all(project, "retain version one review")
 
     (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
     _commit_all(project, "update reviewed source")
 
     assert store.doctor()["ok"] is True
+
+
+def test_doctor_recovers_cancelled_review_source_snapshot_from_git_history(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="cancelled-git-review"
+    )
+    _finish_terminal_review(
+        store,
+        "cancelled-git-review",
+        status=LabStatus.cancelled,
+    )
+    _commit_all(project, "retain cancelled version one review")
+
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update cancelled reviewed source")
+
+    assert store.doctor()["ok"] is True
+
+
+def test_doctor_rejects_terminal_review_snapshot_only_on_unmerged_branch(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    base = project / "README.md"
+    base.write_text("base\n", encoding="utf-8")
+    _commit_all(project, "create canonical base")
+    canonical_branch = _git(project, "branch", "--show-current").stdout.strip()
+
+    _git(project, "switch", "-c", "unmerged-review")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="unmerged-git-review"
+    )
+    _finish_terminal_review(store, "unmerged-git-review")
+    _commit_all(project, "retain review only on unmerged branch")
+
+    _git(project, "switch", canonical_branch)
+    _git(project, "checkout", "unmerged-review", "--", "lab")
+    store = LabStore(project)
+    (project / "src/reviewed.txt").parent.mkdir(parents=True, exist_ok=True)
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "import ledger without unmerged review bytes")
+
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_rejects_terminal_review_history_in_shallow_repository(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _git(source, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        source, issue_id="shallow-git-review"
+    )
+    _finish_terminal_review(store, "shallow-git-review")
+    _commit_all(source, "retain version one review")
+    (source / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(source, "update reviewed source")
+
+    project = tmp_path / "shallow"
+    subprocess.run(
+        (
+            "git",
+            "clone",
+            "--quiet",
+            "--depth=2",
+            source.as_uri(),
+            str(project),
+        ),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert _git(project, "rev-parse", "--is-shallow-repository").stdout.strip() == "true"
+
+    result = LabStore(project).doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_fails_closed_when_git_history_inspection_times_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="timed-out-git-review"
+    )
+    _finish_terminal_review(store, "timed-out-git-review")
+    _commit_all(project, "retain version one review")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    import MagentaBench.lab.store as store_module
+
+    real_run = store_module.subprocess.run
+
+    def time_out_rev_list(argv: tuple[str, ...], **kwargs: object) -> object:
+        if "rev-list" in argv:
+            raise subprocess.TimeoutExpired(argv, kwargs.get("timeout", 0))
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(store_module.subprocess, "run", time_out_rev_list)
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+@pytest.mark.parametrize("object_id_length", (41, 63))
+def test_doctor_fails_closed_on_noncanonical_git_object_ids(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    object_id_length: int,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id=f"bad-object-id-{object_id_length}"
+    )
+    _finish_terminal_review(store, f"bad-object-id-{object_id_length}")
+    _commit_all(project, "retain version one review")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    import MagentaBench.lab.store as store_module
+
+    real_run = store_module.subprocess.run
+
+    def return_noncanonical_object_id(
+        argv: tuple[str, ...], **kwargs: object
+    ) -> object:
+        if "rev-list" in argv:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="a" * object_id_length + "\n",
+                stderr="",
+            )
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(store_module.subprocess, "run", return_noncanonical_object_id)
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact digest drift" in message for message in result["errors"])
+
+
+def test_doctor_rejects_missing_terminal_review_source_even_if_git_retains_it(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="missing-git-review"
+    )
+    _finish_terminal_review(store, "missing-git-review")
+    _commit_all(project, "retain version one review")
+    (project / "src/reviewed.txt").unlink()
+    _commit_all(project, "remove reviewed source")
+
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("artifact is unavailable" in message for message in result["errors"])
 
 
 def test_doctor_rejects_terminal_review_digest_absent_from_git_history(
@@ -1166,14 +1350,7 @@ def test_doctor_rejects_terminal_review_digest_absent_from_git_history(
     fabricated_review = event.review.model_copy(update={"evidence_refs": (fabricated_ref,)})
     fabricated_event = event.model_copy(update={"review": fabricated_review})
     event_path.write_bytes(canonical_json_bytes(fabricated_event))
-    store.append_event(
-        "bad-history",
-        "done",
-        LabEventKind.status,
-        "alice",
-        created_at=T0 + timedelta(seconds=8),
-        status=LabStatus.done,
-    )
+    _finish_terminal_review(store, "bad-history")
     _commit_all(project, "retain fabricated review reference")
     (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
     _commit_all(project, "update reviewed source")
@@ -1197,14 +1374,7 @@ def test_doctor_rejects_terminal_review_size_absent_from_git_history(
     fabricated_review = event.review.model_copy(update={"evidence_refs": (fabricated_ref,)})
     fabricated_event = event.model_copy(update={"review": fabricated_review})
     event_path.write_bytes(canonical_json_bytes(fabricated_event))
-    store.append_event(
-        "bad-size",
-        "done",
-        LabEventKind.status,
-        "alice",
-        created_at=T0 + timedelta(seconds=8),
-        status=LabStatus.done,
-    )
+    _finish_terminal_review(store, "bad-size")
     _commit_all(project, "retain fabricated review size")
     (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
     _commit_all(project, "update reviewed source")
@@ -1228,6 +1398,69 @@ def test_doctor_keeps_non_terminal_review_evidence_fail_closed(
     result = store.doctor()
     assert result["ok"] is False
     assert any("artifact digest drift" in message for message in result["errors"])
+
+
+@pytest.mark.parametrize(
+    "locator_kind",
+    ("absolute", "external"),
+)
+def test_doctor_does_not_use_git_history_for_nonportable_review_locators(
+    tmp_path: Path,
+    locator_kind: str,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, ref = _terminal_review_with_source_snapshot(
+        project, issue_id=f"{locator_kind}-git-review"
+    )
+    event_path = project / f"lab/issues/{locator_kind}-git-review/events/review.json"
+    event = LabEvent.model_validate_json(event_path.read_bytes(), strict=True)
+    assert event.review is not None
+    locator = (
+        str((project / ref.locator).resolve())
+        if locator_kind == "absolute"
+        else "https://artifacts.example/reviewed.txt"
+    )
+    nonportable_ref = ref.model_copy(update={"locator": locator})
+    review = event.review.model_copy(update={"evidence_refs": (nonportable_ref,)})
+    event_path.write_bytes(canonical_json_bytes(event.model_copy(update={"review": review})))
+    _finish_terminal_review(store, f"{locator_kind}-git-review")
+    _commit_all(project, f"retain {locator_kind} review locator")
+    (project / "src/reviewed.txt").write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update reviewed source")
+
+    result = store.doctor()
+    if locator_kind == "absolute":
+        assert result["ok"] is False
+        assert any("artifact digest drift" in message for message in result["errors"])
+    else:
+        assert result["ok"] is True
+        assert any("not verified locally" in message for message in result["warnings"])
+
+
+def test_doctor_does_not_use_git_history_after_review_path_becomes_symlink(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    store, _ = _terminal_review_with_source_snapshot(
+        project, issue_id="symlink-git-review"
+    )
+    _finish_terminal_review(store, "symlink-git-review")
+    _commit_all(project, "retain version one review")
+
+    source = project / "src/reviewed.txt"
+    displaced = project / "src/reviewed-v2.txt"
+    source.unlink()
+    displaced.write_text("version two\n", encoding="utf-8")
+    source.symlink_to(displaced.name)
+    _commit_all(project, "replace reviewed source with symlink")
+
+    result = store.doctor()
+    assert result["ok"] is False
+    assert any("contains a symlink" in message for message in result["errors"])
 
 
 def test_doctor_rejects_missing_absolute_checkpoint_artifact(tmp_path: Path) -> None:
