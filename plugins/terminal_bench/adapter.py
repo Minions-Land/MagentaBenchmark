@@ -529,6 +529,8 @@ class TerminalBenchHarborBackend:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             return False, {"reason": f"invalid CTRF JSON: {type(exc).__name__}"}
+        if not isinstance(payload, Mapping):
+            return False, {"reason": "CTRF document must be an object"}
         results = payload.get("results")
         if not isinstance(results, Mapping):
             return False, {"reason": "CTRF results object is missing"}

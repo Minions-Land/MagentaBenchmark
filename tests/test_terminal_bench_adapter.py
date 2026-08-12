@@ -553,6 +553,43 @@ def test_terminal_bench_invalid_ctrf_is_verifier_error(tmp_path: Path) -> None:
     assert "summary or tests" in bundle.verifier_evidence.details["completion_evidence"]["reason"]
 
 
+def test_terminal_bench_non_object_ctrf_is_verifier_error(tmp_path: Path) -> None:
+    native = _terminal_native_case(
+        tmp_path,
+        status=RunStatus.verified_fail,
+        include_ctrf=True,
+    )
+    ctrf = next(
+        Path(ref.path)
+        for ref in native.bundle.log_refs
+        if Path(ref.path).name == "ctrf.json"
+    )
+    ctrf.write_text("[]\n", encoding="utf-8")
+    refreshed = artifact_ref(ctrf)
+    native = replace(
+        native,
+        bundle=native.bundle.model_copy(
+            update={
+                "log_refs": tuple(
+                    refreshed if Path(ref.path) == ctrf else ref
+                    for ref in native.bundle.log_refs
+                )
+            }
+        ),
+    )
+    backend = object.__new__(terminal_bench_adapter.TerminalBenchHarborBackend)
+    bundle = backend._validate_verifier_completion(
+        native,
+        _terminal_case(tmp_path, native),
+    )
+    assert bundle.status == RunStatus.verifier_error
+    assert bundle.verifier_evidence is not None
+    assert (
+        bundle.verifier_evidence.details["completion_evidence"]["reason"]
+        == "CTRF document must be an object"
+    )
+
+
 def test_terminal_bench_duplicate_ctrf_is_verifier_error(tmp_path: Path) -> None:
     native = _terminal_native_case(
         tmp_path,
