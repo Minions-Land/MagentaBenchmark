@@ -40,12 +40,15 @@ The JSON output contains three tables instead of one lossy wide row:
 | --- | --- | --- |
 | `experiments` | `experiment_id` | Stable design plus current collaboration projection |
 | `runs` | `experiment_id`, `lab_run_id` | Operational run state and standalone-verification outcome |
-| `metrics` | `experiment_id`, `lab_run_id`, `parent_run_id`, `metric_id` | Comparable method/data/metric result with denominator and uncertainty |
+| `metrics` | `experiment_id`, `lab_run_id`, `parent_run_id`, `metric_id` | Comparable method, resolved factors, configuration identity, data, metric result, denominator, and uncertainty |
 
 CSV emits one selected table. JSON emits all tables and is the recommended
 input for a dashboard, notebook, GitHub Actions artifact, or database import.
 Do not join metric ids into columns in the repository: long-form metric rows
 allow new metrics and methods to merge without rewriting every historical row.
+Each metric row carries the verified manifest's resolved `factor_values` and
+configuration id, digest, and profile ids, so two identically named methods
+with different effective settings do not collapse into one comparison cell.
 CSV keeps a fixed header even when a table has no rows. Use repeatable
 `--map OLD=NEW` arguments after moving a durable record root; the ledger passes
 the same relocation mapping through standalone report verification.

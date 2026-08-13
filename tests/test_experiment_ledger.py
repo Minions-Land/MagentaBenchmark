@@ -59,7 +59,7 @@ def test_csv_is_machine_readable_and_deterministic() -> None:
     assert "experiment_id" in header
     assert "terminal-bench-magenta-smoke" in first
     assert render_csv(ledger, "metrics").splitlines() == [
-        "experiment_id,lab_run_id,parent_run_id,manifest_digest,method_id,subject_id,model,benchmark_id,dataset_id,dataset_commit,dataset_digest,dataset_split,backend_id,purpose,metric_id,metric_digest,metric_state,value,reason,planned_rollout_count,task_count,rollouts_per_task,observed_count,zero_filled_count,excluded_count,missing_count,invalid_count,uncertainty_method,uncertainty_confidence_level,uncertainty_lower,uncertainty_upper"
+        "experiment_id,lab_run_id,parent_run_id,manifest_digest,method_id,factor_values,configuration_id,configuration_digest,configuration_profiles,subject_id,model,benchmark_id,dataset_id,dataset_commit,dataset_digest,dataset_split,backend_id,purpose,metric_id,metric_digest,metric_state,value,reason,planned_rollout_count,task_count,rollouts_per_task,observed_count,zero_filled_count,excluded_count,missing_count,invalid_count,uncertainty_method,uncertainty_confidence_level,uncertainty_lower,uncertainty_upper"
     ]
 
 
@@ -277,3 +277,13 @@ def test_verified_report_expands_into_long_form_metric_rows(
     }
     assert all(row["method_id"] in {"fake.control", "fake.treatment"} for row in metrics)
     assert all(row["dataset_id"] == "dataset.fake.exact.v1" for row in metrics)
+    assert {tuple(sorted(row["factor_values"])) for row in metrics} == {
+        ("repetition", "subject")
+    }
+    assert {row["factor_values"]["subject"] for row in metrics} == {
+        "fake.control",
+        "fake.treatment",
+    }
+    assert all(row["configuration_id"] is None for row in metrics)
+    assert all(row["configuration_digest"] is None for row in metrics)
+    assert all(row["configuration_profiles"] == [] for row in metrics)

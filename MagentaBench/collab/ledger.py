@@ -104,6 +104,10 @@ _CSV_COLUMNS = {
         "parent_run_id",
         "manifest_digest",
         "method_id",
+        "factor_values",
+        "configuration_id",
+        "configuration_digest",
+        "configuration_profiles",
         "subject_id",
         "model",
         "benchmark_id",
@@ -429,15 +433,24 @@ def _metric_row(
     manifest: ResolvedBmpManifest,
 ) -> dict[str, Any]:
     uncertainty = result.uncertainty
+    configuration = manifest.metadata.configuration
     return {
         "backend_id": manifest.execution.backend.id,
         "benchmark_id": manifest.benchmark.id,
+        "configuration_digest": (
+            None if configuration is None else configuration.artifact_digest
+        ),
+        "configuration_id": None if configuration is None else configuration.id,
+        "configuration_profiles": (
+            [] if configuration is None else list(configuration.profiles)
+        ),
         "dataset_commit": manifest.dataset.commit,
         "dataset_digest": manifest.dataset.source_content_digest,
         "dataset_id": manifest.dataset.id,
         "dataset_split": manifest.dataset.split,
         "excluded_count": result.excluded_count,
         "experiment_id": bundle.id,
+        "factor_values": dict(manifest.metadata.factors),
         "invalid_count": result.invalid_count,
         "lab_run_id": lab_run_id,
         "manifest_digest": result.manifest_digest,
