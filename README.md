@@ -33,6 +33,7 @@ Choose the path that matches the work you want to do.
 | Evaluate a new agent or harness | [Bring any agent](#bring-any-agent) | The adapter and capability contract |
 | Add a benchmark or execution target | [Extend the system](#extend-the-system) | The supported extension boundary |
 | Coordinate people and agents | [Collaborate safely](#collaborate-safely) | Leases, checkpoints, and mergeable work units |
+| Compare every experiment and metric | [Experiment ledger](docs/EXPERIMENT_LEDGER.md) | Generated design, run, and verified-result tables |
 
 ## What Makes a Result Useful
 
@@ -80,6 +81,20 @@ uv run --frozen bmp-lab doctor
 
 `bmp-agent` is the agent-facing alias for `bmp-collab`. It reports the derived
 experiment queue and execution-mode readiness; it does not launch a model.
+
+The repository-wide experiment table is generated from its authoritative
+records, so parallel branches never edit a shared spreadsheet:
+
+```bash
+uv run --frozen bmp-collab ledger
+uv run --frozen bmp-collab ledger --table metrics
+uv run --frozen bmp-collab ledger --format csv --table metrics
+```
+
+The catalog includes every checked-in BMP experiment. Run and metric rows are
+added only through lab-linked, standalone-verified evidence. See
+[`docs/EXPERIMENT_LEDGER.md`](docs/EXPERIMENT_LEDGER.md) for the data model and
+GitHub workflow.
 
 ## Five-Minute Smoke Run
 

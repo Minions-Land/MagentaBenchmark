@@ -16,6 +16,7 @@ from .repository import (
     ValidationReport,
     classify_changed_paths,
 )
+from .ledger import build_experiment_ledger, parse_path_maps, render_csv
 
 
 def _json(value: Any) -> str:
@@ -54,6 +55,25 @@ def _parser() -> argparse.ArgumentParser:
         "modes", help="show local, Docker, AppContainer, E2B, and remote backend readiness"
     )
     modes.add_argument("--format", choices=("table", "json"), default="table")
+
+    ledger = sub.add_parser(
+        "ledger",
+        help="derive experiment, run, and metric tables from bundles, lab, and verified reports",
+    )
+    ledger.add_argument("--format", choices=("table", "json", "csv"), default="table")
+    ledger.add_argument(
+        "--table",
+        choices=("experiments", "runs", "metrics"),
+        default="experiments",
+        help="table rendered for table or CSV output (JSON always includes all tables)",
+    )
+    ledger.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="relocate an absolute recorded artifact prefix",
+    )
 
     scaffold = sub.add_parser(
         "scaffold", help="create one isolated collaboration bundle around an existing BMP TOML"
@@ -159,6 +179,64 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
             )
             + " |"
         )
+    return "\n".join(lines) + "\n"
+
+
+def _ledger_table(rows: tuple[dict[str, Any], ...], table: str) -> str:
+    selected = {
+        "experiments": (
+            "lab_status",
+            "experiment_id",
+            "benchmark_id",
+            "subject_id",
+            "model",
+            "dataset_id",
+            "protocol_id",
+            "execution_mode",
+            "purpose",
+            "latest_run_state",
+        ),
+        "runs": (
+            "run_state",
+            "experiment_id",
+            "lab_run_id",
+            "purpose",
+            "standalone_verification",
+            "claim_eligible",
+            "metric_row_count",
+        ),
+        "metrics": (
+            "experiment_id",
+            "lab_run_id",
+            "method_id",
+            "dataset_id",
+            "metric_id",
+            "metric_state",
+            "value",
+            "uncertainty_lower",
+            "uncertainty_upper",
+            "planned_rollout_count",
+        ),
+    }[table]
+
+    def cell(value: object) -> str:
+        if value is None:
+            return "-"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, (list, dict)):
+            value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return str(value).replace("|", "\\|").replace("\n", " ")
+
+    labels = tuple(name.replace("_", " ").title() for name in selected)
+    lines = [
+        "| " + " | ".join(labels) + " |",
+        "| " + " | ".join("---" for _ in selected) + " |",
+    ]
+    lines.extend(
+        "| " + " | ".join(cell(row.get(name)) for name in selected) + " |"
+        for row in rows
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -291,6 +369,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 end="",
             )
             return 0
+        if args.command == "ledger":
+            ledger = build_experiment_ledger(
+                root,
+                path_map=parse_path_maps(args.map),
+            )
+            if args.format == "json":
+                print(_json(ledger.as_dict()), end="")
+            elif args.format == "csv":
+                print(render_csv(ledger, args.table), end="")
+            else:
+                print(_ledger_table(getattr(ledger, args.table), args.table), end="")
+                for finding in ledger.errors:
+                    print(
+                        f"ERROR {finding['code']} [{finding['source']}]: "
+                        f"{finding['message']}",
+                        file=sys.stderr,
+                    )
+            return 0 if ledger.ok else 1
         if args.command == "scaffold":
             path, changed = repository.scaffold(
                 experiment_id=args.experiment_id,
