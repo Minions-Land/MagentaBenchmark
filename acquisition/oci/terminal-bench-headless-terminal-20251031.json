@@ -1,0 +1,67 @@
+{
+  "canonical_repository": "docker.io/alexgshaw/headless-terminal",
+  "canonical_tag": "20251031",
+  "config": {
+    "digest": "sha256:41e1eca1ec72a2873c91d2e1b988b0565c0b1e9a0e65ddc6df95faa786336838",
+    "media_type": "application/vnd.docker.container.image.v1+json",
+    "size_bytes": 6304
+  },
+  "format": "magentabench-oci-image-spec-v1",
+  "layers": [
+    {
+      "digest": "sha256:b1badc6e50664185acfaa0ca255d8076061c2a9d881cecaaad281ae11af000ce",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 28230255
+    },
+    {
+      "digest": "sha256:7e88bf276da094b3c1c5d62775d85ae6e63c58165a5c759570bcecf8b52a4ce3",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 3515854
+    },
+    {
+      "digest": "sha256:d55dfff74d98ac204fa78f18533eecc39a8bd69bd9384a73572c6d09f06b11fc",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 12418042
+    },
+    {
+      "digest": "sha256:e97853488aa5b877aa1248a8d146c75752543b00dced77518e40164d1badafd3",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 250
+    },
+    {
+      "digest": "sha256:63ff33ad641b9f09475780c18fcae5aa35c92fed4207585d4e93c6070d6c2e0e",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 92
+    },
+    {
+      "digest": "sha256:6010ae45bbe7c4954fd78d7f9fe596968b9084ab476dc6591e8bda247059e835",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 18112252
+    },
+    {
+      "digest": "sha256:18aeee1a49c75dac9deeec086c880473e105287136796a1dac0981709a166678",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 347
+    }
+  ],
+  "manifest": {
+    "digest": "sha256:eb7e209672bf6cef2785fafd9e13509b10626c327bcc2b37f5bf40ca83eaf3aa",
+    "media_type": "application/vnd.docker.distribution.manifest.v2+json",
+    "size_bytes": 1784
+  },
+  "platform": {
+    "architecture": "amd64",
+    "os": "linux",
+    "variant": null
+  },
+  "rootfs_diff_ids": [
+    "sha256:eb5f13bce9936c760b9fa73aeb1b608787daa36106cc888104132e353ed37252",
+    "sha256:2a9c7b727490d026db269bdf2bf74ce80e17abe26fc4dd99bd53b3d1686e58dc",
+    "sha256:1ce62254e2a41ba52d6f4edab1c02c6733a219d0b27ff7b0d495f2987fc165ad",
+    "sha256:56ffb1fa8b190de199776ee5e02b4c9d482f5300e4aaa162e66fe09778c1a243",
+    "sha256:bb90eb063b6e7bec0bb1f27ff7d6d84dbd5f9c1c3932cbec014527582d94733c",
+    "sha256:97f9ca83a7ed4fa6c4cf21a45bd521e29d864b4a67ac8f211276ea9b0e8dad2b",
+    "sha256:9f6da193f24bf903e62ad0b6f53914f343f8344a2cdc678150d8fdc86df36c0b"
+  ],
+  "spec_id": "terminal-bench-headless-terminal-20251031"
+}

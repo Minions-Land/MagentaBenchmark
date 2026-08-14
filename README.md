@@ -34,6 +34,7 @@ Choose the path that matches the work you want to do.
 | Add a benchmark or execution target | [Extend the system](#extend-the-system) | The supported extension boundary |
 | Coordinate people and agents | [Collaborate safely](#collaborate-safely) | Leases, checkpoints, and mergeable work units |
 | Compare current and historical experiments | [Experiment ledger](docs/EXPERIMENT_LEDGER.md) | Provenance-aware design, run, observation, and asset tables |
+| Recover Git, Python, or OCI inputs | [Mirror acceleration](docs/MIRROR_ACCELERATION.md) | Fetch-only Git, locked Python, and digest-bound image acquisition |
 
 ## What Makes a Result Useful
 
@@ -81,6 +82,19 @@ uv run --frozen bmp-lab doctor
 
 `bmp-agent` is the agent-facing alias for `bmp-collab`. It reports the derived
 experiment queue and execution-mode readiness; it does not launch a model.
+
+Check the host's acceleration policy without fetching Git or pulling an image:
+
+```bash
+UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/ \
+  uv run --frozen bmp-mirror doctor
+```
+
+Mirrors are transport/cache locations only. GitHub `origin` remains the only
+push target, and OCI identity remains the canonical repository plus immutable
+digest. The fetch-only Git setup, pinned Terminal-Bench OCI specs, cache-only
+verification, acquisition receipts, and Apptainer/cloud boundaries are in
+[`docs/MIRROR_ACCELERATION.md`](docs/MIRROR_ACCELERATION.md).
 
 The repository-wide experiment table is generated from its authoritative
 records, so parallel branches never edit a shared spreadsheet:
