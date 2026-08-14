@@ -192,6 +192,8 @@ _CSV_COLUMNS = {
         "purpose",
         "condition_digest",
         "conditions",
+        "image_digest",
+        "budget",
         "metric_ids",
         "evidence_tier",
         "comparability",
@@ -230,6 +232,8 @@ _CSV_COLUMNS = {
         "configuration_profiles",
         "condition_digest",
         "conditions",
+        "image_digest",
+        "budget",
         "metric_id",
         "metric_digest",
         "metric_state",
@@ -982,6 +986,12 @@ def _bmp_observation_rows(
                 "comparability": "exact-identity",
                 "condition_digest": metric["configuration_digest"],
                 "conditions": None,
+                "image_digest": None,
+                "budget": {
+                    "max_cost": experiment["max_cost"],
+                    "max_tokens": experiment["max_tokens"],
+                    "max_wall_seconds": experiment["max_wall_seconds"],
+                },
                 "configuration_digest": metric["configuration_digest"],
                 "configuration_id": metric["configuration_id"],
                 "configuration_profiles": metric["configuration_profiles"],
@@ -1120,6 +1130,12 @@ def _bmp_catalog_rows(
                 ),
                 "condition_digest": None,
                 "conditions": None,
+                "image_digest": None,
+                "budget": {
+                    "max_cost": experiment["max_cost"],
+                    "max_tokens": experiment["max_tokens"],
+                    "max_wall_seconds": experiment["max_wall_seconds"],
+                },
                 "dataset_commit": None,
                 "dataset_digest": None,
                 "dataset_id": experiment["dataset_id"],
@@ -1267,6 +1283,12 @@ def _historical_projection_rows(
                     "comparability": experiment.comparability.model_dump(mode="json"),
                     "condition_digest": experiment_condition_digest(experiment),
                     "conditions": experiment.model_dump(mode="json"),
+                    "image_digest": execution.image_sha256,
+                    "budget": (
+                        None
+                        if execution.budget is None
+                        else execution.budget.model_dump(mode="json")
+                    ),
                     "dataset_commit": experiment.dataset.commit_sha,
                     "dataset_digest": experiment.dataset.content_sha256,
                     "dataset_id": experiment.dataset.id,
@@ -1330,6 +1352,12 @@ def _historical_projection_rows(
                         "comparability": experiment.comparability.model_dump(mode="json"),
                         "condition_digest": experiment_condition_digest(experiment),
                         "conditions": experiment.model_dump(mode="json"),
+                        "image_digest": execution.image_sha256,
+                        "budget": (
+                            None
+                            if execution.budget is None
+                            else execution.budget.model_dump(mode="json")
+                        ),
                         "configuration_digest": execution.configuration_sha256,
                         "configuration_id": execution.configuration_id,
                         "configuration_profiles": sorted(

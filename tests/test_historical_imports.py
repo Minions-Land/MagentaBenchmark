@@ -25,7 +25,7 @@ from MagentaBench.collab.imports import (
     validate_historical_imports,
 )
 from MagentaBench.collab.cli import main as collab_main
-from MagentaBench.collab.ledger import build_experiment_ledger
+from MagentaBench.collab.ledger import build_experiment_ledger, render_csv
 from MagentaBench.collab.repository import CollaborationError
 
 _RECORD_ADAPTER = TypeAdapter(HistoricalRecord)
@@ -443,6 +443,8 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
         "max_wall_seconds": 120.0,
     }
     assert projected_run["conditions"]["execution"]["image_sha256"] == "7" * 64
+    assert projected_run["image_digest"] == "7" * 64
+    assert projected_run["budget"]["max_cost_usd"] == 2.0
     projected_declaration = next(
         item for item in legacy_catalog if item["record_id"] == declaration["record_id"]
     )
@@ -465,6 +467,8 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
         "unit": "cases",
     }
     assert observation["planned_rollout_count"] is None
+    assert observation["image_digest"] == "7" * 64
+    assert observation["budget"]["max_tokens"] == 1000
     assert observation["uncertainty"]["confidence_level"] == 0.95
     assert observation["claim_eligible"] is False
     assert observation["provenance_refs"][0]["path"] == "results/sample-result.json"
@@ -476,6 +480,9 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
     assert {item["source_asset_id"] for item in legacy_assets} == {"sample-report"}
     assert {item["record_id"] for item in legacy_assets} == {asset_record["record_id"]}
     assert len({item["asset_id"] for item in legacy_assets}) == 2
+    json.dumps(ledger.as_dict(), allow_nan=False, sort_keys=True)
+    for table in ("sources", "catalog", "observations", "assets"):
+        assert render_csv(ledger, table).splitlines()
 
 
 def test_invalid_imports_fail_closed_without_partial_legacy_projection(
