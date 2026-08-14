@@ -38,15 +38,15 @@ jobs:
           uv run --frozen --extra test pytest -q tests/test_experiment_ledger.py
       - name: Export normalized tables
         run: |
-          mkdir -p .ledger-output
-          uv run --frozen bmp-collab ledger --format json > .ledger-output/ledger.json
-          uv run --frozen bmp-collab ledger --format csv --table experiments > .ledger-output/experiments.csv
-          uv run --frozen bmp-collab ledger --format csv --table runs > .ledger-output/runs.csv
-          uv run --frozen bmp-collab ledger --format csv --table metrics > .ledger-output/metrics.csv
+          mkdir -p ledger-output
+          uv run --frozen bmp-collab ledger --format json > ledger-output/ledger.json
+          uv run --frozen bmp-collab ledger --format csv --table experiments > ledger-output/experiments.csv
+          uv run --frozen bmp-collab ledger --format csv --table runs > ledger-output/runs.csv
+          uv run --frozen bmp-collab ledger --format csv --table metrics > ledger-output/metrics.csv
       - name: Upload disposable views
         uses: actions/upload-artifact@v4
         with:
           name: experiment-ledger-${{ github.sha }}
-          path: .ledger-output/
+          path: ledger-output/
           if-no-files-found: error
           retention-days: 30
