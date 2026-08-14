@@ -14,8 +14,8 @@ from typing import Any, Sequence
 
 import pytest
 
-from MagentaBench.acquisition.cli import main
-from MagentaBench.acquisition.mirror import (
+from tools.mirror_acquisition.cli import main
+from tools.mirror_acquisition.mirror import (
     CANONICAL_GIT_URL,
     DEFAULT_OCI_MIRROR,
     GIT_MIRROR_PUSH_URL,
@@ -37,7 +37,7 @@ from MagentaBench.acquisition.mirror import (
     validate_mirror_registry,
     verify_cached_image,
 )
-from MagentaBench.acquisition.models import ImageSpecError, load_image_spec
+from tools.mirror_acquisition.models import ImageSpecError, load_image_spec
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1045,7 +1045,7 @@ def test_receipt_writer_enforces_its_size_limit(
     loaded, raw = _write_spec(tmp_path)
     runner = FakeDockerRunner(loaded, raw, source_present=True, canonical_present=True)
     receipt = tmp_path / "receipt.json"
-    monkeypatch.setattr("MagentaBench.acquisition.mirror._MAX_RECEIPT_BYTES", 128)
+    monkeypatch.setattr("tools.mirror_acquisition.mirror._MAX_RECEIPT_BYTES", 128)
 
     with pytest.raises(AcquisitionError) as captured:
         acquire_image(loaded, DEFAULT_OCI_MIRROR, receipt, _docker(runner))
@@ -1072,7 +1072,7 @@ def test_directory_fsync_failure_invalidates_linked_success_receipt(
         real_fsync(descriptor)
 
     monkeypatch.setattr(
-        "MagentaBench.acquisition.mirror.os.fsync", fail_directory_fsync
+        "tools.mirror_acquisition.mirror.os.fsync", fail_directory_fsync
     )
 
     with pytest.raises(AcquisitionError) as captured:
@@ -1105,10 +1105,10 @@ def test_receipt_invalidation_corrupts_success_even_when_truncate_fails(
         real_ftruncate(descriptor, length)
 
     monkeypatch.setattr(
-        "MagentaBench.acquisition.mirror.os.fsync", fail_directory_fsync
+        "tools.mirror_acquisition.mirror.os.fsync", fail_directory_fsync
     )
     monkeypatch.setattr(
-        "MagentaBench.acquisition.mirror.os.ftruncate", fail_second_truncate
+        "tools.mirror_acquisition.mirror.os.ftruncate", fail_second_truncate
     )
 
     with pytest.raises(AcquisitionError) as captured:
@@ -1135,7 +1135,7 @@ def test_invalid_failed_receipt_is_not_auto_deleted_and_new_path_retries(
 
     with monkeypatch.context() as context:
         context.setattr(
-            "MagentaBench.acquisition.mirror.os.fsync", fail_directory_fsync
+            "tools.mirror_acquisition.mirror.os.fsync", fail_directory_fsync
         )
         with pytest.raises(AcquisitionError) as captured:
             acquire_image(loaded, DEFAULT_OCI_MIRROR, receipt, _docker(runner))
@@ -1180,7 +1180,7 @@ def test_invalidation_never_deletes_a_concurrent_receipt_replacement(
         real_fsync(descriptor)
 
     monkeypatch.setattr(
-        "MagentaBench.acquisition.mirror.os.fsync",
+        "tools.mirror_acquisition.mirror.os.fsync",
         replace_then_fail_directory_fsync,
     )
 
@@ -1461,7 +1461,7 @@ def test_subprocess_runner_drops_ambient_secret_environment(
         observed_environment.update(kwargs["env"])
         raise OSError
 
-    monkeypatch.setattr("MagentaBench.acquisition.mirror.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("tools.mirror_acquisition.mirror.subprocess.Popen", fake_popen)
     runner = SubprocessRunner(docker_config=tmp_path)
 
     assert runner(("/usr/bin/true",), 1.0).returncode == 127
@@ -1474,7 +1474,7 @@ def test_subprocess_runner_stops_at_bounded_combined_output(
 ) -> None:
     executable = shutil.which("printf")
     assert executable is not None
-    monkeypatch.setattr("MagentaBench.acquisition.mirror._MAX_COMMAND_OUTPUT", 32)
+    monkeypatch.setattr("tools.mirror_acquisition.mirror._MAX_COMMAND_OUTPUT", 32)
 
     result = SubprocessRunner()((executable, "%s", "x" * 64), 2.0)
 

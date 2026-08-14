@@ -87,7 +87,7 @@ Check the host's acceleration policy without fetching Git or pulling an image:
 
 ```bash
 UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/ \
-  uv run --frozen python -m MagentaBench.acquisition.cli doctor
+  uv run --frozen python -m tools.mirror_acquisition.cli doctor
 ```
 
 Mirrors are transport/cache locations only. GitHub `origin` remains the only

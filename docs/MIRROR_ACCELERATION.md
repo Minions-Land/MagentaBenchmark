@@ -9,7 +9,7 @@ remain bound by the checked-in lock.
 Invoke the module through the locked project environment:
 
 ```bash
-uv run --frozen python -m MagentaBench.acquisition.cli <subcommand>
+uv run --frozen python -m tools.mirror_acquisition.cli <subcommand>
 ```
 
 The subcommands are deliberately narrow:
@@ -44,7 +44,7 @@ Run the doctor with the Python index selected for this host:
 
 ```bash
 UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/ \
-  uv run --frozen python -m MagentaBench.acquisition.cli doctor
+  uv run --frozen python -m tools.mirror_acquisition.cli doctor
 ```
 
 A successful report has format `magentabench-mirror-doctor-v1` and sorted,
@@ -60,7 +60,7 @@ To create or repair the repository's fetch-only remote after `origin` has been
 verified as canonical:
 
 ```bash
-uv run --frozen python -m MagentaBench.acquisition.cli git-configure
+uv run --frozen python -m tools.mirror_acquisition.cli git-configure
 git fetch mirror main
 ```
 
@@ -92,7 +92,7 @@ The initial cached Terminal-Bench fixtures are:
 Inspect a transport plan without Docker or network access:
 
 ```bash
-uv run --frozen python -m MagentaBench.acquisition.cli plan \
+uv run --frozen python -m tools.mirror_acquisition.cli plan \
   acquisition/oci/terminal-bench-regex-log-20251031.json
 ```
 
@@ -100,7 +100,7 @@ Verify an already-cached mirror reference and canonical tag without contacting
 the registry:
 
 ```bash
-uv run --frozen python -m MagentaBench.acquisition.cli verify \
+uv run --frozen python -m tools.mirror_acquisition.cli verify \
   acquisition/oci/terminal-bench-regex-log-20251031.json
 ```
 
@@ -115,7 +115,7 @@ layer descriptors were not reverified; that stronger boundary belongs to
 and an explicit durable receipt path:
 
 ```bash
-uv run --frozen python -m MagentaBench.acquisition.cli acquire \
+uv run --frozen python -m tools.mirror_acquisition.cli acquire \
   acquisition/oci/terminal-bench-regex-log-20251031.json \
   --mirror-registry docker.1ms.run \
   --receipt /durable/magentabench-receipts/regex-log-20251031.json
