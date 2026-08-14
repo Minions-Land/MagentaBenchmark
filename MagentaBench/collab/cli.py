@@ -64,9 +64,23 @@ def _parser() -> argparse.ArgumentParser:
     ledger.add_argument("--format", choices=("table", "json", "csv"), default="table")
     ledger.add_argument(
         "--table",
-        choices=("experiments", "runs", "metrics"),
+        choices=(
+            "experiments",
+            "runs",
+            "metrics",
+            "sources",
+            "catalog",
+            "observations",
+            "assets",
+        ),
         default="experiments",
         help="table rendered for table or CSV output (JSON always includes all tables)",
+    )
+    ledger.add_argument(
+        "--imports-dir",
+        type=Path,
+        default=Path("imports"),
+        help="historical import root (default: PROJECT_ROOT/imports)",
     )
     ledger.add_argument(
         "--map",
@@ -222,6 +236,45 @@ def _ledger_table(rows: tuple[dict[str, Any], ...], table: str) -> str:
             "uncertainty_lower",
             "uncertainty_upper",
             "planned_rollout_count",
+        ),
+        "sources": (
+            "source_id",
+            "record_origin",
+            "repository",
+            "commit_sha",
+            "record_count",
+            "evidence_tiers",
+        ),
+        "catalog": (
+            "record_origin",
+            "evidence_tier",
+            "catalog_id",
+            "benchmark_id",
+            "dataset_id",
+            "method_id",
+            "model",
+            "comparability",
+            "claim_eligible",
+        ),
+        "observations": (
+            "record_origin",
+            "evidence_tier",
+            "benchmark_id",
+            "method_id",
+            "dataset_id",
+            "metric_id",
+            "value",
+            "observed_count",
+            "comparability",
+            "claim_eligible",
+        ),
+        "assets": (
+            "record_origin",
+            "asset_id",
+            "role",
+            "status",
+            "materialization_state",
+            "content_sha256",
         ),
     }[table]
 
@@ -385,6 +438,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ledger = build_experiment_ledger(
                 root,
                 path_map=parse_path_maps(args.map),
+                imports_dir=args.imports_dir,
             )
             if args.format == "json":
                 print(_json(ledger.as_dict()), end="")

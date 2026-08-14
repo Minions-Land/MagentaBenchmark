@@ -259,6 +259,8 @@ def _normalized_changed_path(value: str) -> str:
 
 
 def _path_class(path: str) -> str:
+    if path.startswith("imports/"):
+        return "experiment-import"
     if path.startswith("experiments/"):
         return "experiment-bundle"
     if (

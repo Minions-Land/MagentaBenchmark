@@ -37,7 +37,7 @@ from .models import ExperimentBundle
 from .repository import CollaborationError, ExperimentRepository
 
 
-LEDGER_FORMAT = "magentabench-experiment-ledger-v1"
+LEDGER_FORMAT = "magentabench-experiment-ledger-v2"
 _REPORT_NAMES = frozenset({"claim_report.json", "observation_report.json"})
 _CSV_COLUMNS = {
     "experiments": (
@@ -138,6 +138,121 @@ _CSV_COLUMNS = {
         "uncertainty_lower",
         "uncertainty_upper",
     ),
+    "sources": (
+        "source_id",
+        "record_origin",
+        "repository",
+        "commit_sha",
+        "tree_oid",
+        "ref_hint",
+        "visibility",
+        "normalizer_id",
+        "normalizer_digest",
+        "source_digest",
+        "snapshot_path",
+        "record_count",
+        "evidence_tiers",
+    ),
+    "catalog": (
+        "catalog_id",
+        "record_origin",
+        "source_id",
+        "record_id",
+        "record_kind",
+        "experiment_id",
+        "benchmark_id",
+        "dataset_id",
+        "dataset_commit",
+        "dataset_digest",
+        "dataset_split",
+        "method_id",
+        "subject_id",
+        "model",
+        "provider_id",
+        "harness_id",
+        "evaluator_id",
+        "execution_mode",
+        "backend_id",
+        "protocol_id",
+        "purpose",
+        "condition_digest",
+        "metric_ids",
+        "evidence_tier",
+        "comparability",
+        "claim_eligible",
+        "limitations",
+    ),
+    "observations": (
+        "observation_id",
+        "record_origin",
+        "source_id",
+        "record_id",
+        "experiment_id",
+        "run_id",
+        "parent_run_id",
+        "method_id",
+        "subject_id",
+        "model",
+        "provider_id",
+        "harness_id",
+        "benchmark_id",
+        "dataset_id",
+        "dataset_commit",
+        "dataset_digest",
+        "dataset_split",
+        "evaluator_id",
+        "execution_mode",
+        "backend_id",
+        "protocol_id",
+        "purpose",
+        "factor_values",
+        "configuration_id",
+        "configuration_digest",
+        "configuration_profiles",
+        "condition_digest",
+        "metric_id",
+        "metric_digest",
+        "metric_state",
+        "value",
+        "unit",
+        "direction",
+        "aggregation",
+        "planned_rollout_count",
+        "task_count",
+        "rollouts_per_task",
+        "observed_count",
+        "zero_filled_count",
+        "excluded_count",
+        "missing_count",
+        "invalid_count",
+        "uncertainty_method",
+        "uncertainty_confidence_level",
+        "uncertainty_lower",
+        "uncertainty_upper",
+        "evidence_tier",
+        "comparability",
+        "claim_eligible",
+        "limitations",
+        "provenance_paths",
+    ),
+    "assets": (
+        "asset_id",
+        "record_origin",
+        "source_id",
+        "record_id",
+        "experiment_id",
+        "run_id",
+        "role",
+        "status",
+        "media_type",
+        "locator",
+        "content_sha256",
+        "git_blob_oid",
+        "size_bytes",
+        "evidence_tier",
+        "materialization_state",
+        "limitations",
+    ),
 }
 
 
@@ -146,6 +261,10 @@ class ExperimentLedger:
     experiments: tuple[dict[str, Any], ...]
     runs: tuple[dict[str, Any], ...]
     metrics: tuple[dict[str, Any], ...]
+    sources: tuple[dict[str, Any], ...] = ()
+    catalog: tuple[dict[str, Any], ...] = ()
+    observations: tuple[dict[str, Any], ...] = ()
+    assets: tuple[dict[str, Any], ...] = ()
     errors: tuple[dict[str, str], ...] = ()
 
     @property
@@ -154,15 +273,23 @@ class ExperimentLedger:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "asset_count": len(self.assets),
+            "assets": list(self.assets),
+            "catalog": list(self.catalog),
+            "catalog_count": len(self.catalog),
             "errors": list(self.errors),
             "experiment_count": len(self.experiments),
             "experiments": list(self.experiments),
             "format": LEDGER_FORMAT,
             "metric_row_count": len(self.metrics),
             "metrics": list(self.metrics),
+            "observation_count": len(self.observations),
+            "observations": list(self.observations),
             "ok": self.ok,
             "run_count": len(self.runs),
             "runs": list(self.runs),
+            "source_count": len(self.sources),
+            "sources": list(self.sources),
         }
 
 
@@ -778,11 +905,252 @@ def _run_rows(
     return runs, metrics, errors
 
 
+def _projection_id(prefix: str, payload: Mapping[str, Any]) -> str:
+    content = json.dumps(
+        payload,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"{prefix}:{hashlib.sha256(content).hexdigest()}"
+
+
+def _bmp_observation_rows(
+    experiments: list[dict[str, Any]],
+    runs: list[dict[str, Any]],
+    metrics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    experiment_by_id = {item["experiment_id"]: item for item in experiments}
+    run_by_id = {
+        (item["experiment_id"], item["lab_run_id"]): item for item in runs
+    }
+    rows: list[dict[str, Any]] = []
+    for metric in metrics:
+        experiment = experiment_by_id[metric["experiment_id"]]
+        run = run_by_id[(metric["experiment_id"], metric["lab_run_id"])]
+        identity = {
+            "experiment_id": metric["experiment_id"],
+            "lab_run_id": metric["lab_run_id"],
+            "metric_id": metric["metric_id"],
+            "parent_run_id": metric["parent_run_id"],
+            "record_origin": "bmp",
+        }
+        provenance_paths = [
+            value
+            for value in (
+                experiment.get("bmp_spec"),
+                run.get("report_ref"),
+                *run.get("verified_manifest_refs", []),
+            )
+            if value is not None
+        ]
+        rows.append(
+            {
+                "aggregation": None,
+                "backend_id": metric["backend_id"],
+                "benchmark_id": metric["benchmark_id"],
+                "claim_eligible": run.get("claim_eligible") is True,
+                "comparability": "exact-identity",
+                "condition_digest": metric["configuration_digest"],
+                "configuration_digest": metric["configuration_digest"],
+                "configuration_id": metric["configuration_id"],
+                "configuration_profiles": metric["configuration_profiles"],
+                "dataset_commit": metric["dataset_commit"],
+                "dataset_digest": metric["dataset_digest"],
+                "dataset_id": metric["dataset_id"],
+                "dataset_split": metric["dataset_split"],
+                "direction": None,
+                "evaluator_id": experiment["evaluator_id"],
+                "evidence_tier": "bmp-standalone",
+                "excluded_count": metric["excluded_count"],
+                "execution_mode": experiment["execution_mode"],
+                "experiment_id": metric["experiment_id"],
+                "factor_values": metric["factor_values"],
+                "harness_id": None,
+                "invalid_count": metric["invalid_count"],
+                "limitations": [],
+                "method_id": metric["method_id"],
+                "metric_digest": metric["metric_digest"],
+                "metric_id": metric["metric_id"],
+                "metric_state": metric["metric_state"],
+                "missing_count": metric["missing_count"],
+                "model": metric["model"],
+                "observation_id": _projection_id("bmp-observation", identity),
+                "observed_count": metric["observed_count"],
+                "parent_run_id": metric["parent_run_id"],
+                "planned_rollout_count": metric["planned_rollout_count"],
+                "protocol_id": experiment["protocol_id"],
+                "provenance_paths": provenance_paths,
+                "provider_id": None,
+                "purpose": metric["purpose"],
+                "record_id": None,
+                "record_origin": "bmp",
+                "rollouts_per_task": metric["rollouts_per_task"],
+                "run_id": metric["lab_run_id"],
+                "source_id": f"bmp:{metric['experiment_id']}",
+                "subject_id": metric["subject_id"],
+                "task_count": metric["task_count"],
+                "uncertainty_confidence_level": metric[
+                    "uncertainty_confidence_level"
+                ],
+                "uncertainty_lower": metric["uncertainty_lower"],
+                "uncertainty_method": metric["uncertainty_method"],
+                "uncertainty_upper": metric["uncertainty_upper"],
+                "unit": None,
+                "value": metric["value"],
+                "zero_filled_count": metric["zero_filled_count"],
+            }
+        )
+    return rows
+
+
+def _bmp_source_rows(
+    root: Path,
+    experiments: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    observed_ids = {item["experiment_id"] for item in observations}
+    normalizer_id = "magentabench.bmp-ledger.v2"
+    normalizer_digest = hashlib.sha256(normalizer_id.encode("utf-8")).hexdigest()
+    rows: list[dict[str, Any]] = []
+    for experiment in experiments:
+        source_digest = experiment["bmp_spec_sha256"]
+        if source_digest is None:
+            source = root / experiment["bmp_spec"]
+            if source.is_file() and not source.is_symlink():
+                source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        tier = (
+            "bmp-standalone"
+            if experiment["experiment_id"] in observed_ids
+            else "declaration-only"
+        )
+        rows.append(
+            {
+                "commit_sha": None,
+                "evidence_tiers": [tier],
+                "normalizer_digest": normalizer_digest,
+                "normalizer_id": normalizer_id,
+                "record_count": 1,
+                "record_origin": "bmp",
+                "ref_hint": None,
+                "repository": ".",
+                "snapshot_path": experiment["bmp_spec"],
+                "source_digest": source_digest,
+                "source_id": f"bmp:{experiment['experiment_id']}",
+                "tree_oid": None,
+                "visibility": "repository",
+            }
+        )
+    return rows
+
+
+def _bmp_catalog_rows(
+    experiments: list[dict[str, Any]],
+    observations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    observations_by_experiment: dict[str, list[dict[str, Any]]] = {}
+    for observation in observations:
+        observations_by_experiment.setdefault(
+            observation["experiment_id"], []
+        ).append(observation)
+    rows: list[dict[str, Any]] = []
+    for experiment in experiments:
+        observed = observations_by_experiment.get(experiment["experiment_id"], [])
+        rows.append(
+            {
+                "backend_id": experiment["backend_id"],
+                "benchmark_id": experiment["benchmark_id"],
+                "catalog_id": f"bmp:{experiment['experiment_id']}",
+                "claim_eligible": any(item["claim_eligible"] for item in observed),
+                "comparability": (
+                    "exact-identity" if observed else "declared-identity"
+                ),
+                "condition_digest": None,
+                "dataset_commit": None,
+                "dataset_digest": None,
+                "dataset_id": experiment["dataset_id"],
+                "dataset_split": None,
+                "evaluator_id": experiment["evaluator_id"],
+                "evidence_tier": (
+                    "bmp-standalone" if observed else "declaration-only"
+                ),
+                "execution_mode": experiment["execution_mode"],
+                "experiment_id": experiment["experiment_id"],
+                "harness_id": None,
+                "limitations": [],
+                "method_id": experiment["subject_id"],
+                "metric_ids": experiment["metric_ids"],
+                "model": experiment["model"],
+                "protocol_id": experiment["protocol_id"],
+                "provider_id": None,
+                "purpose": experiment["purpose"],
+                "record_id": None,
+                "record_kind": "experiment",
+                "record_origin": "bmp",
+                "source_id": f"bmp:{experiment['experiment_id']}",
+                "subject_id": experiment["subject_id"],
+            }
+        )
+    return rows
+
+
+def _content_digest_from_locator(locator: str) -> str | None:
+    prefix = "sha256:"
+    return locator[len(prefix) :] if locator.startswith(prefix) else None
+
+
+def _bmp_asset_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for run in runs:
+        references: list[tuple[str, str]] = []
+        if run["report_ref"] is not None:
+            references.append(("report", run["report_ref"]))
+        references.extend(
+            ("manifest", locator) for locator in run["verified_manifest_refs"]
+        )
+        for role, locator in references:
+            identity = {
+                "experiment_id": run["experiment_id"],
+                "locator": locator,
+                "role": role,
+                "run_id": run["lab_run_id"],
+            }
+            rows.append(
+                {
+                    "asset_id": _projection_id("bmp-asset", identity),
+                    "content_sha256": _content_digest_from_locator(locator),
+                    "evidence_tier": (
+                        "bmp-standalone"
+                        if run["standalone_verification"] == "verified"
+                        else "candidate"
+                    ),
+                    "experiment_id": run["experiment_id"],
+                    "git_blob_oid": None,
+                    "limitations": [],
+                    "locator": locator,
+                    "materialization_state": (
+                        "external" if locator.startswith("sha256:") else "materialized"
+                    ),
+                    "media_type": "application/json",
+                    "record_id": None,
+                    "record_origin": "bmp",
+                    "role": role,
+                    "run_id": run["lab_run_id"],
+                    "size_bytes": None,
+                    "source_id": f"bmp:{run['experiment_id']}",
+                    "status": run["standalone_verification"],
+                }
+            )
+    return rows
+
+
 def build_experiment_ledger(
     project_root: str | Path,
     *,
     at: datetime | None = None,
     path_map: Mapping[str, str] | None = None,
+    imports_dir: str | Path = "imports",
 ) -> ExperimentLedger:
     """Join every checked-in experiment bundle with lab and verified run facts."""
 
@@ -915,22 +1283,29 @@ def build_experiment_ledger(
                     "source": declaration.relative_to(root).as_posix(),
                 }
             )
+    experiments = sorted(experiments, key=lambda item: item["experiment_id"])
+    runs = sorted(runs, key=lambda item: (item["experiment_id"], item["lab_run_id"]))
+    metrics = sorted(
+        metrics,
+        key=lambda item: (
+            item["experiment_id"],
+            item["lab_run_id"],
+            item["parent_run_id"],
+            item["metric_id"],
+        ),
+    )
+    observations = _bmp_observation_rows(experiments, runs, metrics)
+    sources = _bmp_source_rows(root, experiments, observations)
+    catalog = _bmp_catalog_rows(experiments, observations)
+    assets = _bmp_asset_rows(runs)
     return ExperimentLedger(
-        experiments=tuple(sorted(experiments, key=lambda item: item["experiment_id"])),
-        runs=tuple(
-            sorted(runs, key=lambda item: (item["experiment_id"], item["lab_run_id"]))
-        ),
-        metrics=tuple(
-            sorted(
-                metrics,
-                key=lambda item: (
-                    item["experiment_id"],
-                    item["lab_run_id"],
-                    item["parent_run_id"],
-                    item["metric_id"],
-                ),
-            )
-        ),
+        experiments=tuple(experiments),
+        runs=tuple(runs),
+        metrics=tuple(metrics),
+        sources=tuple(sources),
+        catalog=tuple(catalog),
+        observations=tuple(observations),
+        assets=tuple(assets),
         errors=tuple(errors),
     )
 
