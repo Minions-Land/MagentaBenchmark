@@ -1084,7 +1084,13 @@ class LabStore:
                         state.latest_checkpoint.patch_ref,
                     )
                 for index, ref in enumerate(state.latest_checkpoint.artifact_refs):
-                    check_ref(issue_id, f"checkpoint artifact[{index}]", ref)
+                    check_ref(
+                        issue_id,
+                        f"checkpoint artifact[{index}]",
+                        ref,
+                        allow_terminal_git_history=state.status
+                        in {LabStatus.done, LabStatus.cancelled},
+                    )
             if state.latest_review is not None:
                 for index, ref in enumerate(state.latest_review.evidence_refs):
                     check_ref(

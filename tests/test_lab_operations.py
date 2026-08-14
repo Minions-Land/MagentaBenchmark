@@ -1184,6 +1184,111 @@ def test_doctor_recovers_cancelled_review_source_snapshot_from_git_history(
     assert store.doctor()["ok"] is True
 
 
+@pytest.mark.parametrize(
+    "terminal_status",
+    (LabStatus.done, LabStatus.cancelled),
+)
+def test_doctor_recovers_terminal_checkpoint_source_snapshot_from_git_history(
+    tmp_path: Path,
+    terminal_status: LabStatus,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _git(project, "init")
+    source = project / "src/checkpointed.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_text("version one\n", encoding="utf-8")
+    store = LabStore(project)
+    issue_id = f"git-checkpoint-{terminal_status.value}"
+    store.open_issue(_issue(issue_id))
+    store.append_event(
+        issue_id,
+        "ready",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=1),
+        status=LabStatus.ready,
+    )
+    store.append_event(
+        issue_id,
+        "claim",
+        LabEventKind.claim,
+        "alice",
+        created_at=T0 + timedelta(seconds=2),
+        owner="alice",
+        lease_id=f"lease-{issue_id}",
+        lease_ttl_seconds=3600,
+        lease_base_commit=HEAD,
+        lease_branch="work/git-checkpoint",
+    )
+    store.append_event(
+        issue_id,
+        "running",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=3),
+        status=LabStatus.running,
+    )
+    ref = artifact_ref_from_path(source, project_root=project)
+    store.append_event(
+        issue_id,
+        "checkpoint",
+        LabEventKind.checkpoint,
+        "alice",
+        created_at=T0 + timedelta(seconds=4),
+        checkpoint=LabCheckpoint(
+            git_head=HEAD,
+            git_branch="work/git-checkpoint",
+            worktree_clean=True,
+            resume_argv=("uv", "run", "bmp-lab", "recover", issue_id),
+            next_action="Resume from the checkpointed source.",
+            artifact_refs=(ref,),
+        ),
+    )
+    store.append_event(
+        issue_id,
+        "verifying",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=5),
+        status=LabStatus.verifying,
+    )
+    store.append_event(
+        issue_id,
+        "release",
+        LabEventKind.release,
+        "alice",
+        created_at=T0 + timedelta(seconds=6),
+        lease_id=f"lease-{issue_id}",
+    )
+    store.append_event(
+        issue_id,
+        "review",
+        LabEventKind.review,
+        "alice",
+        created_at=T0 + timedelta(seconds=7),
+        review=LabReview(
+            verdict=LabReviewVerdict.approved,
+            summary="The checkpoint source is retained.",
+            accepted_criteria=("verified",),
+        ),
+    )
+    store.append_event(
+        issue_id,
+        terminal_status.value,
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=8),
+        status=terminal_status,
+    )
+    _commit_all(project, "retain version one checkpoint")
+
+    source.write_text("version two\n", encoding="utf-8")
+    _commit_all(project, "update checkpointed source")
+
+    assert store.doctor()["ok"] is True
+
+
 def test_doctor_rejects_terminal_review_snapshot_only_on_unmerged_branch(
     tmp_path: Path,
 ) -> None:
