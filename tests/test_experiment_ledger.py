@@ -27,29 +27,30 @@ from MagentaBench.schemas.verification import verify_run_report
 
 
 ROOT = Path(__file__).parents[1]
-SUBPROCESS_SPEC = "MagentaBench/conformance/experiments/subprocess-echo-smoke.toml"
+FAKE_SPEC = "MagentaBench/conformance/experiments/fake-sweep.toml"
+DUPLICATE_SPEC = "MagentaBench/conformance/experiments/subprocess-echo-smoke.toml"
 
 
 @pytest.fixture(scope="module")
-def subprocess_run(tmp_path_factory: pytest.TempPathFactory):
+def fake_run(tmp_path_factory: pytest.TempPathFactory):
     record_root = tmp_path_factory.mktemp("experiment-ledger-records")
-    result = Pipeline(ROOT, record_root).run(ROOT / SUBPROCESS_SPEC)
+    result = Pipeline(ROOT, record_root).run(ROOT / FAKE_SPEC)
     return result, record_root
 
 
-def _subprocess_bundle(*, project_root: Path = ROOT):
+def _fake_bundle(*, project_root: Path = ROOT):
     source = ExperimentRepository(ROOT).load_bundle(
         "experiments/terminal-bench-magenta-smoke/bundle.json"
     )
-    spec = project_root / SUBPROCESS_SPEC
+    spec = project_root / FAKE_SPEC
     return source.model_copy(
         update={
-            "bmp_spec": SUBPROCESS_SPEC,
+            "bmp_spec": FAKE_SPEC,
             "bmp_spec_sha256": hashlib.sha256(spec.read_bytes()).hexdigest(),
-            "id": "subprocess-echo-smoke",
-            "protocol_id": "subprocess.deterministic.v1",
+            "id": "fake-conformance-sweep",
+            "protocol_id": "fake.deterministic.v1",
             "execution": source.execution.model_copy(
-                update={"backend_id": "subprocess.echo"}
+                update={"backend_id": "fake.local"}
             ),
         }
     )
@@ -319,11 +320,11 @@ def test_json_projection_contains_all_normalized_tables() -> None:
 
 
 def test_verified_report_expands_into_long_form_metric_rows(
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, _ = subprocess_run
+    result, _ = fake_run
     verified = verify_run_report(result.report_path)
-    bundle = _subprocess_bundle()
+    bundle = _fake_bundle()
     linked = _finished_state(result)
     runs, metrics, errors = _run_rows(ROOT, bundle, linked)
 
@@ -351,19 +352,19 @@ def test_verified_report_expands_into_long_form_metric_rows(
 
 def test_report_must_match_the_bundle_pinned_resolved_identity(
     tmp_path: Path,
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, _ = subprocess_run
+    result, _ = fake_run
     project = tmp_path / "project"
     shutil.copytree(ROOT / "MagentaBench", project / "MagentaBench")
     shutil.copytree(ROOT / "registries", project / "registries")
     shutil.copytree(ROOT / "plugins", project / "plugins")
-    spec = project / SUBPROCESS_SPEC
+    spec = project / FAKE_SPEC
     original = spec.read_text(encoding="utf-8")
-    changed = original.replace("max_wall_seconds = 2.0", "max_wall_seconds = 3.0")
+    changed = original.replace("max_wall_seconds = 1.0", "max_wall_seconds = 3.0")
     assert changed != original
     spec.write_text(changed, encoding="utf-8")
-    bundle = _subprocess_bundle(project_root=project)
+    bundle = _fake_bundle(project_root=project)
 
     runs, metrics, errors = _run_rows(
         project,
@@ -384,8 +385,8 @@ def test_pinned_bmp_is_compiled_from_the_hashed_snapshot(
     project = tmp_path / "project"
     shutil.copytree(ROOT / "MagentaBench", project / "MagentaBench")
     shutil.copytree(ROOT / "registries", project / "registries")
-    spec = project / SUBPROCESS_SPEC
-    bundle = _subprocess_bundle(project_root=project)
+    spec = project / FAKE_SPEC
+    bundle = _fake_bundle(project_root=project)
     expected = tuple(
         sorted(
             (run.manifest.metadata.run_id, run.manifest_digest)
@@ -400,7 +401,7 @@ def test_pinned_bmp_is_compiled_from_the_hashed_snapshot(
         if not replaced:
             spec.write_text(
                 spec.read_text(encoding="utf-8").replace(
-                    "max_wall_seconds = 2.0", "max_wall_seconds = 3.0"
+                    "max_wall_seconds = 1.0", "max_wall_seconds = 3.0"
                 ),
                 encoding="utf-8",
             )
@@ -414,9 +415,9 @@ def test_pinned_bmp_is_compiled_from_the_hashed_snapshot(
 
 
 def test_manifest_record_order_is_not_identity(
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, _ = subprocess_run
+    result, _ = fake_run
     verified = verify_run_report(result.report_path)
     reversed_index = verified.record_index.model_copy(
         update={"manifest_refs": tuple(reversed(verified.record_index.manifest_refs))}
@@ -429,17 +430,15 @@ def test_manifest_record_order_is_not_identity(
 
     snapshot = _manifest_rows(reordered, ROOT, {})
 
-    assert snapshot.identities == _expected_manifest_identities(
-        ROOT, _subprocess_bundle()
-    )
+    assert snapshot.identities == _expected_manifest_identities(ROOT, _fake_bundle())
 
 
 def test_manifest_replacement_after_standalone_verification_fails_closed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, record_root = subprocess_run
+    result, record_root = fake_run
     restored_root = tmp_path / "restored"
     shutil.copytree(record_root, restored_root)
     restored_report = restored_root / result.report_path.relative_to(record_root)
@@ -466,7 +465,7 @@ def test_manifest_replacement_after_standalone_verification_fails_closed(
     monkeypatch.setattr(ledger_module, "verify_run_report", replace_after_verification)
     runs, metrics, errors = _run_rows(
         ROOT,
-        _subprocess_bundle(),
+        _fake_bundle(),
         _finished_state(result, restored_report),
         path_map=path_map,
     )
@@ -480,9 +479,9 @@ def test_manifest_replacement_after_standalone_verification_fails_closed(
 def test_linked_report_is_verified_from_its_content_addressed_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, record_root = subprocess_run
+    result, record_root = fake_run
     restored_root = tmp_path / "restored"
     shutil.copytree(record_root, restored_root)
     restored_report = restored_root / result.report_path.relative_to(record_root)
@@ -498,7 +497,7 @@ def test_linked_report_is_verified_from_its_content_addressed_snapshot(
     monkeypatch.setattr(ledger_module, "verify_run_report", replace_link_after_snapshot)
     runs, metrics, errors = _run_rows(
         ROOT,
-        _subprocess_bundle(),
+        _fake_bundle(),
         _finished_state(result, restored_report),
         path_map=path_map,
     )
@@ -512,16 +511,16 @@ def test_linked_report_is_verified_from_its_content_addressed_snapshot(
 
 def test_relocated_projection_does_not_expose_materialization_paths(
     tmp_path: Path,
-    subprocess_run,
+    fake_run,
 ) -> None:
-    result, record_root = subprocess_run
+    result, record_root = fake_run
 
     def project_at(restored_root: Path):
         shutil.copytree(record_root, restored_root)
         restored_report = restored_root / result.report_path.relative_to(record_root)
         return _run_rows(
             ROOT,
-            _subprocess_bundle(),
+            _fake_bundle(),
             _finished_state(result, restored_report),
             path_map={str(record_root): str(restored_root)},
         )
@@ -540,11 +539,11 @@ def test_relocated_projection_does_not_expose_materialization_paths(
     assert str(record_root) not in serialized
 
 
-def test_nonempty_run_and_metric_csv_round_trip(subprocess_run) -> None:
-    result, _ = subprocess_run
+def test_nonempty_run_and_metric_csv_round_trip(fake_run) -> None:
+    result, _ = fake_run
     runs, metrics, errors = _run_rows(
         ROOT,
-        _subprocess_bundle(),
+        _fake_bundle(),
         _finished_state(result),
     )
     assert not errors
@@ -600,7 +599,7 @@ def test_duplicate_declaration_ids_fail_without_duplicate_rows(
         project / "MagentaBench/conformance/experiments",
     )
     shutil.copytree(ROOT / "lab", project / "lab")
-    source = project / SUBPROCESS_SPEC
+    source = project / DUPLICATE_SPEC
     shutil.copyfile(source, source.with_name("duplicate-subprocess-echo-smoke.toml"))
     validation = ExperimentRepository(ROOT).validate()
     monkeypatch.setattr(
