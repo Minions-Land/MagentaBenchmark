@@ -26,8 +26,15 @@ benchmark-native verifiers remain adapter-owned boundaries.
 
 Choose the path that matches the work you want to do.
 
+There are two deliberate entrypoints: [TOHUMAN.md](TOHUMAN.md) is the short
+guide for researchers and maintainers, while [TOAGENT.md](TOAGENT.md) is the
+deterministic startup and handoff contract for Agents and automation. Both
+point back to the same tracked GitHub, lab, and evidence rules.
+
 | Goal | Start with | What you get |
 | --- | --- | --- |
+| Join as a human contributor | [Human guide](TOHUMAN.md) | GitHub, experiment, and handoff workflow |
+| Start as an Agent or automation | [Agent guide](TOAGENT.md) | Entry checks, scope, evidence, and stop conditions |
 | Verify a checkout without a model or API key | [Five-minute smoke run](#five-minute-smoke-run) | A compiled and independently verified exploratory report |
 | Run an existing agent/benchmark pairing | [Existing paths](#existing-paths-and-readiness) | The precise readiness state and prerequisites |
 | Evaluate a new agent or harness | [Bring any agent](#bring-any-agent) | The adapter and capability contract |
