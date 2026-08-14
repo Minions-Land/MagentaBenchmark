@@ -16,6 +16,7 @@ from .repository import (
     ValidationReport,
     classify_changed_paths,
 )
+from .ledger import build_experiment_ledger, parse_path_maps, render_csv
 
 
 def _json(value: Any) -> str:
@@ -51,12 +52,33 @@ def _parser() -> argparse.ArgumentParser:
     next_parser.add_argument("--format", choices=("text", "json"), default="text")
 
     modes = sub.add_parser(
-        "modes", help="show local, Docker, AppContainer, E2B, and remote backend readiness"
+        "modes",
+        help="show local, Docker, AppContainer, E2B, and remote backend readiness",
     )
     modes.add_argument("--format", choices=("table", "json"), default="table")
 
+    ledger = sub.add_parser(
+        "ledger",
+        help="derive experiment, run, and metric tables from bundles, lab, and verified reports",
+    )
+    ledger.add_argument("--format", choices=("table", "json", "csv"), default="table")
+    ledger.add_argument(
+        "--table",
+        choices=("experiments", "runs", "metrics"),
+        default="experiments",
+        help="table rendered for table or CSV output (JSON always includes all tables)",
+    )
+    ledger.add_argument(
+        "--map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="relocate an absolute recorded artifact prefix",
+    )
+
     scaffold = sub.add_parser(
-        "scaffold", help="create one isolated collaboration bundle around an existing BMP TOML"
+        "scaffold",
+        help="create one isolated collaboration bundle around an existing BMP TOML",
     )
     scaffold.add_argument("experiment_id")
     scaffold.add_argument("--bmp-spec", required=True)
@@ -80,7 +102,8 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     changes = sub.add_parser(
-        "changes", help="classify a Git patch and enforce the BMP protocol review boundary"
+        "changes",
+        help="classify a Git patch and enforce the BMP protocol review boundary",
     )
     changes.add_argument("--base-ref", required=True)
     changes.add_argument("--head-ref", default="HEAD")
@@ -139,12 +162,15 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for item in modes:
-        backends = ", ".join(
-            entry["backend_id"]
-            if entry["configured"]
-            else f"{entry['backend_id']} (registered-only)"
-            for entry in item["backends"]
-        ) or "-"
+        backends = (
+            ", ".join(
+                entry["backend_id"]
+                if entry["configured"]
+                else f"{entry['backend_id']} (registered-only)"
+                for entry in item["backends"]
+            )
+            or "-"
+        )
         lines.append(
             "| "
             + " | ".join(
@@ -159,6 +185,66 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
             )
             + " |"
         )
+    return "\n".join(lines) + "\n"
+
+
+def _ledger_table(rows: tuple[dict[str, Any], ...], table: str) -> str:
+    selected = {
+        "experiments": (
+            "lab_status",
+            "experiment_id",
+            "benchmark_id",
+            "subject_id",
+            "model",
+            "dataset_id",
+            "protocol_id",
+            "execution_mode",
+            "purpose",
+            "run_count",
+        ),
+        "runs": (
+            "run_state",
+            "experiment_id",
+            "lab_run_id",
+            "purpose",
+            "standalone_verification",
+            "claim_eligible",
+            "metric_row_count",
+        ),
+        "metrics": (
+            "experiment_id",
+            "lab_run_id",
+            "method_id",
+            "dataset_id",
+            "metric_id",
+            "metric_state",
+            "value",
+            "uncertainty_lower",
+            "uncertainty_upper",
+            "planned_rollout_count",
+        ),
+    }[table]
+
+    def cell(value: object) -> str:
+        if value is None:
+            return "-"
+        if isinstance(value, bool):
+            return "yes" if value else "no"
+        if isinstance(value, (list, dict)):
+            value = json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+        return str(value).replace("|", "\\|").replace("\n", " ")
+
+    labels = tuple(name.replace("_", " ").title() for name in selected)
+    lines = [
+        "| " + " | ".join(labels) + " |",
+        "| " + " | ".join("---" for _ in selected) + " |",
+    ]
+    lines.extend(
+        "| " + " | ".join(cell(row.get(name)) for name in selected) + " |"
+        for row in rows
+    )
     return "\n".join(lines) + "\n"
 
 
@@ -177,7 +263,13 @@ def _git_output(root: Path, arguments: Sequence[str]) -> bytes:
 
 def _git_changed_paths(root: Path, base_ref: str, head_ref: str) -> tuple[str, ...]:
     for label, ref in (("base-ref", base_ref), ("head-ref", head_ref)):
-        if not ref or "\x00" in ref or "\n" in ref or "\r" in ref or ref.startswith("-"):
+        if (
+            not ref
+            or "\x00" in ref
+            or "\n" in ref
+            or "\r" in ref
+            or ref.startswith("-")
+        ):
             raise CollaborationError(f"{label} is invalid")
     _git_output(root, ("rev-parse", "--verify", f"{head_ref}^{{commit}}"))
     if base_ref and set(base_ref) == {"0"}:
@@ -205,11 +297,7 @@ def _git_changed_paths(root: Path, base_ref: str, head_ref: str) -> tuple[str, .
                 f"{base_ref}...{head_ref}",
             ),
         )
-    return tuple(
-        value.decode("utf-8")
-        for value in output.split(b"\0")
-        if value
-    )
+    return tuple(value.decode("utf-8") for value in output.split(b"\0") if value)
 
 
 def _changes_text(report: Any) -> str:
@@ -257,7 +345,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "next":
             report = repository.validate()
             payload = {
-                "available": [item.as_dict() for item in report.bundles if item.available],
+                "available": [
+                    item.as_dict() for item in report.bundles if item.available
+                ],
                 "blocked_or_owned": [
                     item.as_dict() for item in report.bundles if not item.available
                 ],
@@ -291,6 +381,24 @@ def main(argv: Sequence[str] | None = None) -> int:
                 end="",
             )
             return 0
+        if args.command == "ledger":
+            ledger = build_experiment_ledger(
+                root,
+                path_map=parse_path_maps(args.map),
+            )
+            if args.format == "json":
+                print(_json(ledger.as_dict()), end="")
+            elif args.format == "csv":
+                print(render_csv(ledger, args.table), end="")
+            else:
+                print(_ledger_table(getattr(ledger, args.table), args.table), end="")
+            for finding in ledger.errors:
+                print(
+                    f"ERROR {finding['code']} [{finding['source']}]: "
+                    f"{finding['message']}",
+                    file=sys.stderr,
+                )
+            return 0 if ledger.ok else 1
         if args.command == "scaffold":
             path, changed = repository.scaffold(
                 experiment_id=args.experiment_id,

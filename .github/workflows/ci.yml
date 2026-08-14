@@ -194,6 +194,7 @@ jobs:
           test -s .github/ISSUE_TEMPLATE/experiment-blocker.yml
           test -s .github/ISSUE_TEMPLATE/recovery-handoff.yml
           test -s .github/ISSUE_TEMPLATE/execution-target.yml
+          test -s .github/workflows/experiment-ledger.yml
           git diff --check
 
   governance:

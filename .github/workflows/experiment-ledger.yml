@@ -1,0 +1,52 @@
+name: Experiment ledger
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experiment-ledger-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_DEFAULT_INDEX: https://mirrors.aliyun.com/pypi/simple/
+  UV_LINK_MODE: copy
+
+jobs:
+  export:
+    name: Export generated experiment ledger
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install the locked environment
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - run: uv sync --frozen --extra test
+      - name: Validate ledger sources
+        run: |
+          uv run --frozen bmp-collab validate
+          uv run --frozen bmp-lab doctor
+          uv run --frozen --extra test pytest -q tests/test_experiment_ledger.py
+      - name: Export normalized tables
+        run: |
+          mkdir -p ledger-output
+          uv run --frozen bmp-collab ledger --format json > ledger-output/ledger.json
+          uv run --frozen bmp-collab ledger --format csv --table experiments > ledger-output/experiments.csv
+          uv run --frozen bmp-collab ledger --format csv --table runs > ledger-output/runs.csv
+          uv run --frozen bmp-collab ledger --format csv --table metrics > ledger-output/metrics.csv
+      - name: Upload disposable views
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-ledger-${{ github.sha }}
+          path: ledger-output/
+          if-no-files-found: error
+          retention-days: 30

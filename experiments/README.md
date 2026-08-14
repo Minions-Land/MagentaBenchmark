@@ -10,6 +10,7 @@ Use the agent entrypoints from the repository root:
 ```bash
 uv run bmp-collab validate
 uv run bmp-collab next
+uv run bmp-collab ledger --format json
 uv run bmp-collab scaffold <id> --bmp-spec <path> --lab-issue <id> \
   --question "..." --hypothesis "..." --stop-condition "..."
 ```
@@ -19,3 +20,8 @@ An experiment-only PR should normally touch only its own directory, its
 immutable lab issue/event records, and focused tests. See
 [`docs/EXPERIMENT_COLLABORATION.md`](../docs/EXPERIMENT_COLLABORATION.md) for
 execution modes, adapter extension rules, and recovery boundaries.
+
+Use the generated [experiment ledger](../docs/EXPERIMENT_LEDGER.md) to compare
+all designs, methods, data settings, runs, and verified metrics. Do not commit a
+hand-edited global table; the command joins each independently mergeable bundle
+with the lab ledger and persisted evidence.
