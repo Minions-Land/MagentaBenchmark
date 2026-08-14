@@ -14,10 +14,14 @@ from urllib.parse import parse_qsl, urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from .import_models import (
+    HistoricalAssetRecord,
+    HistoricalDeclaration,
     HistoricalRecord,
     HistoricalRecordBase,
+    HistoricalRun,
     HistoricalSource,
     logical_key_digest,
+    record_natural_identity,
     source_document_digest,
     source_snapshot_identity,
 )
@@ -25,7 +29,22 @@ from .repository import CollaborationError
 
 _RECORD_ADAPTER = TypeAdapter(HistoricalRecord)
 _MAX_IMPORT_FILE_BYTES = 4 * 1024 * 1024
+_MAX_SUPERSESSION_RECORDS = 10_000
+_MAX_SUPERSESSION_EDGES = 100_000
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SAFE_DIAGNOSTIC_PART_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+_SECRET_KEY_PATTERN = re.compile(
+    r"(?:^|_)(?:api_key|access_key|private_key|auth_token|access_token|"
+    r"refresh_token|id_token|token|secret|password|credentials?)(?:_|$)",
+    re.IGNORECASE,
+)
+_NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
+    r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
+    r"max_generation|output|prompt|request|response|retry|total)_)?tokens$|"
+    r"^token_(?:budget|capacity|count|limit|quota|window)$",
+    re.IGNORECASE,
+)
+_NON_SECRET_KEY_NAMES = frozenset({"logical_key"})
 _SECRET_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b"),
@@ -150,14 +169,20 @@ class HistoricalImportError(CollaborationError):
 
 
 def _display_path(path: Path, project_root: Path, imports_root: Path) -> str:
+    path = Path(os.path.abspath(os.fspath(path)))
+    project_root = Path(os.path.abspath(os.fspath(project_root)))
+    imports_root = Path(os.path.abspath(os.fspath(imports_root)))
     try:
-        return path.relative_to(project_root).as_posix()
+        display = path.relative_to(project_root).as_posix()
     except ValueError:
         try:
             suffix = path.relative_to(imports_root).as_posix()
         except ValueError:
             return "<external-imports>"
-        return "<external-imports>" if suffix == "." else f"<external-imports>/{suffix}"
+        display = (
+            "<external-imports>" if suffix == "." else f"<external-imports>/{suffix}"
+        )
+    return "/".join(_diagnostic_part(part) for part in display.split("/"))
 
 
 def _read_regular_file(path: Path) -> bytes:
@@ -201,7 +226,7 @@ def _json_without_duplicate_keys(content: bytes) -> Any:
         result: dict[str, Any] = {}
         for key, value in pairs:
             if key in result:
-                raise _DocumentError(f"duplicate JSON key {key!r}")
+                raise _DocumentError("duplicate JSON key is forbidden")
             result[key] = value
         return result
 
@@ -224,19 +249,67 @@ def _normalized_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
 
 
+def _contains_secret_material(value: str) -> bool:
+    return any(pattern.search(value) for pattern in _SECRET_PATTERNS)
+
+
+def _is_secret_like_key(value: str) -> bool:
+    normalized = _normalized_key(value)
+    if normalized in _NON_SECRET_KEY_NAMES:
+        return False
+    if normalized in _CREDENTIAL_KEYS:
+        return True
+    return bool(_SECRET_KEY_PATTERN.search(normalized)) and not (
+        "token" in normalized
+        and _NON_SECRET_TOKEN_KEY_PATTERN.fullmatch(normalized) is not None
+    )
+
+
+def _diagnostic_part(value: str) -> str:
+    if value == "<external-imports>":
+        return value
+    if (
+        _SAFE_DIAGNOSTIC_PART_RE.fullmatch(value) is None
+        or _contains_secret_material(value)
+        or _is_secret_like_key(value)
+    ):
+        return "<redacted-field>"
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return "<redacted-field>"
+    if (
+        parsed.scheme
+        or parsed.username is not None
+        or parsed.password is not None
+        or {
+            key.casefold().replace("-", "_")
+            for key, _ in parse_qsl(parsed.query, keep_blank_values=True)
+        }
+        & _CREDENTIAL_QUERY_KEYS
+    ):
+        return "<redacted-field>"
+    return value
+
+
+def _diagnostic_location(location: str, key: str) -> str:
+    return f"{location}.{_diagnostic_part(key)}"
+
+
 def _inspect_untrusted_json(value: Any, *, location: str = "document") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
-            normalized = _normalized_key(key)
-            if normalized in _CREDENTIAL_KEYS:
+            child_location = _diagnostic_location(location, key)
+            if _contains_secret_material(key) or _is_secret_like_key(key):
                 raise _DocumentError(
-                    f"credential-bearing field is forbidden at {location}.{key}"
+                    f"secret material is forbidden at {child_location}"
                 )
+            normalized = _normalized_key(key)
             if normalized in _FORBIDDEN_RAW_KEYS:
                 raise _DocumentError(
-                    f"commands or raw metadata are forbidden at {location}.{key}"
+                    f"commands or raw metadata are forbidden at {child_location}"
                 )
-            _inspect_untrusted_json(child, location=f"{location}.{key}")
+            _inspect_untrusted_json(child, location=child_location)
         return
     if isinstance(value, list):
         for index, child in enumerate(value):
@@ -244,14 +317,16 @@ def _inspect_untrusted_json(value: Any, *, location: str = "document") -> None:
         return
     if not isinstance(value, str):
         return
-    if any(pattern.search(value) for pattern in _SECRET_PATTERNS):
+    if _contains_secret_material(value):
         raise _DocumentError(f"secret material is forbidden at {location}")
-    if (
-        value.startswith(("/", "\\", "~/"))
-        or re.match(r"^[A-Za-z]:[\\/]", value)
-    ):
+    if value.startswith(("/", "\\", "~/")) or re.match(r"^[A-Za-z]:[\\/]", value):
         raise _DocumentError(f"absolute or host path is forbidden at {location}")
-    parsed = urlsplit(value)
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise _DocumentError(
+            f"malformed URL-like value is forbidden at {location}"
+        ) from exc
     if parsed.scheme:
         if parsed.username is not None or parsed.password is not None:
             raise _DocumentError(f"authenticated URL is forbidden at {location}")
@@ -268,8 +343,17 @@ def _validation_message(exc: ValidationError) -> str:
     if not errors:
         return "document does not match the historical import schema"
     first = errors[0]
-    location = ".".join(str(part) for part in first.get("loc", ())) or "document"
-    return f"{location}: {first.get('msg', 'invalid value')}"
+    location = (
+        ".".join(
+            str(part) if isinstance(part, int) else _diagnostic_part(str(part))
+            for part in first.get("loc", ())
+        )
+        or "document"
+    )
+    message = str(first.get("msg", "invalid value"))
+    if _contains_secret_material(message):
+        message = "invalid value"
+    return f"{location}: {message}"
 
 
 def _parse_source(content: bytes) -> HistoricalSource:
@@ -292,7 +376,9 @@ def _parse_record(content: bytes) -> HistoricalRecordBase:
         record = _RECORD_ADAPTER.validate_json(content, strict=True)
     except ValidationError as exc:
         raise _DocumentError(_validation_message(exc)) from exc
-    if not isinstance(record, HistoricalRecordBase):  # pragma: no cover - union contract
+    if not isinstance(
+        record, HistoricalRecordBase
+    ):  # pragma: no cover - union contract
         raise _DocumentError("record document has an unsupported kind")
     return record
 
@@ -323,12 +409,23 @@ def _validate_supersession_graph(
     records: list[LoadedHistoricalRecord],
     errors: list[HistoricalImportFinding],
 ) -> None:
+    edge_count = sum(len(item.record.supersedes) for item in records)
+    if len(records) > _MAX_SUPERSESSION_RECORDS or edge_count > _MAX_SUPERSESSION_EDGES:
+        errors.append(
+            HistoricalImportFinding(
+                code="supersession-limit",
+                message=(
+                    "historical import exceeds the reviewed supersession graph limits"
+                ),
+                path=min((item.path for item in records), default=None),
+            )
+        )
+        return
+
     by_id = {item.record.record_id: item for item in records}
     edges: dict[str, tuple[str, ...]] = {}
 
-    def graph_finding(
-        code: str, message: str, item: LoadedHistoricalRecord
-    ) -> None:
+    def graph_finding(code: str, message: str, item: LoadedHistoricalRecord) -> None:
         errors.append(
             HistoricalImportFinding(code=code, message=message, path=item.path)
         )
@@ -356,23 +453,31 @@ def _validate_supersession_graph(
         edges[record.record_id] = tuple(sorted(valid_targets))
 
     state: dict[str, int] = {}
-    stack: list[str] = []
     cycle_nodes: set[str] = set()
 
-    def visit(record_id: str) -> None:
-        state[record_id] = 1
-        stack.append(record_id)
-        for target_id in edges.get(record_id, ()):
-            if state.get(target_id, 0) == 0:
-                visit(target_id)
-            elif state.get(target_id) == 1:
-                cycle_nodes.update(stack[stack.index(target_id) :])
-        stack.pop()
-        state[record_id] = 2
-
     for record_id in sorted(edges):
-        if state.get(record_id, 0) == 0:
-            visit(record_id)
+        if state.get(record_id, 0) != 0:
+            continue
+        state[record_id] = 1
+        stack: list[tuple[str, int]] = [(record_id, 0)]
+        positions = {record_id: 0}
+        while stack:
+            current, next_index = stack[-1]
+            targets = edges.get(current, ())
+            if next_index >= len(targets):
+                state[current] = 2
+                positions.pop(current, None)
+                stack.pop()
+                continue
+            target_id = targets[next_index]
+            stack[-1] = (current, next_index + 1)
+            target_state = state.get(target_id, 0)
+            if target_state == 0:
+                state[target_id] = 1
+                positions[target_id] = len(stack)
+                stack.append((target_id, 0))
+            elif target_state == 1:
+                cycle_nodes.update(node for node, _ in stack[positions[target_id] :])
     if cycle_nodes:
         first = by_id[min(cycle_nodes)]
         graph_finding(
@@ -381,70 +486,239 @@ def _validate_supersession_graph(
             first,
         )
 
+    def validate_histories(
+        groups: dict[Any, list[LoadedHistoricalRecord]],
+        *,
+        code: str,
+        message: str,
+    ) -> None:
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            ids = {item.record.record_id for item in group}
+            superseded = {
+                target_id
+                for item in group
+                for target_id in edges.get(item.record.record_id, ())
+                if target_id in ids
+            }
+            heads = sorted(ids - superseded)
+            reachable: set[str] = set()
+            if len(heads) == 1:
+                pending = [heads[0]]
+                while pending:
+                    current = pending.pop()
+                    if current in reachable:
+                        continue
+                    reachable.add(current)
+                    pending.extend(
+                        target for target in edges.get(current, ()) if target in ids
+                    )
+            if len(heads) != 1 or reachable != ids or cycle_nodes & ids:
+                first = min(group, key=lambda item: item.path)
+                graph_finding(code, message, first)
+
     by_logical_key: dict[str, list[LoadedHistoricalRecord]] = {}
     for item in records:
         by_logical_key.setdefault(item.logical_key_sha256, []).append(item)
-    for group in by_logical_key.values():
-        if len(group) < 2:
-            continue
-        ids = {item.record.record_id for item in group}
-        superseded = {
-            target_id
-            for item in group
-            for target_id in edges.get(item.record.record_id, ())
-            if target_id in ids
-        }
-        heads = sorted(ids - superseded)
-        reachable: set[str] = set()
-        if len(heads) == 1:
-            pending = [heads[0]]
-            while pending:
-                current = pending.pop()
-                if current in reachable:
-                    continue
-                reachable.add(current)
-                pending.extend(
-                    target
-                    for target in edges.get(current, ())
-                    if target in ids
+    validate_histories(
+        by_logical_key,
+        code="logical-conflict",
+        message=(
+            "records sharing a logical key require one explicit, connected, "
+            "acyclic supersession history"
+        ),
+    )
+
+    by_natural_identity: dict[tuple[str, ...], list[LoadedHistoricalRecord]] = {}
+    for item in records:
+        by_natural_identity.setdefault(record_natural_identity(item.record), []).append(
+            item
+        )
+    validate_histories(
+        by_natural_identity,
+        code="natural-identity-conflict",
+        message=(
+            "records sharing a source-scoped natural identity require one "
+            "explicit, connected, acyclic supersession history"
+        ),
+    )
+
+
+def _validate_record_references(
+    records: list[LoadedHistoricalRecord],
+    errors: list[HistoricalImportFinding],
+) -> None:
+    runs_by_identity: dict[tuple[str, str, str], list[LoadedHistoricalRecord]] = {}
+    runs_by_source_and_id: dict[tuple[str, str], list[LoadedHistoricalRecord]] = {}
+    experiment_ids: set[tuple[str, str]] = set()
+    for item in records:
+        record = item.record
+        if isinstance(record, (HistoricalDeclaration, HistoricalRun)):
+            experiment_ids.add((record.source_id, record.experiment.experiment_id))
+        if isinstance(record, HistoricalRun):
+            runs_by_identity.setdefault(
+                (
+                    record.source_id,
+                    record.experiment.experiment_id,
+                    record.run_id,
+                ),
+                [],
+            ).append(item)
+            runs_by_source_and_id.setdefault(
+                (record.source_id, record.run_id), []
+            ).append(item)
+
+    def reference_finding(
+        code: str, message: str, item: LoadedHistoricalRecord
+    ) -> None:
+        errors.append(
+            HistoricalImportFinding(code=code, message=message, path=item.path)
+        )
+
+    for item in records:
+        record = item.record
+        if isinstance(record, HistoricalRun) and record.parent_run_id is not None:
+            if record.parent_run_id == record.run_id:
+                reference_finding(
+                    "parent-run-self-reference",
+                    "parent_run_id must not reference the same run",
+                    item,
                 )
-        if len(heads) != 1 or reachable != ids or cycle_nodes & ids:
-            first = min(group, key=lambda item: item.path)
-            graph_finding(
-                "logical-conflict",
-                "records sharing a logical key require one explicit, connected, acyclic supersession history",
-                first,
+                continue
+            parents = runs_by_identity.get(
+                (
+                    record.source_id,
+                    record.experiment.experiment_id,
+                    record.parent_run_id,
+                ),
+                [],
+            )
+            if not parents:
+                reference_finding(
+                    "parent-run-missing",
+                    "parent_run_id references no run in the same source and experiment",
+                    item,
+                )
+        if not isinstance(record, HistoricalAssetRecord):
+            continue
+        if (
+            record.experiment_id is not None
+            and (
+                record.source_id,
+                record.experiment_id,
+            )
+            not in experiment_ids
+        ):
+            reference_finding(
+                "asset-experiment-missing",
+                "asset experiment_id references no experiment in the same source snapshot",
+                item,
+            )
+        if record.run_id is None:
+            continue
+        source_runs = runs_by_source_and_id.get((record.source_id, record.run_id), [])
+        linked_runs = (
+            source_runs
+            if record.experiment_id is None
+            else runs_by_identity.get(
+                (record.source_id, record.experiment_id, record.run_id), []
+            )
+        )
+        if not linked_runs:
+            if record.experiment_id is not None and source_runs:
+                reference_finding(
+                    "asset-reference-mismatch",
+                    "asset experiment_id and run_id resolve to different experiments",
+                    item,
+                )
+            else:
+                reference_finding(
+                    "asset-run-missing",
+                    "asset run_id references no run in the same source snapshot",
+                    item,
+                )
+        elif (
+            record.experiment_id is None
+            and len(
+                {
+                    linked.record.experiment.experiment_id
+                    for linked in linked_runs
+                    if isinstance(linked.record, HistoricalRun)
+                }
+            )
+            > 1
+        ):
+            reference_finding(
+                "asset-run-ambiguous",
+                "asset run_id resolves to more than one experiment",
+                item,
             )
 
 
 def validate_historical_imports(
     project_root: str | Path,
     *,
-    imports_dir: str | Path = "imports",
+    imports_dir: str | Path | None = None,
 ) -> HistoricalImportValidation:
     """Scan every source directory and return deterministic validation facts."""
 
     root = Path(project_root).resolve()
-    configured = Path(imports_dir)
-    imports_root = configured if configured.is_absolute() else root / configured
+    explicit_imports_root = imports_dir is not None
+    configured = Path("imports") if imports_dir is None else Path(imports_dir)
+    configured = configured.expanduser()
+    candidate = configured if configured.is_absolute() else root / configured
+    # Observe the configured object before canonicalizing intermediate aliases;
+    # otherwise a direct symlink root would disappear from the validation view.
+    configured_imports_root = Path(os.path.abspath(os.fspath(candidate)))
     errors: list[HistoricalImportFinding] = []
     sources: list[LoadedHistoricalSource] = []
     records: list[LoadedHistoricalRecord] = []
 
-    if imports_root.is_symlink():
+    if configured_imports_root.is_symlink():
         _finding(
             errors,
             "imports-root",
             "imports root must be a real directory, not a symlink",
-            path=imports_root,
+            path=configured_imports_root,
             project_root=root,
-            imports_root=imports_root,
+            imports_root=configured_imports_root,
+        )
+        return HistoricalImportValidation(
+            snapshot=HistoricalImportSnapshot(),
+            errors=tuple(errors),
+        )
+    # Canonical spelling makes publication classification and projected paths
+    # independent of aliases in parent directories.
+    try:
+        imports_root = configured_imports_root.resolve(strict=False)
+    except (OSError, RuntimeError):
+        _finding(
+            errors,
+            "imports-root",
+            "imports root cannot be resolved safely",
+            path=configured_imports_root,
+            project_root=root,
+            imports_root=configured_imports_root,
         )
         return HistoricalImportValidation(
             snapshot=HistoricalImportSnapshot(),
             errors=tuple(errors),
         )
     if not imports_root.exists():
+        if explicit_imports_root:
+            _finding(
+                errors,
+                "imports-root",
+                "explicit imports root does not exist",
+                path=imports_root,
+                project_root=root,
+                imports_root=imports_root,
+            )
+            return HistoricalImportValidation(
+                snapshot=HistoricalImportSnapshot(),
+                errors=tuple(errors),
+            )
         return HistoricalImportValidation(snapshot=HistoricalImportSnapshot())
     if not imports_root.is_dir():
         _finding(
@@ -535,6 +809,20 @@ def validate_historical_imports(
                 imports_root=imports_root,
             )
             continue
+        if imports_root == (root / "imports").resolve(strict=False) and (
+            source.visibility != "public" or source.license_status != "declared"
+        ):
+            _finding(
+                errors,
+                "publication-approval",
+                (
+                    "checked-in imports require public source visibility and a "
+                    "declared license"
+                ),
+                path=source_path,
+                project_root=root,
+                imports_root=imports_root,
+            )
         if source.source_id != source_dir.name:
             _finding(
                 errors,
@@ -673,9 +961,7 @@ def validate_historical_imports(
             loaded_record = LoadedHistoricalRecord(
                 record=record,
                 path=_display_path(record_path, root, imports_root),
-                logical_key_sha256=logical_key_digest(
-                    record.kind, record.logical_key
-                ),
+                logical_key_sha256=logical_key_digest(record.kind, record.logical_key),
             )
             if record.record_id in record_ids:
                 _finding(
@@ -691,6 +977,7 @@ def validate_historical_imports(
             records.append(loaded_record)
 
     _validate_supersession_graph(records, errors)
+    _validate_record_references(records, errors)
     snapshot = HistoricalImportSnapshot(
         sources=tuple(
             sorted(
@@ -724,7 +1011,7 @@ def validate_historical_imports(
 def load_historical_imports(
     project_root: str | Path,
     *,
-    imports_dir: str | Path = "imports",
+    imports_dir: str | Path | None = None,
 ) -> HistoricalImportSnapshot:
     """Load a valid immutable snapshot or raise a collaboration-style error."""
 

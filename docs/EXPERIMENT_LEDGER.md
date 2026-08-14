@@ -57,14 +57,21 @@ Historical records have a separate truth boundary. Their source commit, tree,
 normalizer, provenance bytes, conditions, evidence tier, and limitations must
 validate offline before they appear in generated views. They never enter the
 BMP `metrics` table and are always forced to `claim_eligible=false`. A private
-companion import directory can be selected explicitly; public CI never receives
-credentials to fetch private repositories.
+companion import directory can be selected explicitly; an explicitly selected
+path must exist and is normalized before projection. Checked-in sources must be
+public and license-declared, while public CI never receives credentials to
+fetch private repositories.
 
-The historical catalog retains the complete typed conditions object and its
-digest, including budget, immutable image identity, hardware, network policy,
-repetitions, seeds, factors, and configuration. Observation rows retain their
-typed denominator, uncertainty, terminal state, provenance refs, and explicit
-supersession. Structured CSV cells use deterministic JSON.
+Catalog rows retain a deterministic condition-set wrapper so one BMP experiment
+can expose every resolved factor variant without selecting a fake "latest"
+condition. Each variant keeps its complete typed condition object and digest,
+including budget, immutable image identity, hardware, network policy,
+repetitions, seeds, factors, and configuration. Observation rows use one stable
+schema across BMP and historical origins: budget keys are
+`max_cases/max_cost_usd/max_tokens/max_wall_seconds`, comparability is always a
+typed object, and unit, direction, aggregation, terminal state, denominator,
+uncertainty, provenance refs, and supersession remain explicit. Structured CSV
+cells use deterministic JSON.
 
 ## Normalized Tables
 

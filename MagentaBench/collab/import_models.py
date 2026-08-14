@@ -22,6 +22,8 @@ from pydantic import (
     StrictBool,
     StrictFloat,
     StrictInt,
+    TypeAdapter,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -112,9 +114,8 @@ def _safe_string(value: str, *, label: str, max_length: int = 256) -> str:
         if query_keys & _CREDENTIAL_QUERY_KEYS:
             raise ValueError(f"{label} must not contain URL credentials")
         raise ValueError(f"{label} must not contain a URL")
-    if (
-        value.startswith(("/", "\\", "~/", "../", "./"))
-        or re.match(r"^[A-Za-z]:[\\/]", value)
+    if value.startswith(("/", "\\", "~/", "../", "./")) or re.match(
+        r"^[A-Za-z]:[\\/]", value
     ):
         raise ValueError(f"{label} must not contain an absolute or host path")
     return value
@@ -177,7 +178,9 @@ def canonical_repository_name(value: str) -> str:
         or parsed.fragment
         or not parsed.path.startswith("/")
     ):
-        raise ValueError("repository URL must be an unauthenticated canonical GitHub URL")
+        raise ValueError(
+            "repository URL must be an unauthenticated canonical GitHub URL"
+        )
     name = parsed.path[1:]
     match = _GITHUB_NAME_RE.fullmatch(name)
     if match is None or match.group("repo").casefold().endswith(".git"):
@@ -191,6 +194,13 @@ def _unique(values: tuple[Any, ...], *, label: str) -> tuple[Any, ...]:
     if len(set(values)) != len(values):
         raise ValueError(f"{label} must be unique")
     return values
+
+
+def _sorted_unique(values: tuple[Any, ...], *, label: str, key=None) -> tuple[Any, ...]:
+    """Canonicalize a semantically set-like tuple before hashing it."""
+
+    _unique(values, label=label)
+    return tuple(sorted(values, key=key))
 
 
 Number: TypeAlias = StrictInt | StrictFloat
@@ -210,7 +220,9 @@ class GitObjectId(HistoricalImportModel):
     def digest_matches_algorithm(self) -> GitObjectId:
         pattern = _SHA1_RE if self.algorithm == "sha1" else _SHA256_RE
         if pattern.fullmatch(self.digest) is None:
-            raise ValueError(f"{self.algorithm} Git object id has the wrong length or encoding")
+            raise ValueError(
+                f"{self.algorithm} Git object id has the wrong length or encoding"
+            )
         return self
 
 
@@ -265,7 +277,9 @@ class HistoricalSource(HistoricalImportModel):
         if value is not None:
             _safe_string(value, label="ref_hint", max_length=256)
             if value.startswith("-") or ".." in value or value.endswith((".", "/")):
-                raise ValueError("ref_hint must be a normalized non-option Git ref hint")
+                raise ValueError(
+                    "ref_hint must be a normalized non-option Git ref hint"
+                )
         return value
 
     @model_validator(mode="after")
@@ -332,7 +346,9 @@ class DatasetIdentity(_NamedIdentity):
     @classmethod
     def dataset_commit_is_full(cls, value: str | None) -> str | None:
         if value is not None and _SHA1_RE.fullmatch(value) is None:
-            raise ValueError("dataset commit_sha must be a full lowercase 40-hex Git commit")
+            raise ValueError(
+                "dataset commit_sha must be a full lowercase 40-hex Git commit"
+            )
         return value
 
     @field_validator("content_sha256")
@@ -440,7 +456,9 @@ class HardwareConditions(HistoricalImportModel):
     @model_validator(mode="after")
     def accelerator_fields_are_coherent(self) -> HardwareConditions:
         if self.accelerator_count not in (None, 0) and self.accelerator is None:
-            raise ValueError("accelerator is required when accelerator_count is positive")
+            raise ValueError(
+                "accelerator is required when accelerator_count is positive"
+            )
         return self
 
 
@@ -510,21 +528,23 @@ class ExecutionConditions(HistoricalImportModel):
     def seeds_are_unique(cls, values: tuple[int, ...]) -> tuple[int, ...]:
         if any(isinstance(value, bool) for value in values):
             raise ValueError("seeds must contain integers, not booleans")
-        return _unique(values, label="seeds")
+        return _sorted_unique(values, label="seeds")
 
     @field_validator("configuration_profiles")
     @classmethod
     def profiles_are_normalized(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
             _normalized_id(value, label="configuration profile")
-        return _unique(values, label="configuration_profiles")
+        return _sorted_unique(values, label="configuration_profiles")
 
     @field_validator("factors")
     @classmethod
-    def factor_ids_are_unique(cls, values: tuple[FactorValue, ...]) -> tuple[FactorValue, ...]:
+    def factor_ids_are_unique(
+        cls, values: tuple[FactorValue, ...]
+    ) -> tuple[FactorValue, ...]:
         ids = tuple(value.id for value in values)
         _unique(ids, label="factor ids")
-        return values
+        return tuple(sorted(values, key=lambda value: value.id))
 
 
 class Comparability(HistoricalImportModel):
@@ -556,7 +576,9 @@ class Comparability(HistoricalImportModel):
             or self.case_set_sha256 is None
             or self.evaluator_sha256 is None
         ):
-            raise ValueError("exact comparability requires group, protocol, case-set, and evaluator digests")
+            raise ValueError(
+                "exact comparability requires group, protocol, case-set, and evaluator digests"
+            )
         return self
 
 
@@ -570,7 +592,15 @@ class ExperimentConditions(HistoricalImportModel):
     harness: HarnessIdentity
     evaluator: EvaluatorIdentity
     execution: ExecutionConditions
-    purpose: Literal["benchmark", "evaluation", "ablation", "training", "search", "exploratory", "unknown"]
+    purpose: Literal[
+        "benchmark",
+        "evaluation",
+        "ablation",
+        "training",
+        "search",
+        "exploratory",
+        "unknown",
+    ]
     comparability: Comparability
     limitations: tuple[str, ...] = ()
 
@@ -584,7 +614,7 @@ class ExperimentConditions(HistoricalImportModel):
     def limitations_are_codes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
             _normalized_id(value, label="limitation")
-        return _unique(values, label="limitations")
+        return _sorted_unique(values, label="limitations")
 
 
 def experiment_condition_digest(conditions: ExperimentConditions) -> str:
@@ -601,6 +631,7 @@ class ProvenanceRef(HistoricalImportModel):
         "harness",
         "evaluator",
         "result",
+        "manifest",
         "metric",
         "asset",
     ]
@@ -631,7 +662,9 @@ class MetricDenominator(HistoricalImportModel):
     @model_validator(mode="after")
     def counts_fit_plan(self) -> MetricDenominator:
         if self.observed_count + self.excluded_count > self.planned_count:
-            raise ValueError("observed and excluded denominator counts exceed planned_count")
+            raise ValueError(
+                "observed and excluded denominator counts exceed planned_count"
+            )
         return self
 
 
@@ -662,10 +695,15 @@ class MetricUncertainty(HistoricalImportModel):
         interval = self.method in {"confidence-interval", "bootstrap", "range"}
         if interval:
             if self.lower is None or self.upper is None or self.lower > self.upper:
-                raise ValueError("interval uncertainty requires ordered lower and upper bounds")
+                raise ValueError(
+                    "interval uncertainty requires ordered lower and upper bounds"
+                )
         elif self.value is None:
             raise ValueError("point uncertainty requires value")
-        if self.confidence_level is not None and not 0 < float(self.confidence_level) < 1:
+        if (
+            self.confidence_level is not None
+            and not 0 < float(self.confidence_level) < 1
+        ):
             raise ValueError("confidence_level must be strictly between zero and one")
         if self.method == "confidence-interval" and self.confidence_level is None:
             raise ValueError("confidence-interval requires confidence_level")
@@ -711,6 +749,8 @@ class HistoricalMetric(HistoricalImportModel):
     def metric_state_and_counts_are_coherent(self) -> HistoricalMetric:
         if self.state == "observed" and self.value is None:
             raise ValueError("observed metric requires a value")
+        if self.state == "observed" and self.denominator.observed_count == 0:
+            raise ValueError("observed metric requires observed_count")
         if self.state != "observed" and self.value is not None:
             raise ValueError("missing or invalid metric must not have a value")
         if self.state == "missing" and self.missing_count == 0:
@@ -744,7 +784,9 @@ class HistoricalAsset(HistoricalImportModel):
         "other",
     ]
     status: Literal["available", "unavailable", "partial", "unknown"]
-    materialization_state: Literal["materialized", "metadata-only", "external-unavailable"]
+    materialization_state: Literal[
+        "materialized", "metadata-only", "external-unavailable"
+    ]
     media_type: str
     content_sha256: str
     size_bytes: StrictInt = Field(ge=0)
@@ -808,20 +850,36 @@ class HistoricalRecordBase(HistoricalImportModel):
     def supersedes_are_unique_hashes(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(_SHA256_RE.fullmatch(value) is None for value in values):
             raise ValueError("supersedes must contain lowercase SHA-256 record ids")
-        return _unique(values, label="supersedes")
+        return _sorted_unique(values, label="supersedes")
 
     @field_validator("provenance")
     @classmethod
-    def provenance_is_unique(cls, values: tuple[ProvenanceRef, ...]) -> tuple[ProvenanceRef, ...]:
+    def provenance_is_unique(
+        cls, values: tuple[ProvenanceRef, ...]
+    ) -> tuple[ProvenanceRef, ...]:
         identities = tuple(
             (value.role, value.path, value.content_sha256, value.size_bytes)
             for value in values
         )
         _unique(identities, label="provenance refs")
-        return values
+        return tuple(
+            sorted(
+                values,
+                key=lambda value: (
+                    value.role,
+                    value.path,
+                    value.content_sha256,
+                    value.size_bytes,
+                    value.git_blob_oid.algorithm,
+                    value.git_blob_oid.digest,
+                ),
+            )
+        )
 
     @model_validator(mode="after")
-    def identity_is_canonical(self) -> HistoricalRecordBase:
+    def identity_is_canonical(self, info: ValidationInfo) -> HistoricalRecordBase:
+        if info.context and info.context.get("skip_record_id_check"):
+            return self
         expected = compute_record_id(self)
         if self.record_id != expected:
             raise ValueError(
@@ -845,7 +903,7 @@ class HistoricalDeclaration(HistoricalRecordBase):
     def metric_ids_are_normalized(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         for value in values:
             _normalized_id(value, label="metric id")
-        return _unique(values, label="metric_ids")
+        return _sorted_unique(values, label="metric_ids")
 
 
 class HistoricalRun(HistoricalRecordBase):
@@ -866,14 +924,22 @@ class HistoricalRun(HistoricalRecordBase):
 
     @field_validator("metrics")
     @classmethod
-    def metric_ids_are_unique(cls, values: tuple[HistoricalMetric, ...]) -> tuple[HistoricalMetric, ...]:
+    def metric_ids_are_unique(
+        cls, values: tuple[HistoricalMetric, ...]
+    ) -> tuple[HistoricalMetric, ...]:
         _unique(tuple(value.metric_id for value in values), label="run metric ids")
-        return values
+        return tuple(sorted(values, key=lambda value: value.metric_id))
 
     @model_validator(mode="after")
     def metrics_match_evidence_and_terminal_state(self) -> HistoricalRun:
         if self.evidence_tier != "legacy-evaluated" and self.metrics:
             raise ValueError("candidate runs cannot emit metrics")
+        if self.evidence_tier == "legacy-evaluated" and not any(
+            ref.role in {"result", "metric"} for ref in self.provenance
+        ):
+            raise ValueError(
+                "legacy-evaluated run requires result or metric provenance"
+            )
         if self.metrics and self.terminal_state not in {"completed", "partial"}:
             raise ValueError("non-result terminal states cannot emit metrics")
         if (
@@ -882,6 +948,17 @@ class HistoricalRun(HistoricalRecordBase):
             and not self.metrics
         ):
             raise ValueError("completed legacy-evaluated run requires metrics")
+        if self.terminal_state == "completed" and any(
+            metric.denominator.observed_count
+            + metric.denominator.excluded_count
+            + metric.missing_count
+            + metric.invalid_count
+            != metric.denominator.planned_count
+            for metric in self.metrics
+        ):
+            raise ValueError(
+                "completed run metric counts must equal the declared denominator"
+            )
         return self
 
 
@@ -907,7 +984,9 @@ class HistoricalAssetRecord(HistoricalRecordBase):
             and ref.size_bytes == self.asset.size_bytes
             for ref in self.provenance
         ):
-            raise ValueError("asset requires a matching content-addressed asset provenance ref")
+            raise ValueError(
+                "asset requires a matching content-addressed asset provenance ref"
+            )
         return self
 
 
@@ -916,6 +995,23 @@ HistoricalRecord: TypeAlias = Annotated[
     Field(discriminator="kind"),
 ]
 
+_RECORD_ADAPTER_FOR_ID = TypeAdapter(HistoricalRecord)
+
+
+def record_natural_identity(record: HistoricalRecordBase) -> tuple[str, ...]:
+    """Return the source-scoped identity that callers cannot redefine."""
+
+    if isinstance(record, HistoricalDeclaration):
+        return (record.source_id, record.kind, record.experiment.experiment_id)
+    if isinstance(record, HistoricalRun):
+        return (
+            record.source_id,
+            record.kind,
+            record.experiment.experiment_id,
+            record.run_id,
+        )
+    return (record.source_id, record.kind, record.asset.asset_id)
+
 
 def compute_record_id(record: HistoricalRecordBase | Mapping[str, Any]) -> str:
     """Compute the content identity, always excluding the self-referential id."""
@@ -923,7 +1019,16 @@ def compute_record_id(record: HistoricalRecordBase | Mapping[str, Any]) -> str:
     if isinstance(record, BaseModel):
         payload: Any = record.model_dump(mode="json", exclude={"record_id"})
     else:
-        payload = {key: value for key, value in record.items() if key != "record_id"}
+        candidate = dict(record)
+        # Mapping callers go through the same strict defaults and canonical
+        # ordering as documents loaded from disk.
+        candidate["record_id"] = "0" * 64
+        normalized = _RECORD_ADAPTER_FOR_ID.validate_json(
+            canonical_json_bytes(candidate),
+            strict=True,
+            context={"skip_record_id_check": True},
+        )
+        payload = normalized.model_dump(mode="json", exclude={"record_id"})
     return sha256(canonical_json_bytes(payload)).hexdigest()
 
 
@@ -968,6 +1073,7 @@ __all__ = [
     "compute_record_id",
     "experiment_condition_digest",
     "logical_key_digest",
+    "record_natural_identity",
     "repository_relative_path",
     "source_document_digest",
     "source_snapshot_identity",

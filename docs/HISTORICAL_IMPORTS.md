@@ -47,18 +47,34 @@ not accepted. Each provenance item binds a repository-relative path, Git blob
 OID, content SHA-256, and size. The canonical payload determines both
 `record_id` and the record filename.
 
-Two records with the same logical identity but different contents fail closed
-inside one snapshot. Across snapshots, retain both immutable versions and use
-an explicit `supersedes` edge. Cycles, missing targets, silent replacement, and
-implicit timestamp or branch ordering are invalid.
+Two records with the same logical identity or the same source-scoped natural
+identity (experiment, run, or asset ID) but different contents fail closed.
+Changing caller-selected `logical_key` cannot hide a duplicate run. Parent-run
+references resolve inside the same experiment, while asset experiment/run
+references must be unambiguous inside the same source snapshot. A
+`legacy-evaluated` run must bind result or metric provenance. Across snapshots,
+retain both immutable versions and use an explicit
+`supersedes` edge. Cycles, missing targets, silent replacement, and implicit
+timestamp or branch ordering are invalid. Set-like fields are sorted before
+record hashing, so input order and omitted model defaults cannot create a second
+record identity.
+
+Supersession validation is iterative and admits at most 10,000 records and
+100,000 edges per import root. Exceeding either reviewed bound fails closed;
+the limits are repository policy rather than runtime tuning knobs.
 
 ## Public Repository Rule
 
-This repository is public. Public CI validates only checked-in canonical bytes
-and never receives a token for private source repositories. Before publishing
-any projection from a private source, obtain an explicit visibility decision
-and review a whitelisted extraction. A private companion catalog can use the
-same format and be supplied to the ledger in an authorized environment.
+This repository is public. The validator therefore accepts a source in the
+checked-in `imports/` directory only when `visibility=public` and
+`license_status=declared`; private, unknown, and license-undetected sources fail
+with `publication-approval`, including when `imports/` is reached through an
+intermediate symlink alias. Public CI validates only checked-in canonical bytes
+and never receives a token for private source repositories. A private companion
+catalog can use the same format and be supplied explicitly to the ledger in an
+authorized environment. Supplying `--imports-dir` asserts that the companion
+must exist: a missing path is an error, and relative and absolute spellings
+normalize to the same host-independent `<external-imports>/...` locators.
 
 Regardless of source visibility, never import credentials, `.mcp` material,
 raw answers or gold data, traces, provider logs, commands, private host paths,
@@ -96,9 +112,13 @@ uv run --frozen bmp-collab validate-imports --imports-dir /authorized/imports
 uv run --frozen bmp-collab ledger --imports-dir /authorized/imports
 ```
 
-The catalog stores the complete typed `conditions` object as well as its
-digest. This preserves budgets, image SHA-256, hardware, network policy,
-repetitions, seeds, factors, and configuration identity. Observations retain
-the complete denominator, uncertainty, and provenance objects. CSV encodes
-those structured cells as deterministic JSON rather than flattening away
-conditions that affect comparability.
+The catalog stores a deterministic
+`magentabench-catalog-condition-set-v1` wrapper and its digest. Every variant in
+that wrapper contains a complete typed `conditions` object and its own digest;
+this preserves multi-factor BMP experiments without selecting an arbitrary
+variant. Budgets, image SHA-256, hardware, network policy, repetitions, seeds,
+factors, and configuration identity remain queryable. Observation rows use the
+same condition, comparability, budget, metric-unit, direction, aggregation, and
+provenance shapes for BMP and historical origins. CSV encodes structured cells
+as deterministic JSON rather than flattening away conditions that affect
+comparability.

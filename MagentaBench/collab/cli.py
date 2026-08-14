@@ -49,12 +49,10 @@ def _parser() -> argparse.ArgumentParser:
     validate_imports.add_argument(
         "--imports-dir",
         type=Path,
-        default=Path("imports"),
+        default=None,
         help="historical import root (default: PROJECT_ROOT/imports)",
     )
-    validate_imports.add_argument(
-        "--format", choices=("text", "json"), default="text"
-    )
+    validate_imports.add_argument("--format", choices=("text", "json"), default="text")
 
     listing = sub.add_parser(
         "list", help="render the derived bundle queue without a hand-edited board"
@@ -94,7 +92,7 @@ def _parser() -> argparse.ArgumentParser:
     ledger.add_argument(
         "--imports-dir",
         type=Path,
-        default=Path("imports"),
+        default=None,
         help="historical import root (default: PROJECT_ROOT/imports)",
     )
     ledger.add_argument(

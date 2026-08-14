@@ -14,6 +14,7 @@ from MagentaBench.collab import ledger as ledger_module
 from MagentaBench.collab.cli import main as collab_main
 from MagentaBench.collab.ledger import (
     ExperimentLedger,
+    _bmp_observation_rows,
     _expected_manifest_identities,
     _manifest_rows,
     _method_id,
@@ -135,17 +136,21 @@ def test_csv_is_machine_readable_and_deterministic() -> None:
         "experiment_id,lab_issue,lab_run_id,run_state,record_root,report_ref,manifest_digest,purpose,standalone_verification,claim_eligible,protocol_valid,isolation_valid,validity_gates,failure_breakdown,metric_row_count,verified_manifest_refs"
     ]
     assert render_csv(ledger, "metrics").splitlines() == [
-        "experiment_id,lab_run_id,parent_run_id,manifest_digest,method_id,factor_values,configuration_id,configuration_digest,configuration_profiles,subject_id,model,benchmark_id,dataset_id,dataset_commit,dataset_digest,dataset_split,backend_id,purpose,metric_id,metric_digest,metric_state,value,reason,planned_rollout_count,task_count,rollouts_per_task,observed_count,zero_filled_count,excluded_count,missing_count,invalid_count,uncertainty_method,uncertainty_confidence_level,uncertainty_lower,uncertainty_upper"
+        "experiment_id,lab_run_id,parent_run_id,manifest_digest,method_id,factor_values,configuration_id,configuration_digest,configuration_profiles,subject_id,model,benchmark_id,dataset_id,dataset_commit,dataset_digest,dataset_split,backend_id,purpose,provider_id,harness_id,condition_digest,conditions,image_digest,budget,comparability,metric_id,metric_digest,metric_state,value,unit,direction,aggregation,reason,planned_rollout_count,task_count,rollouts_per_task,observed_count,zero_filled_count,excluded_count,missing_count,invalid_count,uncertainty_method,uncertainty_confidence_level,uncertainty_lower,uncertainty_upper"
     ]
     source_rows = list(csv.DictReader(io.StringIO(render_csv(ledger, "sources"))))
     assert len(source_rows) == len(ledger.sources)
     assert source_rows[0]["record_origin"] == "bmp"
     assert list(csv.DictReader(io.StringIO(render_csv(ledger, "catalog"))))
-    assert render_csv(ledger, "observations").splitlines()[0].startswith(
-        "observation_id,record_origin,source_id"
+    assert (
+        render_csv(ledger, "observations")
+        .splitlines()[0]
+        .startswith("observation_id,record_origin,source_id")
     )
-    assert render_csv(ledger, "assets").splitlines()[0].startswith(
-        "asset_id,record_origin,source_id"
+    assert (
+        render_csv(ledger, "assets")
+        .splitlines()[0]
+        .startswith("asset_id,record_origin,source_id")
     )
 
 
@@ -368,6 +373,79 @@ def test_verified_report_expands_into_long_form_metric_rows(
     assert all(row["configuration_id"] is None for row in metrics)
     assert all(row["configuration_digest"] is None for row in metrics)
     assert all(row["configuration_profiles"] == [] for row in metrics)
+
+
+def test_bmp_observations_expose_one_stable_unified_contract(fake_run) -> None:
+    result, _ = fake_run
+    runs, metrics, errors = _run_rows(
+        ROOT,
+        _fake_bundle(),
+        _finished_state(result),
+    )
+    assert not errors
+    ledger = build_experiment_ledger(ROOT)
+    experiment = next(
+        item
+        for item in ledger.experiments
+        if item["experiment_id"] == "fake-conformance-sweep"
+    )
+
+    observations = _bmp_observation_rows([experiment], runs, metrics)
+
+    assert observations
+    assert all(item["unit"] is not None for item in observations)
+    assert all(item["direction"] is not None for item in observations)
+    assert all(item["aggregation"] is not None for item in observations)
+    assert all(item["harness_id"] == "fake" for item in observations)
+    assert all(
+        set(item["budget"])
+        == {"max_cases", "max_cost_usd", "max_tokens", "max_wall_seconds"}
+        for item in observations
+    )
+    assert all(
+        set(item["comparability"])
+        == {
+            "case_set_sha256",
+            "comparison_group",
+            "evaluator_sha256",
+            "protocol_sha256",
+            "status",
+        }
+        for item in observations
+    )
+    assert all(
+        set(item["conditions"])
+        == {
+            "benchmark",
+            "comparability",
+            "dataset",
+            "evaluator",
+            "execution",
+            "experiment_id",
+            "harness",
+            "limitations",
+            "method",
+            "model",
+            "provider",
+            "purpose",
+        }
+        for item in observations
+    )
+    assert all(item["condition_digest"] for item in observations)
+
+    catalog = next(
+        item
+        for item in ledger.catalog
+        if item["catalog_id"] == "bmp:fake-conformance-sweep"
+    )
+    assert catalog["conditions"]["format"] == ("magentabench-catalog-condition-set-v1")
+    assert isinstance(catalog["comparability"], dict)
+    assert set(catalog["budget"]) == {
+        "max_cases",
+        "max_cost_usd",
+        "max_tokens",
+        "max_wall_seconds",
+    }
 
 
 def test_report_must_match_the_bundle_pinned_resolved_identity(

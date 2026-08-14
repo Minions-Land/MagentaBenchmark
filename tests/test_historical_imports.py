@@ -24,6 +24,7 @@ from MagentaBench.collab.imports import (
     load_historical_imports,
     validate_historical_imports,
 )
+from MagentaBench.collab import imports as imports_module
 from MagentaBench.collab.cli import main as collab_main
 from MagentaBench.collab.ledger import build_experiment_ledger, render_csv
 from MagentaBench.collab.repository import CollaborationError
@@ -41,8 +42,8 @@ def _source(
     return {
         "commit_sha": commit_digit * 40,
         "format": "magentabench-historical-source-v1",
-        "license_id": None,
-        "license_status": "unknown",
+        "license_id": "Apache-2.0",
+        "license_status": "declared",
         "normalizer_id": "sample-normalizer.v1",
         "normalizer_sha256": "3" * 64,
         "ref_hint": "main",
@@ -361,7 +362,11 @@ def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) 
     second = load_historical_imports(tmp_path)
 
     assert first == second
-    assert [item.record.kind for item in first.records] == ["asset", "declaration", "run"]
+    assert [item.record.kind for item in first.records] == [
+        "asset",
+        "declaration",
+        "run",
+    ]
     assert len(first.records_of_kind("run")) == 1
     run = first.records_of_kind("run")[0].record
     assert run.claim_eligible is False
@@ -379,19 +384,17 @@ def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) 
 
 def test_source_requires_coherent_license_status() -> None:
     declared = _source()
-    declared["license_status"] = "declared"
-    declared["license_id"] = "Apache-2.0"
 
     model = HistoricalSource.model_validate_json(json.dumps(declared), strict=True)
     assert model.license_id == "Apache-2.0"
 
     missing = _source()
-    missing["license_status"] = "declared"
+    missing["license_id"] = None
     with pytest.raises(ValidationError, match="license_id is required"):
         HistoricalSource.model_validate_json(json.dumps(missing), strict=True)
 
     inconsistent = _source()
-    inconsistent["license_id"] = "Apache-2.0"
+    inconsistent["license_status"] = "unknown"
     with pytest.raises(ValidationError, match="license_id is required"):
         HistoricalSource.model_validate_json(json.dumps(inconsistent), strict=True)
 
@@ -423,9 +426,11 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
     assert ledger.runs == baseline.runs
     assert ledger.metrics == baseline.metrics
 
-    source = next(item for item in ledger.sources if item["record_origin"] == "legacy-import")
+    source = next(
+        item for item in ledger.sources if item["record_origin"] == "legacy-import"
+    )
     assert source["record_count"] == 4
-    assert source["license_status"] == "unknown"
+    assert source["license_status"] == "declared"
     assert source["tree_oid"] == {"algorithm": "sha1", "digest": "2" * 40}
     assert str(tmp_path) not in source["snapshot_path"]
 
@@ -433,16 +438,22 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
         item for item in ledger.catalog if item["record_origin"] == "legacy-import"
     ]
     assert len(legacy_catalog) == 3
-    projected_run = next(item for item in legacy_catalog if item["record_id"] == run["record_id"])
+    projected_run = next(
+        item for item in legacy_catalog if item["record_id"] == run["record_id"]
+    )
     assert projected_run["terminal_state"] == "completed"
     assert projected_run["claim_eligible"] is False
-    assert projected_run["conditions"]["execution"]["budget"] == {
+    assert (
+        projected_run["conditions"]["format"] == "magentabench-catalog-condition-set-v1"
+    )
+    run_conditions = projected_run["conditions"]["variants"][0]["conditions"]
+    assert run_conditions["execution"]["budget"] == {
         "max_cases": 10,
         "max_cost_usd": 2.0,
         "max_tokens": 1000,
         "max_wall_seconds": 120.0,
     }
-    assert projected_run["conditions"]["execution"]["image_sha256"] == "7" * 64
+    assert run_conditions["execution"]["image_sha256"] == "7" * 64
     assert projected_run["image_digest"] == "7" * 64
     assert projected_run["budget"]["max_cost_usd"] == 2.0
     projected_declaration = next(
@@ -451,9 +462,7 @@ def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_b
     assert projected_declaration["terminal_state"] is None
 
     legacy_observations = [
-        item
-        for item in ledger.observations
-        if item["record_origin"] == "legacy-import"
+        item for item in ledger.observations if item["record_origin"] == "legacy-import"
     ]
     assert len(legacy_observations) == 1
     observation = legacy_observations[0]
@@ -501,7 +510,9 @@ def test_invalid_imports_fail_closed_without_partial_legacy_projection(
     assert all(item["record_origin"] == "bmp" for item in ledger.catalog)
     assert all(item["record_origin"] == "bmp" for item in ledger.observations)
     assert all(item["record_origin"] == "bmp" for item in ledger.assets)
-    assert any(item["code"] == "historical-import-record-layout" for item in ledger.errors)
+    assert any(
+        item["code"] == "historical-import-record-layout" for item in ledger.errors
+    )
 
 
 def test_validate_imports_cli_supports_an_external_companion(
@@ -647,7 +658,9 @@ def test_record_id_excludes_only_record_id() -> None:
     assert logical_key_digest("run", "key") != logical_key_digest("asset", "key")
 
 
-def test_duplicate_json_keys_are_rejected_before_model_validation(tmp_path: Path) -> None:
+def test_duplicate_json_keys_are_rejected_before_model_validation(
+    tmp_path: Path,
+) -> None:
     source_dir = tmp_path / "imports" / "sample-source"
     source_dir.mkdir(parents=True)
     source_dir.joinpath("source.json").write_text(
@@ -725,15 +738,15 @@ def test_metric_rejects_boolean_and_nonfinite_values(bad_value: object) -> None:
     bound["metrics"][0]["value"] = bad_value  # type: ignore[index]
 
     with pytest.raises(ValidationError):
-        _RECORD_ADAPTER.validate_json(
-            json.dumps(bound, allow_nan=True), strict=True
-        )
+        _RECORD_ADAPTER.validate_json(json.dumps(bound, allow_nan=True), strict=True)
 
 
 @pytest.mark.parametrize(
     "mutator",
     (
-        lambda payload: payload["experiment"]["execution"].__setitem__("case_count", True),
+        lambda payload: payload["experiment"]["execution"].__setitem__(
+            "case_count", True
+        ),
         lambda payload: payload["experiment"]["execution"]["budget"].__setitem__(
             "max_tokens", True
         ),
@@ -875,12 +888,8 @@ def test_supersedes_rejects_missing_and_incompatible_targets(tmp_path: Path) -> 
 
 def test_cycle_detection_is_defensive_even_for_content_addressed_nodes() -> None:
     base = _record_model(_declaration())
-    first = base.model_copy(
-        update={"record_id": "1" * 64, "supersedes": ("2" * 64,)}
-    )
-    second = base.model_copy(
-        update={"record_id": "2" * 64, "supersedes": ("1" * 64,)}
-    )
+    first = base.model_copy(update={"record_id": "1" * 64, "supersedes": ("2" * 64,)})
+    second = base.model_copy(update={"record_id": "2" * 64, "supersedes": ("1" * 64,)})
     digest = logical_key_digest(first.kind, first.logical_key)
     loaded = [
         LoadedHistoricalRecord(first, "imports/source/records/1.json", digest),
@@ -907,12 +916,20 @@ def test_loader_scans_every_source_without_a_hand_index(tmp_path: Path) -> None:
             source_snapshot_sha256=_snapshot_digest(source),
         )
         asset["logical_key"] = f"{source_id}-report"
+        asset["experiment_id"] = None
+        asset["run_id"] = None
         _install_record(tmp_path, asset)
 
     snapshot = load_historical_imports(tmp_path)
 
-    assert [item.source.source_id for item in snapshot.sources] == ["a-source", "z-source"]
-    assert [item.record.source_id for item in snapshot.records] == ["a-source", "z-source"]
+    assert [item.source.source_id for item in snapshot.sources] == [
+        "a-source",
+        "z-source",
+    ]
+    assert [item.record.source_id for item in snapshot.records] == [
+        "a-source",
+        "z-source",
+    ]
 
 
 def test_extra_raw_fields_are_forbidden_by_models() -> None:
@@ -953,3 +970,372 @@ def test_source_root_tree_must_be_sha1() -> None:
 
     with pytest.raises(ValidationError, match="root_tree must use"):
         HistoricalSource.model_validate_json(json.dumps(source), strict=True)
+
+
+def test_secret_like_json_keys_and_paths_never_enter_diagnostics(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marker = "sk-" + "A" * 24
+    source_dir = tmp_path / "imports" / "sample-source"
+    source_dir.mkdir(parents=True)
+    source_dir.joinpath("source.json").write_text(
+        f'{{"{marker}":1,"{marker}":2}}\n', encoding="utf-8"
+    )
+    leaked_path = tmp_path / "imports" / marker
+    leaked_path.mkdir()
+
+    report = validate_historical_imports(tmp_path)
+
+    assert not report.ok
+    assert marker not in json.dumps(report.as_dict(), sort_keys=True)
+    assert any("duplicate JSON key" in item.message for item in report.errors)
+    assert any("<redacted-field>" in (item.path or "") for item in report.errors)
+    with pytest.raises(HistoricalImportError) as raised:
+        load_historical_imports(tmp_path)
+    assert marker not in str(raised.value)
+
+    return_code = collab_main(
+        (
+            "--project-root",
+            str(tmp_path),
+            "validate-imports",
+            "--format",
+            "json",
+        )
+    )
+    captured = capsys.readouterr()
+    assert return_code == 1
+    assert marker not in captured.out
+    assert marker not in captured.err
+
+
+def test_secret_like_extra_key_is_redacted_before_model_validation(
+    tmp_path: Path,
+) -> None:
+    marker = "ghp_" + "B" * 24
+    source = _source()
+    source[marker] = "ordinary-value"
+    _install_source(tmp_path, source=source)
+
+    report = validate_historical_imports(tmp_path)
+
+    assert not report.ok
+    serialized = json.dumps(report.as_dict(), sort_keys=True)
+    assert marker not in serialized
+    assert "<redacted-field>" in serialized
+
+
+@pytest.mark.parametrize(
+    "secret_key",
+    ("OPENAI_API_KEY", "client_secret", "db_password"),
+)
+def test_common_secret_key_names_are_redacted_from_diagnostics(
+    tmp_path: Path,
+    secret_key: str,
+) -> None:
+    source = _source()
+    source[secret_key] = "ordinary-value"
+    _install_source(tmp_path, source=source)
+    (tmp_path / "imports" / secret_key).mkdir()
+
+    report = validate_historical_imports(tmp_path)
+
+    serialized = json.dumps(report.as_dict(), sort_keys=True)
+    assert not report.ok
+    assert secret_key not in serialized
+    assert "<redacted-field>" in serialized
+
+
+def test_logical_key_is_not_treated_as_secret_material(tmp_path: Path) -> None:
+    _install_source(tmp_path)
+    _install_record(tmp_path, _run())
+
+    report = validate_historical_imports(tmp_path)
+
+    assert report.ok, report.as_dict()
+
+
+def test_explicit_missing_import_root_fails_without_exposing_host_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    missing = tmp_path / "private" / "missing-imports"
+
+    report = validate_historical_imports(ROOT, imports_dir=missing)
+
+    assert not report.ok
+    assert {item.code for item in report.errors} == {"imports-root"}
+    assert report.errors[0].path == "<external-imports>"
+    assert str(tmp_path) not in json.dumps(report.as_dict(), sort_keys=True)
+
+    return_code = collab_main(
+        (
+            "--project-root",
+            str(ROOT),
+            "validate-imports",
+            "--imports-dir",
+            str(missing),
+            "--format",
+            "json",
+        )
+    )
+    captured = capsys.readouterr()
+    assert return_code == 1
+    assert str(tmp_path) not in captured.out
+
+
+def test_external_import_paths_are_independent_of_relative_spelling(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    companion_parent = tmp_path / "private"
+    _install_source(companion_parent)
+    _install_record(companion_parent, _declaration())
+    absolute = companion_parent / "imports"
+
+    absolute_report = validate_historical_imports(project, imports_dir=absolute)
+    relative_report = validate_historical_imports(
+        project, imports_dir=Path("../private/imports")
+    )
+
+    assert absolute_report.ok, absolute_report.errors
+    assert relative_report.ok, relative_report.errors
+    assert absolute_report.snapshot == relative_report.snapshot
+    assert absolute_report.snapshot.sources[0].path == (
+        "<external-imports>/sample-source/source.json"
+    )
+    assert absolute_report.snapshot.records[0].path.startswith(
+        "<external-imports>/sample-source/records/"
+    )
+
+
+def test_checked_in_private_or_unlicensed_source_requires_publication_approval(
+    tmp_path: Path,
+) -> None:
+    source = _source()
+    source["visibility"] = "private"
+    source["license_status"] = "not-detected"
+    source["license_id"] = None
+    _install_source(tmp_path, source=source)
+
+    checked_in = validate_historical_imports(tmp_path)
+    external = validate_historical_imports(ROOT, imports_dir=tmp_path / "imports")
+
+    assert "publication-approval" in {item.code for item in checked_in.errors}
+    assert external.ok, external.errors
+
+
+def test_checked_in_publication_policy_survives_intermediate_symlink_alias(
+    tmp_path: Path,
+) -> None:
+    source = _source()
+    source["visibility"] = "private"
+    source["license_status"] = "not-detected"
+    source["license_id"] = None
+    _install_source(tmp_path, source=source)
+    (tmp_path / "alias").symlink_to(".", target_is_directory=True)
+
+    report = validate_historical_imports(
+        tmp_path,
+        imports_dir=tmp_path / "alias" / "imports",
+    )
+
+    assert "publication-approval" in {item.code for item in report.errors}
+
+
+def test_intermediate_symlink_loop_fails_as_an_imports_root_error(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "loop").symlink_to("loop", target_is_directory=True)
+
+    report = validate_historical_imports(
+        tmp_path,
+        imports_dir=tmp_path / "loop" / "imports",
+    )
+
+    assert {item.code for item in report.errors} == {"imports-root"}
+    assert str(tmp_path) not in json.dumps(report.as_dict(), sort_keys=True)
+
+
+def test_natural_run_identity_cannot_be_bypassed_with_logical_key(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    _install_record(tmp_path, _run(logical_key="first-logical-key"))
+    changed = _run(logical_key="second-logical-key")
+    changed["metrics"][0]["value"] = 0.5  # type: ignore[index]
+    _install_record(tmp_path, changed)
+
+    assert "natural-identity-conflict" in _error_codes(tmp_path)
+
+
+def test_parent_run_and_asset_references_must_resolve_in_the_same_source(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    child = _run()
+    child["parent_run_id"] = "missing-parent"
+    _install_record(tmp_path, child)
+    orphan = _asset()
+    orphan["run_id"] = "missing-run"
+    orphan["experiment_id"] = "missing-experiment"
+    _install_record(tmp_path, orphan)
+
+    codes = _error_codes(tmp_path)
+
+    assert "parent-run-missing" in codes
+    assert "asset-run-missing" in codes
+    assert "asset-experiment-missing" in codes
+
+
+def test_parent_run_reference_is_scoped_to_its_experiment(tmp_path: Path) -> None:
+    _install_source(tmp_path)
+    parent = _run(logical_key="parent-a")
+    parent["experiment"]["experiment_id"] = "experiment-a"  # type: ignore[index]
+    parent["run_id"] = "shared-parent"
+    _install_record(tmp_path, parent)
+    other = _run(logical_key="parent-b")
+    other["experiment"]["experiment_id"] = "experiment-b"  # type: ignore[index]
+    other["run_id"] = "shared-parent"
+    _install_record(tmp_path, other)
+    child = _run(logical_key="child-c")
+    child["experiment"]["experiment_id"] = "experiment-c"  # type: ignore[index]
+    child["run_id"] = "child"
+    child["parent_run_id"] = "shared-parent"
+    _install_record(tmp_path, child)
+
+    assert "parent-run-missing" in _error_codes(tmp_path)
+
+
+def test_asset_run_reference_without_experiment_must_be_unambiguous(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    for suffix in ("a", "b"):
+        run = _run(logical_key=f"run-{suffix}")
+        run["experiment"]["experiment_id"] = f"experiment-{suffix}"  # type: ignore[index]
+        run["run_id"] = "shared-run"
+        _install_record(tmp_path, run)
+    asset = _asset()
+    asset["experiment_id"] = None
+    asset["run_id"] = "shared-run"
+    _install_record(tmp_path, asset)
+
+    assert "asset-run-ambiguous" in _error_codes(tmp_path)
+
+
+def test_legacy_evaluated_run_requires_result_or_metric_provenance() -> None:
+    run = _run()
+    run["provenance"] = [_provenance("declaration")]
+
+    with pytest.raises(ValidationError, match="result or metric provenance"):
+        _record_model(run)
+
+
+def test_metric_state_and_completed_run_counts_fail_closed() -> None:
+    no_observations = _run()
+    no_observations["metrics"][0]["denominator"]["observed_count"] = 0  # type: ignore[index]
+    no_observations["metrics"][0]["missing_count"] = 50  # type: ignore[index]
+    with pytest.raises(ValidationError, match="observed_count"):
+        _record_model(no_observations)
+
+    incomplete = _run()
+    incomplete["metrics"][0]["missing_count"] = 5  # type: ignore[index]
+    with pytest.raises(ValidationError, match="must equal"):
+        _record_model(incomplete)
+
+    incomplete["terminal_state"] = "partial"
+    assert _record_model(incomplete).terminal_state == "partial"
+
+
+def test_set_like_record_fields_are_canonical_before_identity() -> None:
+    first = _declaration()
+    first["metric_ids"] = ["cost", "accuracy"]
+    first["experiment"]["limitations"] = ["source-gap", "identity-gap"]  # type: ignore[index]
+    first["experiment"]["execution"]["configuration_profiles"] = [  # type: ignore[index]
+        "secondary",
+        "default",
+    ]
+    first["experiment"]["execution"]["seeds"] = [2, 0]  # type: ignore[index]
+    first["experiment"]["execution"]["factors"] = [  # type: ignore[index]
+        {"id": "temperature", "unit": None, "value": 0.0},
+        {"id": "effort", "unit": None, "value": "high"},
+    ]
+    first["provenance"].append(  # type: ignore[union-attr]
+        _provenance(path="evidence/second.json", content_digit="a")
+    )
+    second = deepcopy(first)
+    second["metric_ids"].reverse()  # type: ignore[union-attr]
+    second["experiment"]["limitations"].reverse()  # type: ignore[index,union-attr]
+    second["experiment"]["execution"]["configuration_profiles"].reverse()  # type: ignore[index,union-attr]
+    second["experiment"]["execution"]["seeds"].reverse()  # type: ignore[index,union-attr]
+    second["experiment"]["execution"]["factors"].reverse()  # type: ignore[index,union-attr]
+    second["provenance"].reverse()  # type: ignore[union-attr]
+
+    assert compute_record_id(first) == compute_record_id(second)
+    model = _record_model(second)
+    assert model.metric_ids == ("accuracy", "cost")
+    assert model.experiment.limitations == ("identity-gap", "source-gap")
+
+    omitted_defaults = deepcopy(first)
+    omitted_defaults.pop("claim_eligible")
+    omitted_defaults.pop("format")
+    omitted_defaults.pop("supersedes")
+    assert compute_record_id(first) == compute_record_id(omitted_defaults)
+
+
+def test_deep_supersession_chain_is_iterative() -> None:
+    base = _record_model(_declaration())
+    record_ids = [f"{index:064x}" for index in range(2000)]
+    loaded = [
+        LoadedHistoricalRecord(
+            base.model_copy(
+                update={
+                    "record_id": record_id,
+                    "supersedes": (
+                        (record_ids[index + 1],) if index + 1 < len(record_ids) else ()
+                    ),
+                }
+            ),
+            f"imports/source/records/{record_id}.json",
+            logical_key_digest(base.kind, base.logical_key),
+        )
+        for index, record_id in enumerate(record_ids)
+    ]
+    errors = []
+
+    _validate_supersession_graph(loaded, errors)
+
+    assert errors == []
+
+
+def test_supersession_limits_fail_closed_deterministically(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base = _record_model(_declaration())
+    first_id = "1" * 64
+    second_id = "2" * 64
+    digest = logical_key_digest(base.kind, base.logical_key)
+    loaded = [
+        LoadedHistoricalRecord(
+            base.model_copy(update={"record_id": first_id, "supersedes": (second_id,)}),
+            "imports/source/records/1.json",
+            digest,
+        ),
+        LoadedHistoricalRecord(
+            base.model_copy(update={"record_id": second_id, "supersedes": ()}),
+            "imports/source/records/2.json",
+            digest,
+        ),
+    ]
+    monkeypatch.setattr(imports_module, "_MAX_SUPERSESSION_RECORDS", 1)
+
+    first_errors = []
+    second_errors = []
+    _validate_supersession_graph(loaded, first_errors)
+    _validate_supersession_graph(list(reversed(loaded)), second_errors)
+
+    assert first_errors == second_errors
+    assert [item.code for item in first_errors] == ["supersession-limit"]
