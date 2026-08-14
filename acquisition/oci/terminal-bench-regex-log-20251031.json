@@ -1,0 +1,37 @@
+{
+  "canonical_repository": "docker.io/alexgshaw/regex-log",
+  "canonical_tag": "20251031",
+  "config": {
+    "digest": "sha256:0a15c19cc78685f8d322945e882ba702ef3d0265d1f621ee00991b8e64ddb750",
+    "media_type": "application/vnd.docker.container.image.v1+json",
+    "size_bytes": 1539
+  },
+  "format": "magentabench-oci-image-spec-v1",
+  "layers": [
+    {
+      "digest": "sha256:4b3ffd8ccb5201a0fc03585952effb4ed2d1ea5e704d2e7330212fb8b16c86a3",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 29723147
+    },
+    {
+      "digest": "sha256:9040135e24f8def558e39d9b4c5b54b721c749c33610ae4233bfab3ccb2c63b6",
+      "media_type": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+      "size_bytes": 93
+    }
+  ],
+  "manifest": {
+    "digest": "sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9",
+    "media_type": "application/vnd.docker.distribution.manifest.v2+json",
+    "size_bytes": 735
+  },
+  "platform": {
+    "architecture": "amd64",
+    "os": "linux",
+    "variant": null
+  },
+  "rootfs_diff_ids": [
+    "sha256:073ec47a8c22dcaa4d6e5758799ccefe2f9bde943685830b1bf6fd2395f5eabc",
+    "sha256:e54d39dd357723fa47bd55e1fcadadd4e4882e84f0c323ad63413edd1a650020"
+  ],
+  "spec_id": "terminal-bench-regex-log-20251031"
+}
