@@ -52,7 +52,8 @@ def _parser() -> argparse.ArgumentParser:
     next_parser.add_argument("--format", choices=("text", "json"), default="text")
 
     modes = sub.add_parser(
-        "modes", help="show local, Docker, AppContainer, E2B, and remote backend readiness"
+        "modes",
+        help="show local, Docker, AppContainer, E2B, and remote backend readiness",
     )
     modes.add_argument("--format", choices=("table", "json"), default="table")
 
@@ -76,7 +77,8 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     scaffold = sub.add_parser(
-        "scaffold", help="create one isolated collaboration bundle around an existing BMP TOML"
+        "scaffold",
+        help="create one isolated collaboration bundle around an existing BMP TOML",
     )
     scaffold.add_argument("experiment_id")
     scaffold.add_argument("--bmp-spec", required=True)
@@ -100,7 +102,8 @@ def _parser() -> argparse.ArgumentParser:
     )
 
     changes = sub.add_parser(
-        "changes", help="classify a Git patch and enforce the BMP protocol review boundary"
+        "changes",
+        help="classify a Git patch and enforce the BMP protocol review boundary",
     )
     changes.add_argument("--base-ref", required=True)
     changes.add_argument("--head-ref", default="HEAD")
@@ -159,12 +162,15 @@ def _modes_table(modes: tuple[dict[str, Any], ...]) -> str:
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for item in modes:
-        backends = ", ".join(
-            entry["backend_id"]
-            if entry["configured"]
-            else f"{entry['backend_id']} (registered-only)"
-            for entry in item["backends"]
-        ) or "-"
+        backends = (
+            ", ".join(
+                entry["backend_id"]
+                if entry["configured"]
+                else f"{entry['backend_id']} (registered-only)"
+                for entry in item["backends"]
+            )
+            or "-"
+        )
         lines.append(
             "| "
             + " | ".join(
@@ -194,7 +200,7 @@ def _ledger_table(rows: tuple[dict[str, Any], ...], table: str) -> str:
             "protocol_id",
             "execution_mode",
             "purpose",
-            "latest_run_state",
+            "run_count",
         ),
         "runs": (
             "run_state",
@@ -225,7 +231,9 @@ def _ledger_table(rows: tuple[dict[str, Any], ...], table: str) -> str:
         if isinstance(value, bool):
             return "yes" if value else "no"
         if isinstance(value, (list, dict)):
-            value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            value = json.dumps(
+                value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
         return str(value).replace("|", "\\|").replace("\n", " ")
 
     labels = tuple(name.replace("_", " ").title() for name in selected)
@@ -255,7 +263,13 @@ def _git_output(root: Path, arguments: Sequence[str]) -> bytes:
 
 def _git_changed_paths(root: Path, base_ref: str, head_ref: str) -> tuple[str, ...]:
     for label, ref in (("base-ref", base_ref), ("head-ref", head_ref)):
-        if not ref or "\x00" in ref or "\n" in ref or "\r" in ref or ref.startswith("-"):
+        if (
+            not ref
+            or "\x00" in ref
+            or "\n" in ref
+            or "\r" in ref
+            or ref.startswith("-")
+        ):
             raise CollaborationError(f"{label} is invalid")
     _git_output(root, ("rev-parse", "--verify", f"{head_ref}^{{commit}}"))
     if base_ref and set(base_ref) == {"0"}:
@@ -283,11 +297,7 @@ def _git_changed_paths(root: Path, base_ref: str, head_ref: str) -> tuple[str, .
                 f"{base_ref}...{head_ref}",
             ),
         )
-    return tuple(
-        value.decode("utf-8")
-        for value in output.split(b"\0")
-        if value
-    )
+    return tuple(value.decode("utf-8") for value in output.split(b"\0") if value)
 
 
 def _changes_text(report: Any) -> str:
@@ -335,7 +345,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "next":
             report = repository.validate()
             payload = {
-                "available": [item.as_dict() for item in report.bundles if item.available],
+                "available": [
+                    item.as_dict() for item in report.bundles if item.available
+                ],
                 "blocked_or_owned": [
                     item.as_dict() for item in report.bundles if not item.available
                 ],
@@ -380,12 +392,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(render_csv(ledger, args.table), end="")
             else:
                 print(_ledger_table(getattr(ledger, args.table), args.table), end="")
-                for finding in ledger.errors:
-                    print(
-                        f"ERROR {finding['code']} [{finding['source']}]: "
-                        f"{finding['message']}",
-                        file=sys.stderr,
-                    )
+            for finding in ledger.errors:
+                print(
+                    f"ERROR {finding['code']} [{finding['source']}]: "
+                    f"{finding['message']}",
+                    file=sys.stderr,
+                )
             return 0 if ledger.ok else 1
         if args.command == "scaffold":
             path, changed = repository.scaffold(

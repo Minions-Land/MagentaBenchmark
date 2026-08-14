@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import csv
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import tempfile
 from typing import Any, Mapping
 
 try:  # Python 3.11+
@@ -24,7 +25,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10
 
 from pydantic import ValidationError
 
-from MagentaBench.lab import LabArtifactRef, LabRunState, LabStore
+from MagentaBench.lab import LabArtifactRef, LabRunState, LabStatus, LabStore
+from MagentaBench.runner.compiler import Compiler
 from MagentaBench.schemas.models import ClaimReport, ResolvedBmpManifest
 from MagentaBench.schemas.verification import (
     ReportVerificationError,
@@ -75,8 +77,9 @@ _CSV_COLUMNS = {
         "blocker_count",
         "dependencies_complete",
         "available",
-        "latest_run_id",
-        "latest_run_state",
+        "run_count",
+        "run_ids",
+        "run_states",
         "lab_revision",
         "updated_at",
     ),
@@ -96,7 +99,7 @@ _CSV_COLUMNS = {
         "validity_gates",
         "failure_breakdown",
         "metric_row_count",
-        "verified_manifest_paths",
+        "verified_manifest_refs",
     ),
     "metrics": (
         "experiment_id",
@@ -163,6 +166,13 @@ class ExperimentLedger:
         }
 
 
+@dataclass(frozen=True)
+class _ManifestSnapshot:
+    by_run_id: Mapping[str, ResolvedBmpManifest]
+    identities: tuple[tuple[str, str], ...]
+    refs: tuple[str, ...]
+
+
 def _load_toml(path: Path) -> Mapping[str, Any]:
     try:
         document = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -179,23 +189,49 @@ def _id_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-def _relative_if_inside(path: Path, root: Path) -> str:
+def _stable_locator(path: str | Path, root: Path, *, digest: str | None = None) -> str:
+    """Render a locator without making generated output host-dependent."""
+
+    if isinstance(path, str) and "://" in path:
+        return f"sha256:{digest}" if digest is not None else "<external>"
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        return PurePosixPath(candidate).as_posix()
     try:
-        return path.relative_to(root).as_posix()
+        return candidate.relative_to(root).as_posix()
     except ValueError:
-        return str(path)
+        if digest is not None:
+            return f"sha256:{digest}"
+        return "<external>"
+
+
+def _run_projection(
+    runs: tuple[Any, ...] | list[Any],
+) -> tuple[int, list[str], dict[str, list[str]]]:
+    states: dict[str, set[str]] = {}
+    for run in runs:
+        states.setdefault(run.run_id, set()).add(run.state.value)
+    run_ids = sorted(states)
+    return (
+        len(run_ids),
+        run_ids,
+        {run_id: sorted(states[run_id]) for run_id in run_ids},
+    )
 
 
 def _experiment_row(
     bundle: ExperimentBundle,
-    summary: Any,
     document: Mapping[str, Any],
     state: Any,
+    states: Mapping[str, Any],
+    evaluated_at: datetime,
 ) -> dict[str, Any]:
     experiment = document.get("experiment")
     execution = document.get("execution")
     if not isinstance(experiment, Mapping) or not isinstance(execution, Mapping):
-        raise CollaborationError(f"bundle {bundle.id!r} has an incomplete BMP declaration")
+        raise CollaborationError(
+            f"bundle {bundle.id!r} has an incomplete BMP declaration"
+        )
     protocol = experiment.get("protocol")
     configuration = experiment.get("configuration")
     design = experiment.get("design")
@@ -206,9 +242,20 @@ def _experiment_row(
         design = {}
     if not isinstance(budget, Mapping):
         budget = {}
-    latest = state.runs[-1] if state.runs else None
+    dependencies_complete = all(
+        states[issue_id].status == LabStatus.done
+        for issue_id in state.issue.dependencies
+    )
+    active_lease = state.active_lease(evaluated_at)
+    available = (
+        state.status in {LabStatus.open, LabStatus.planned, LabStatus.ready}
+        and not state.blockers
+        and dependencies_complete
+        and active_lease is None
+    )
+    run_count, run_ids, run_states = _run_projection(list(state.runs))
     return {
-        "available": summary.available,
+        "available": available,
         "backend_id": execution.get("backend"),
         "benchmark_id": experiment.get("benchmark"),
         "blocker_count": len(state.blockers),
@@ -218,7 +265,7 @@ def _experiment_row(
         "case_ids": list(bundle.design.planned_case_ids),
         "configuration_profiles": _id_list(configuration.get("profiles")),
         "dataset_id": experiment.get("dataset"),
-        "dependencies_complete": summary.dependencies_complete,
+        "dependencies_complete": dependencies_complete,
         "evidence_classification": bundle.evidence.classification,
         "evaluator_id": experiment.get("evaluator"),
         "execution_mode": bundle.execution.mode.value,
@@ -228,9 +275,7 @@ def _experiment_row(
         "lab_issue": bundle.lab_issue,
         "lab_revision": state.revision,
         "lab_status": state.status.value,
-        "latest_run_id": None if latest is None else latest.run_id,
-        "latest_run_state": None if latest is None else latest.state.value,
-        "lease_holder": summary.lease_holder,
+        "lease_holder": None if active_lease is None else active_lease.owner,
         "max_cost": budget.get("max_cost"),
         "max_tokens": budget.get("max_tokens"),
         "max_wall_seconds": budget.get("max_wall_seconds"),
@@ -243,6 +288,9 @@ def _experiment_row(
         "question": bundle.design.question,
         "regime_id": experiment.get("regime"),
         "repetitions_per_case": bundle.design.repetitions_per_case,
+        "run_count": run_count,
+        "run_ids": run_ids,
+        "run_states": run_states,
         "seeds": list(bundle.design.seeds),
         "stage_id": experiment.get("stage"),
         "subject_id": experiment.get("subject"),
@@ -275,10 +323,8 @@ def _declaration_row(
         budget = {}
     relative = path.relative_to(root).as_posix()
     linked = tuple(state for state in states if state.issue.experiment == relative)
-    latest_run = None
     linked_runs = [run for state in linked for run in state.runs]
-    if linked_runs:
-        latest_run = linked_runs[-1]
+    run_count, run_ids, run_states = _run_projection(linked_runs)
     statuses = sorted({state.status.value for state in linked})
     owners = sorted({state.owner for state in linked if state.owner is not None})
     blockers = sum(len(state.blockers) for state in linked)
@@ -300,11 +346,13 @@ def _declaration_row(
         "experiment_id": experiment_id,
         "factors": _id_list(experiment.get("factors")),
         "hypothesis": None,
-        "lab_issue": None if not linked else ",".join(state.issue.issue_id for state in linked),
-        "lab_revision": None if not linked else ",".join(state.revision for state in linked),
+        "lab_issue": None
+        if not linked
+        else ",".join(state.issue.issue_id for state in linked),
+        "lab_revision": None
+        if not linked
+        else ",".join(state.revision for state in linked),
         "lab_status": "unmanaged" if not statuses else ",".join(statuses),
-        "latest_run_id": None if latest_run is None else latest_run.run_id,
-        "latest_run_state": None if latest_run is None else latest_run.state.value,
         "lease_holder": None,
         "max_cost": budget.get("max_cost"),
         "max_tokens": budget.get("max_tokens"),
@@ -318,6 +366,9 @@ def _declaration_row(
         "question": None,
         "regime_id": experiment.get("regime"),
         "repetitions_per_case": None,
+        "run_count": run_count,
+        "run_ids": run_ids,
+        "run_states": run_states,
         "seeds": ([] if execution.get("seed") is None else [execution.get("seed")]),
         "stage_id": experiment.get("stage"),
         "subject_id": experiment.get("subject"),
@@ -325,7 +376,9 @@ def _declaration_row(
         "updated_at": (
             None
             if not linked
-            else max(state.updated_at for state in linked).isoformat().replace("+00:00", "Z")
+            else max(state.updated_at for state in linked)
+            .isoformat()
+            .replace("+00:00", "Z")
         ),
     }
 
@@ -334,7 +387,9 @@ def _relocate(path: str, path_map: Mapping[str, str]) -> Path:
     matches = [
         prefix
         for prefix in path_map
-        if path == prefix or path.startswith(prefix.rstrip("/") + "/")
+        if path == prefix
+        or (prefix == "/" and path.startswith("/"))
+        or (prefix != "/" and path.startswith(prefix + "/"))
     ]
     if not matches:
         return Path(path)
@@ -351,10 +406,28 @@ def parse_path_maps(values: tuple[str, ...] | list[str]) -> dict[str, str]:
         if "=" not in value:
             raise CollaborationError("--map values must use absolute OLD=NEW paths")
         old, new = value.split("=", 1)
-        if not old or not new or not Path(old).is_absolute() or not Path(new).is_absolute():
+        if (
+            not old
+            or not new
+            or not Path(old).is_absolute()
+            or not Path(new).is_absolute()
+        ):
             raise CollaborationError("--map values must use absolute OLD=NEW paths")
-        normalized_old = old.rstrip("/") or "/"
-        normalized_new = new.rstrip("/") or "/"
+        normalized_old_path = PurePosixPath(old)
+        normalized_new_path = PurePosixPath(new)
+        if (
+            old.startswith("//")
+            or new.startswith("//")
+            or old != normalized_old_path.as_posix()
+            or new != normalized_new_path.as_posix()
+            or any(part in {".", ".."} for part in normalized_old_path.parts)
+            or any(part in {".", ".."} for part in normalized_new_path.parts)
+        ):
+            raise CollaborationError(
+                "--map values must use normalized absolute OLD=NEW paths"
+            )
+        normalized_old = normalized_old_path.as_posix()
+        normalized_new = normalized_new_path.as_posix()
         if normalized_old in result:
             raise CollaborationError(f"duplicate --map source prefix: {normalized_old}")
         result[normalized_old] = normalized_new
@@ -386,37 +459,78 @@ def _resolve_report_locator(
         try:
             resolved.relative_to(root)
         except ValueError as exc:
-            raise CollaborationError(f"repository report locator escapes project root: {locator}") from exc
+            raise CollaborationError(
+                f"repository report locator escapes project root: {locator}"
+            ) from exc
     return resolved
 
 
-def _report_ref_matches(path: Path, ref: LabArtifactRef) -> bool:
-    content = path.read_bytes()
-    return len(content) == ref.size_bytes and hashlib.sha256(content).hexdigest() == ref.sha256
+def _read_verified_ref(path: Path, ref: Any, *, label: str) -> bytes:
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        locator = getattr(ref, "path", getattr(ref, "locator", str(path)))
+        raise CollaborationError(f"cannot read {label}: {locator}") from exc
+    if (
+        len(content) != ref.size_bytes
+        or hashlib.sha256(content).hexdigest() != ref.sha256
+    ):
+        raise CollaborationError(
+            f"{label} digest or size does not match its ArtifactRef"
+        )
+    return content
+
+
+def _verify_report_snapshot(
+    report_path: Path,
+    ref: LabArtifactRef,
+    *,
+    path_map: Mapping[str, str],
+) -> Any:
+    """Verify an immutable copy of the report bytes bound by the lab link."""
+
+    content = _read_verified_ref(report_path, ref, label="linked report")
+    with tempfile.TemporaryDirectory(prefix="magentabench-ledger-") as directory:
+        snapshot = Path(directory) / report_path.name
+        snapshot.write_bytes(content)
+        return verify_run_report(snapshot, path_map=path_map)
 
 
 def _manifest_rows(
     verified: Any,
     root: Path,
     path_map: Mapping[str, str],
-) -> tuple[dict[str, ResolvedBmpManifest], list[str]]:
+) -> _ManifestSnapshot:
     manifests: dict[str, ResolvedBmpManifest] = {}
-    paths: list[str] = []
+    refs: list[str] = []
+    identities: list[tuple[str, str]] = []
     for ref in verified.record_index.manifest_refs:
         manifest_path = _relocate(ref.path, path_map).expanduser().resolve()
         try:
-            manifest = ResolvedBmpManifest.model_validate_json(manifest_path.read_bytes())
+            content = _read_verified_ref(manifest_path, ref, label="verified manifest")
+            manifest = ResolvedBmpManifest.model_validate_json(content)
         except (OSError, ValidationError, ValueError) as exc:  # verifier already passed
-            raise CollaborationError(f"cannot reload verified manifest {ref.path}: {exc}") from exc
-        manifests[manifest.metadata.run_id] = manifest
-        paths.append(_relative_if_inside(manifest_path, root))
-    return manifests, paths
+            raise CollaborationError(
+                f"cannot reload verified manifest {ref.path}: {exc}"
+            ) from exc
+        run_id = manifest.metadata.run_id
+        if run_id in manifests:
+            raise CollaborationError(
+                f"verified manifests contain duplicate run_id: {run_id}"
+            )
+        manifests[run_id] = manifest
+        identities.append((run_id, manifest.canonical_digest()))
+        refs.append(_stable_locator(manifest_path, root, digest=ref.sha256))
+    return _ManifestSnapshot(
+        by_run_id=manifests,
+        # Record-index order may reflect parallel completion order. Run IDs
+        # remain the stable key, while duplicate IDs fail above.
+        identities=tuple(sorted(identities)),
+        refs=tuple(refs),
+    )
 
 
 def _method_id(manifest: ResolvedBmpManifest) -> str:
-    configuration = manifest.metadata.configuration
-    if configuration is not None:
-        return configuration.id
     if manifest.metadata.meta_evolver is not None:
         return manifest.metadata.meta_evolver.id
     if manifest.metadata.evolver is not None:
@@ -479,6 +593,52 @@ def _metric_row(
     }
 
 
+def _expected_manifest_identities(
+    root: Path,
+    bundle: ExperimentBundle,
+) -> tuple[tuple[str, str], ...]:
+    """Resolve the pinned BMP declaration into the identities it permits."""
+
+    spec_path = root.joinpath(*PurePosixPath(bundle.bmp_spec).parts)
+    if spec_path.is_symlink() or not spec_path.is_file():
+        raise CollaborationError(
+            f"pinned BMP declaration is missing or non-regular: {bundle.bmp_spec}"
+        )
+    try:
+        spec_bytes = spec_path.read_bytes()
+    except OSError as exc:
+        raise CollaborationError(
+            f"cannot read pinned BMP declaration: {bundle.bmp_spec}"
+        ) from exc
+    observed = hashlib.sha256(spec_bytes).hexdigest()
+    if observed != bundle.bmp_spec_sha256:
+        raise CollaborationError(
+            "pinned BMP declaration digest differs from the experiment bundle"
+        )
+    # Compile a private copy of the exact bytes whose digest was checked. The
+    # compiler opens its input path itself, so passing the repository path
+    # after hashing would reintroduce a replacement race.
+    try:
+        with tempfile.TemporaryDirectory(
+            prefix="magentabench-ledger-spec-"
+        ) as directory:
+            snapshot = Path(directory) / spec_path.name
+            snapshot.write_bytes(spec_bytes)
+            compiled = Compiler(root).compile(snapshot)
+    except ValueError as exc:
+        raise CollaborationError(
+            f"cannot compile pinned BMP declaration {bundle.bmp_spec}: {exc}"
+        ) from exc
+    identities = tuple(
+        sorted((run.manifest.metadata.run_id, run.manifest_digest) for run in compiled)
+    )
+    if len({run_id for run_id, _ in identities}) != len(identities):
+        raise CollaborationError(
+            "pinned BMP declaration produced duplicate run identities"
+        )
+    return identities
+
+
 def _run_rows(
     root: Path,
     bundle: ExperimentBundle,
@@ -490,6 +650,7 @@ def _run_rows(
     runs: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    expected_identities: tuple[tuple[str, str], ...] | None = None
     for lab_run in state.runs:
         base = {
             "claim_eligible": None,
@@ -502,14 +663,20 @@ def _run_rows(
             "metric_row_count": 0,
             "protocol_valid": None,
             "purpose": bundle.purpose.value,
-            "record_root": lab_run.record_root,
+            "record_root": _stable_locator(lab_run.record_root, root),
             "report_ref": (
-                None if lab_run.report_ref is None else lab_run.report_ref.locator
+                None
+                if lab_run.report_ref is None
+                else _stable_locator(
+                    lab_run.report_ref.locator,
+                    root,
+                    digest=lab_run.report_ref.sha256,
+                )
             ),
             "run_state": lab_run.state.value,
             "standalone_verification": "not-applicable",
             "validity_gates": {},
-            "verified_manifest_paths": [],
+            "verified_manifest_refs": [],
         }
         if lab_run.state != LabRunState.finished:
             runs.append(base)
@@ -518,20 +685,33 @@ def _run_rows(
         base["standalone_verification"] = "failed"
         try:
             report_path = _resolve_report_locator(root, lab_run.report_ref, relocation)
-            if not _report_ref_matches(report_path, lab_run.report_ref):
-                raise CollaborationError("lab report_ref digest or size does not match linked bytes")
-            verified = verify_run_report(report_path, path_map=relocation)
+            verified = _verify_report_snapshot(
+                report_path,
+                lab_run.report_ref,
+                path_map=relocation,
+            )
             report = verified.report
             if report.experiment_id != bundle.id:
                 raise CollaborationError(
                     f"report experiment_id {report.experiment_id!r} differs from bundle {bundle.id!r}"
                 )
-            if lab_run.manifest_digest is not None and report.manifest_digest != lab_run.manifest_digest:
-                raise CollaborationError("lab run manifest digest differs from verified report")
-            manifests, manifest_paths = _manifest_rows(verified, root, relocation)
+            if (
+                lab_run.manifest_digest is not None
+                and report.manifest_digest != lab_run.manifest_digest
+            ):
+                raise CollaborationError(
+                    "lab run manifest digest differs from verified report"
+                )
+            manifest_snapshot = _manifest_rows(verified, root, relocation)
+            if expected_identities is None:
+                expected_identities = _expected_manifest_identities(root, bundle)
+            if manifest_snapshot.identities != expected_identities:
+                raise CollaborationError(
+                    "verified manifest identities differ from the pinned BMP declaration"
+                )
             run_metric_rows = []
             for result in report.metric_results:
-                manifest = manifests.get(result.parent_run_id)
+                manifest = manifest_snapshot.by_run_id.get(result.parent_run_id)
                 if manifest is None:
                     raise CollaborationError(
                         f"verified metric parent run has no manifest: {result.parent_run_id}"
@@ -548,36 +728,45 @@ def _run_rows(
             base.update(
                 {
                     "claim_eligible": (
-                        report.claim_eligible if isinstance(report, ClaimReport) else None
+                        report.claim_eligible
+                        if isinstance(report, ClaimReport)
+                        else None
                     ),
                     "failure_breakdown": {
-                        key.value: value for key, value in report.failure_breakdown.items()
+                        key.value: value
+                        for key, value in report.failure_breakdown.items()
                     },
                     "isolation_valid": (
-                        None if isinstance(report, ClaimReport) else report.isolation_valid
+                        None
+                        if isinstance(report, ClaimReport)
+                        else report.isolation_valid
                     ),
                     "metric_row_count": len(run_metric_rows),
                     "protocol_valid": (
-                        None if isinstance(report, ClaimReport) else report.protocol_valid
+                        None
+                        if isinstance(report, ClaimReport)
+                        else report.protocol_valid
                     ),
                     "purpose": report.purpose.value,
                     "standalone_verification": "verified",
                     "validity_gates": (
-                        {
-                            key.value: value.valid
-                            for key, value in report.gates.items()
-                        }
+                        {key.value: value.valid for key, value in report.gates.items()}
                         if isinstance(report, ClaimReport)
                         else {
                             "isolation_valid": report.isolation_valid,
                             "protocol_valid": report.protocol_valid,
                         }
                     ),
-                    "verified_manifest_paths": manifest_paths,
+                    "verified_manifest_refs": list(manifest_snapshot.refs),
                 }
             )
             metrics.extend(run_metric_rows)
-        except (CollaborationError, ReportVerificationError, OSError, ValueError) as exc:
+        except (
+            CollaborationError,
+            ReportVerificationError,
+            OSError,
+            ValueError,
+        ) as exc:
             errors.append(
                 {
                     "code": "run-verification",
@@ -597,9 +786,12 @@ def build_experiment_ledger(
 ) -> ExperimentLedger:
     """Join every checked-in experiment bundle with lab and verified run facts."""
 
-    root = Path(os.path.abspath(os.fspath(Path(project_root).expanduser()))).resolve(strict=True)
+    root = Path(os.path.abspath(os.fspath(Path(project_root).expanduser()))).resolve(
+        strict=True
+    )
+    evaluated_at = at or datetime.now(timezone.utc)
     repository = ExperimentRepository(root)
-    validation = repository.validate(at=at)
+    validation = repository.validate(at=evaluated_at)
     if not validation.ok:
         return ExperimentLedger(
             experiments=(),
@@ -614,22 +806,46 @@ def build_experiment_ledger(
                 for finding in validation.errors
             ),
         )
-    summaries = {item.id: item for item in validation.bundles}
     store = LabStore(root)
     states = store.list()
+    states_by_id = {state.issue.issue_id: state for state in states}
     experiments: list[dict[str, Any]] = []
     runs: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     bundle_ids: set[str] = set()
+    managed_specs: dict[str, str] = {}
+    loaded_bundles: list[tuple[Path, ExperimentBundle]] = []
     for path in repository.bundle_paths():
         bundle = repository.load_bundle(path)
+        if bundle.id in bundle_ids:
+            errors.append(
+                {
+                    "code": "duplicate-experiment-id",
+                    "message": f"multiple experiment bundles declare id {bundle.id!r}",
+                    "source": path.relative_to(root).as_posix(),
+                }
+            )
+            continue
         bundle_ids.add(bundle.id)
-        document = _load_toml(root / bundle.bmp_spec)
-        state = store.load(bundle.lab_issue)
-        experiments.append(
-            _experiment_row(bundle, summaries[bundle.id], document, state)
-        )
+        managed_specs[bundle.id] = bundle.bmp_spec
+        loaded_bundles.append((path, bundle))
+    for path, bundle in loaded_bundles:
+        try:
+            document = _load_toml(root / bundle.bmp_spec)
+            state = states_by_id[bundle.lab_issue]
+            experiments.append(
+                _experiment_row(bundle, document, state, states_by_id, evaluated_at)
+            )
+        except (CollaborationError, KeyError) as exc:
+            errors.append(
+                {
+                    "code": "lab-snapshot",
+                    "message": str(exc),
+                    "source": path.relative_to(root).as_posix(),
+                }
+            )
+            continue
         run_rows, metric_rows, run_errors = _run_rows(
             root,
             bundle,
@@ -640,16 +856,57 @@ def build_experiment_ledger(
         metrics.extend(metric_rows)
         errors.extend(run_errors)
     declarations_root = root / "MagentaBench/conformance/experiments"
+    declarations: list[tuple[Path, Mapping[str, Any], str]] = []
+    declaration_sources: dict[str, list[str]] = {}
     for declaration in sorted(declarations_root.glob("*.toml")):
-        document = _load_toml(declaration)
-        experiment = document.get("experiment")
-        experiment_id = experiment.get("id") if isinstance(experiment, Mapping) else None
+        try:
+            document = _load_toml(declaration)
+            experiment = document.get("experiment")
+            experiment_id = (
+                experiment.get("id") if isinstance(experiment, Mapping) else None
+            )
+            if not isinstance(experiment_id, str) or not experiment_id:
+                raise CollaborationError(
+                    f"experiment declaration has no id: {declaration}"
+                )
+            declarations.append((declaration, document, experiment_id))
+            declaration_sources.setdefault(experiment_id, []).append(
+                declaration.relative_to(root).as_posix()
+            )
+        except CollaborationError as exc:
+            errors.append(
+                {
+                    "code": "declaration-invalid",
+                    "message": str(exc),
+                    "source": declaration.relative_to(root).as_posix(),
+                }
+            )
+    for experiment_id, sources in sorted(declaration_sources.items()):
+        if len(sources) > 1:
+            errors.append(
+                {
+                    "code": "duplicate-experiment-id",
+                    "message": (
+                        f"experiment id {experiment_id!r} is declared by "
+                        + ", ".join(sources)
+                    ),
+                    "source": sources[0],
+                }
+            )
+    for declaration, document, experiment_id in declarations:
         if experiment_id in bundle_ids:
+            if (
+                managed_specs.get(experiment_id)
+                == declaration.relative_to(root).as_posix()
+            ):
+                continue
+            # A bundle owns its pinned declaration. Any other declaration with
+            # the same id is handled by the duplicate-ID error above.
+            continue
+        if len(declaration_sources[experiment_id]) > 1:
             continue
         try:
-            experiments.append(
-                _declaration_row(root, declaration, document, states)
-            )
+            experiments.append(_declaration_row(root, declaration, document, states))
         except CollaborationError as exc:
             errors.append(
                 {
@@ -660,7 +917,9 @@ def build_experiment_ledger(
             )
     return ExperimentLedger(
         experiments=tuple(sorted(experiments, key=lambda item: item["experiment_id"])),
-        runs=tuple(sorted(runs, key=lambda item: (item["experiment_id"], item["lab_run_id"]))),
+        runs=tuple(
+            sorted(runs, key=lambda item: (item["experiment_id"], item["lab_run_id"]))
+        ),
         metrics=tuple(
             sorted(
                 metrics,
@@ -686,7 +945,9 @@ def render_csv(ledger: ExperimentLedger, table: str) -> str:
         writer.writerow(
             {
                 key: (
-                    json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                    json.dumps(
+                        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                    )
                     if isinstance(value, (dict, list))
                     else value
                 )

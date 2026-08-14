@@ -32,6 +32,21 @@ can appear in the run table, but it produces no metric row. A finished run
 produces metric rows only after the linked bytes pass `bmp-verify-report` and
 the report, bundle, lab run, and manifest identities agree.
 
+For that final identity check, the ledger recompiles the bundle's SHA-256-pinned
+BMP declaration and compares every resolved `(run_id, manifest_digest)` with
+the standalone-verified manifests. The digest covers benchmark, dataset,
+evaluator, metrics, protocol, backend, subject, model, regime/stage, factors,
+configuration, evolver, and budget identity. Record-index order is not used as
+identity because parallel runs may finish in another order; missing, extra,
+duplicate, or digest-drifted run IDs still fail closed.
+
+After repository validation, the ledger captures one reduced lab state snapshot
+and uses that snapshot for every projection row. The linked report is verified
+from a private copy of the exact bytes named by its lab SHA-256/size, and each
+manifest is hashed and parsed from one read. Replacing a path after verification
+therefore produces an error and no metric rows. Duplicate BMP experiment IDs
+also make the command nonzero rather than silently selecting one declaration.
+
 ## Normalized Tables
 
 The JSON output contains three tables instead of one lossy wide row:
@@ -49,9 +64,17 @@ allow new metrics and methods to merge without rewriting every historical row.
 Each metric row carries the verified manifest's resolved `factor_values` and
 configuration id, digest, and profile ids, so two identically named methods
 with different effective settings do not collapse into one comparison cell.
+`method_id` names the subject, evolver, or meta-evolver; configuration remains
+in its own columns and never replaces method identity. Experiment rows expose
+`run_count`, sorted `run_ids`, and all observed `run_states`. They deliberately
+do not claim a "latest" run because the reduced lab model sorts stable run IDs,
+not event timestamps.
 CSV keeps a fixed header even when a table has no rows. Use repeatable
 `--map OLD=NEW` arguments after moving a durable record root; the ledger passes
-the same relocation mapping through standalone report verification.
+the same relocation mapping through standalone report verification. Mapping
+prefixes must be normalized absolute POSIX paths without `.` or `..` segments.
+JSON and CSV remain machine-readable on success; any source or verification
+error makes the command nonzero and is also reported on stderr.
 
 ## GitHub Workflow
 
@@ -75,10 +98,24 @@ For each new experiment:
 5. Standalone-verify the final report, review it, then merge the experiment PR.
    The ledger will expose it without editing a central table.
 
-GitHub Actions may publish the JSON and CSV command output as disposable UI
-artifacts. Those generated files are caches only; the sources above remain the
-recoverable truth. Never commit credential values, authenticated locators,
-machine-local scratch roots, or an exported table as benchmark evidence.
+GitHub Actions checks out complete Git history and may publish JSON and
+CSV command output as disposable UI artifacts. Repository-only experiment rows
+need no external data. A finished run appears only when its content-addressed
+report, index, manifests, and referenced evidence are available to the job.
+Local or provider-specific exporters may materialize those bytes elsewhere and
+pass explicit `--map OLD=NEW` arguments. The checked-in workflow does not yet
+guess an artifact store, download remote evidence, or accept unverified bytes;
+once a finished external run is linked, unavailable bytes intentionally fail
+the job until a separately reviewed materialization step is installed. That
+materializer is a follow-up to the source-only GitHub integration and must bind
+each downloaded byte to its recorded digest before invoking the ledger.
+
+Generated files are caches only; the sources above remain the recoverable
+truth. Paths outside the checkout are represented by content digests (or an
+`<external>` marker for a non-artifact root), so two materialization hosts
+produce the same tables. Never commit credential values, authenticated
+locators, machine-local scratch roots, or an exported table as benchmark
+evidence.
 
 ## Interpretation
 
