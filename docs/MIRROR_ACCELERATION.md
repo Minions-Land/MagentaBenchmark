@@ -6,15 +6,21 @@ evidence. Git pushes go only to the canonical GitHub `origin`; OCI identity is
 the canonical repository plus immutable manifest digest; Python dependencies
 remain bound by the checked-in lock.
 
-The repository command is deliberately narrow:
+Invoke the module through the locked project environment:
+
+```bash
+uv run --frozen python -m MagentaBench.acquisition.cli <subcommand>
+```
+
+The subcommands are deliberately narrow:
 
 ```text
-bmp-mirror doctor         read-only Git, Python, Docker, and policy checks
-bmp-mirror git-configure  idempotent fetch-only Git remote configuration
-bmp-mirror plan           render canonical and acquisition references
-bmp-mirror verify         inspect already-cached OCI images, without network
-bmp-mirror acquire        verify one remote manifest, pull if absent, retag,
-                          and atomically create one explicit receipt
+doctor         read-only Git, Python, Docker, and policy checks
+git-configure  idempotent fetch-only Git remote configuration
+plan           render canonical and acquisition references
+verify         inspect already-cached OCI images, without network
+acquire        verify one remote manifest, pull if absent, retag, and
+               atomically create one explicit receipt
 ```
 
 None of these commands runs a container, modifies Docker daemon configuration,
@@ -38,7 +44,7 @@ Run the doctor with the Python index selected for this host:
 
 ```bash
 UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/ \
-  uv run --frozen bmp-mirror doctor
+  uv run --frozen python -m MagentaBench.acquisition.cli doctor
 ```
 
 A successful report has format `magentabench-mirror-doctor-v1` and sorted,
@@ -54,7 +60,7 @@ To create or repair the repository's fetch-only remote after `origin` has been
 verified as canonical:
 
 ```bash
-uv run --frozen bmp-mirror git-configure
+uv run --frozen python -m MagentaBench.acquisition.cli git-configure
 git fetch mirror main
 ```
 
@@ -86,7 +92,7 @@ The initial cached Terminal-Bench fixtures are:
 Inspect a transport plan without Docker or network access:
 
 ```bash
-uv run --frozen bmp-mirror plan \
+uv run --frozen python -m MagentaBench.acquisition.cli plan \
   acquisition/oci/terminal-bench-regex-log-20251031.json
 ```
 
@@ -94,7 +100,7 @@ Verify an already-cached mirror reference and canonical tag without contacting
 the registry:
 
 ```bash
-uv run --frozen bmp-mirror verify \
+uv run --frozen python -m MagentaBench.acquisition.cli verify \
   acquisition/oci/terminal-bench-regex-log-20251031.json
 ```
 
@@ -109,7 +115,7 @@ layer descriptors were not reverified; that stronger boundary belongs to
 and an explicit durable receipt path:
 
 ```bash
-uv run --frozen bmp-mirror acquire \
+uv run --frozen python -m MagentaBench.acquisition.cli acquire \
   acquisition/oci/terminal-bench-regex-log-20251031.json \
   --mirror-registry docker.1ms.run \
   --receipt /durable/magentabench-receipts/regex-log-20251031.json
@@ -171,10 +177,10 @@ private registries and credential forwarding are intentionally out of scope.
 
 ## Apptainer And Cloud Runtimes
 
-The current Apptainer profile remains host-readiness-only. `bmp-mirror` does
-not create a SIF, convert a Docker image, register an Apptainer backend, or
-raise its exploratory evidence ceiling. Before an Apptainer acquisition
-adapter is enabled it must:
+The current Apptainer profile remains host-readiness-only. These mirror
+acquisition commands do not create a SIF, convert a Docker image, register an
+Apptainer backend, or raise its exploratory evidence ceiling. Before an
+Apptainer acquisition adapter is enabled it must:
 
 - use explicit persistent `APPTAINER_CACHEDIR` and `APPTAINER_TMPDIR` paths;
 - start from the same canonical OCI digest while treating any registry prefix

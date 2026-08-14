@@ -23,7 +23,6 @@ bmp-config = "MagentaBench.runner.configuration_cli:main"
 bmp-lab = "MagentaBench.lab.cli:main"
 bmp-collab = "MagentaBench.collab.cli:main"
 bmp-agent = "MagentaBench.collab.cli:main"
-bmp-mirror = "MagentaBench.acquisition.cli:main"
 
 [project.optional-dependencies]
 test = [
