@@ -13,12 +13,12 @@ imports/<source-snapshot-id>/
     <record-id>.json
 ```
 
-`source.json` pins one repository commit and root tree plus the exact
-normalizer identity. Each record binds its source paths and bytes, typed
-experimental conditions, evidence tier, comparability limits, and explicit
-supersession. The record ID is the SHA-256 of its canonical payload and must
-match its filename. No global index is checked in; `bmp-collab ledger` derives
-the combined views.
+`source.json` pins one repository commit and root tree plus visibility,
+license status, and the exact normalizer identity. Each record binds its source
+paths and bytes, typed experimental conditions, evidence tier, comparability
+limits, and explicit supersession. The record ID is the SHA-256 of its
+canonical payload and must match its filename. No global index is checked in;
+`bmp-collab ledger` derives the combined views.
 
 Do not copy private repository data into this public repository without an
 explicit publication decision. Raw answers, gold data, traces, provider logs,
@@ -26,3 +26,7 @@ commands, authenticated URLs, credentials, and machine-specific paths are
 forbidden even when publication is approved. See
 [`docs/HISTORICAL_IMPORTS.md`](../docs/HISTORICAL_IMPORTS.md) for the complete
 boundary and import workflow.
+
+Validate this directory offline with `uv run --frozen bmp-collab
+validate-imports`. The root `README.md` and `.gitkeep` are the only non-source
+entries accepted by the loader.

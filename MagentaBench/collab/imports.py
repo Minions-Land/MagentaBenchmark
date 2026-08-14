@@ -477,6 +477,17 @@ def validate_historical_imports(
     record_ids: dict[str, LoadedHistoricalRecord] = {}
 
     for source_dir in source_entries:
+        if source_dir.name in {".gitkeep", "README.md"}:
+            if source_dir.is_symlink() or not source_dir.is_file():
+                _finding(
+                    errors,
+                    "source-layout",
+                    "imports root documentation entries must be regular files",
+                    path=source_dir,
+                    project_root=root,
+                    imports_root=imports_root,
+                )
+            continue
         if source_dir.is_symlink() or not source_dir.is_dir():
             _finding(
                 errors,

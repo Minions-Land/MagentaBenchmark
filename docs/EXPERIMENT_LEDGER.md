@@ -7,8 +7,13 @@ experiment designs, collaboration state, runs, and metric results:
 uv run --frozen bmp-collab ledger
 uv run --frozen bmp-collab ledger --table runs
 uv run --frozen bmp-collab ledger --table metrics
+uv run --frozen bmp-collab ledger --table observations
+uv run --frozen bmp-collab ledger --table assets
 uv run --frozen bmp-collab ledger --format json
 uv run --frozen bmp-collab ledger --format csv --table metrics
+uv run --frozen bmp-collab ledger --format csv --table observations
+uv run --frozen bmp-collab ledger --imports-dir /authorized/private/imports
+uv run --frozen bmp-collab validate-imports
 uv run --frozen bmp-collab ledger --map /old/artifacts=/restored/artifacts
 ```
 
@@ -23,6 +28,7 @@ query, not a checked-in spreadsheet or a second progress board.
 | Question, hypothesis, planned cases, repetitions, target mode, and evidence policy | `experiments/<id>/bundle.json` | One experiment branch or PR |
 | Status, owner, lease, blockers, checkpoints, and linked runs | Immutable `lab/issues/<id>/` event chain | Current lease holder |
 | Actual method, dataset digest/split, backend, model, metric value, denominator, and uncertainty | Standalone-verified report, record index, manifest, and indexed evidence | Evidence producer and reviewer |
+| Historical declarations, evaluated observations, assets, conditions, and comparability limits | Canonical `imports/<source-id>/source.json` and content-addressed records | One source snapshot branch or PR |
 
 The join is by stable identifiers: bundle id to BMP experiment id, bundle lab
 issue to reduced lab state, lab run `report_ref` to a persisted report, and each
@@ -47,17 +53,35 @@ manifest is hashed and parsed from one read. Replacing a path after verification
 therefore produces an error and no metric rows. Duplicate BMP experiment IDs
 also make the command nonzero rather than silently selecting one declaration.
 
+Historical records have a separate truth boundary. Their source commit, tree,
+normalizer, provenance bytes, conditions, evidence tier, and limitations must
+validate offline before they appear in generated views. They never enter the
+BMP `metrics` table and are always forced to `claim_eligible=false`. A private
+companion import directory can be selected explicitly; public CI never receives
+credentials to fetch private repositories.
+
+The historical catalog retains the complete typed conditions object and its
+digest, including budget, immutable image identity, hardware, network policy,
+repetitions, seeds, factors, and configuration. Observation rows retain their
+typed denominator, uncertainty, terminal state, provenance refs, and explicit
+supersession. Structured CSV cells use deterministic JSON.
+
 ## Normalized Tables
 
-The JSON output contains three tables instead of one lossy wide row:
+Ledger v2 keeps the three BMP truth tables and adds four provenance-aware
+comparison views instead of one lossy wide row:
 
 | Table | Row identity | Purpose |
 | --- | --- | --- |
 | `experiments` | `experiment_id` | Stable design plus current collaboration projection |
 | `runs` | `experiment_id`, `lab_run_id` | Operational run state and standalone-verification outcome |
 | `metrics` | `experiment_id`, `lab_run_id`, `parent_run_id`, `metric_id` | Comparable method, resolved factors, configuration identity, data, metric result, denominator, and uncertainty |
+| `sources` | `source_id` | Exact BMP declaration or historical repository snapshot and normalizer identity |
+| `catalog` | `catalog_id` | Unified current and historical experiment/run directory with evidence tier and comparability |
+| `observations` | `observation_id` | Unified long-form metrics across BMP and legacy origins without erasing their verification boundary |
+| `assets` | `asset_id` | Materialized, metadata-only, or unavailable reports, manifests, results, and recovery candidates |
 
-CSV emits one selected table. JSON emits all tables and is the recommended
+CSV emits one selected table. JSON emits all seven tables and is the recommended
 input for a dashboard, notebook, GitHub Actions artifact, or database import.
 Do not join metric ids into columns in the repository: long-form metric rows
 allow new metrics and methods to merge without rewriting every historical row.
@@ -99,7 +123,9 @@ For each new experiment:
    The ledger will expose it without editing a central table.
 
 GitHub Actions checks out complete Git history and may publish JSON and
-CSV command output as disposable UI artifacts. Repository-only experiment rows
+CSV command output as disposable UI artifacts. The JSON contract is
+`magentabench-experiment-ledger-v2`; consumers of v1 must opt into the new
+tables rather than assuming a silent schema-compatible change. Repository-only experiment rows
 need no external data. A finished run appears only when its content-addressed
 report, index, manifests, and referenced evidence are available to the job.
 Local or provider-specific exporters may materialize those bytes elsewhere and
@@ -125,3 +151,11 @@ is publishable only when its report also derives `claim_eligible=true` and all
 required evidence gates are positive. Missing, invalid, and zero-filled metric
 counts remain separate because collapsing them into a score would change the
 denominator.
+
+In `observations`, `record_origin=bmp` and
+`evidence_tier=bmp-standalone` preserve that meaning. A
+`record_origin=legacy-import` row means only that a strict historical source
+contained an evaluated value and its pinned source/provenance record validated;
+it does not mean BMP replayed the run. Use `comparability`, complete conditions,
+denominator fields, and limitations before comparing rows. Declaration-only and
+candidate records produce no observation.

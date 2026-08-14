@@ -34,9 +34,11 @@ imports/<source-snapshot-id>/
 ```
 
 The source binds a normalized repository identity, full commit SHA, root tree
-OID, visibility, and normalizer ID and digest. A branch is only a `ref_hint`;
-it never means "latest". Changing the source commit or normalizer creates a new
-snapshot directory.
+OID, visibility, explicit license status, and normalizer ID and digest. A
+declared license requires its identifier; `not-detected` and `unknown` remain
+explicit blockers rather than being interpreted as permission. A branch is
+only a `ref_hint`; it never means "latest". Changing the source commit or
+normalizer creates a new snapshot directory.
 
 Records are typed as declarations, evaluated runs, or assets. They carry
 whitelisted benchmark, dataset, method, model, evaluator, execution, metric,
@@ -81,3 +83,22 @@ The generated JSON includes `sources`, `catalog`, `observations`, and `assets`.
 CSV exports one selected table. These are disposable views; the canonical
 import records and, where permitted, their pinned source bytes remain the
 recoverable inputs.
+
+```bash
+uv run --frozen bmp-collab validate-imports
+uv run --frozen bmp-collab ledger --table sources
+uv run --frozen bmp-collab ledger --table catalog
+uv run --frozen bmp-collab ledger --table observations
+uv run --frozen bmp-collab ledger --table assets
+
+# An authorized private companion remains outside the public checkout.
+uv run --frozen bmp-collab validate-imports --imports-dir /authorized/imports
+uv run --frozen bmp-collab ledger --imports-dir /authorized/imports
+```
+
+The catalog stores the complete typed `conditions` object as well as its
+digest. This preserves budgets, image SHA-256, hardware, network policy,
+repetitions, seeds, factors, and configuration identity. Observations retain
+the complete denominator, uncertainty, and provenance objects. CSV encodes
+those structured cells as deterministic JSON rather than flattening away
+conditions that affect comparability.

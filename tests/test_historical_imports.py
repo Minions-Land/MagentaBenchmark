@@ -24,9 +24,12 @@ from MagentaBench.collab.imports import (
     load_historical_imports,
     validate_historical_imports,
 )
+from MagentaBench.collab.cli import main as collab_main
+from MagentaBench.collab.ledger import build_experiment_ledger
 from MagentaBench.collab.repository import CollaborationError
 
 _RECORD_ADAPTER = TypeAdapter(HistoricalRecord)
+ROOT = Path(__file__).parents[1]
 
 
 def _source(
@@ -38,6 +41,8 @@ def _source(
     return {
         "commit_sha": commit_digit * 40,
         "format": "magentabench-historical-source-v1",
+        "license_id": None,
+        "license_status": "unknown",
         "normalizer_id": "sample-normalizer.v1",
         "normalizer_sha256": "3" * 64,
         "ref_hint": "main",
@@ -339,6 +344,14 @@ def test_missing_import_directory_is_a_valid_empty_snapshot(tmp_path: Path) -> N
     assert report.as_dict()["format"] == "magentabench-historical-import-validation-v1"
 
 
+def test_checked_in_import_readme_is_not_treated_as_a_source() -> None:
+    report = validate_historical_imports(ROOT)
+
+    assert report.ok, report.errors
+    assert report.snapshot.sources == ()
+    assert report.snapshot.records == ()
+
+
 def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) -> None:
     _install_source(tmp_path)
     for payload in (_run(), _declaration(), _asset()):
@@ -362,6 +375,155 @@ def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) 
         first.sources[0].source.source_id = "changed"  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         first.sources[0].path = "changed"  # type: ignore[misc]
+
+
+def test_source_requires_coherent_license_status() -> None:
+    declared = _source()
+    declared["license_status"] = "declared"
+    declared["license_id"] = "Apache-2.0"
+
+    model = HistoricalSource.model_validate_json(json.dumps(declared), strict=True)
+    assert model.license_id == "Apache-2.0"
+
+    missing = _source()
+    missing["license_status"] = "declared"
+    with pytest.raises(ValidationError, match="license_id is required"):
+        HistoricalSource.model_validate_json(json.dumps(missing), strict=True)
+
+    inconsistent = _source()
+    inconsistent["license_id"] = "Apache-2.0"
+    with pytest.raises(ValidationError, match="license_id is required"):
+        HistoricalSource.model_validate_json(json.dumps(inconsistent), strict=True)
+
+
+def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_bmp_tables(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    _, declaration = _install_record(tmp_path, _declaration())
+    _, run = _install_record(tmp_path, _run())
+    candidate = _run(logical_key="candidate-run")
+    candidate["evidence_tier"] = "candidate"
+    candidate["metrics"] = []
+    candidate["run_id"] = "candidate-run-001"
+    _install_record(tmp_path, candidate)
+    asset = _asset()
+    second_ref = deepcopy(asset["provenance"][0])  # type: ignore[index]
+    second_ref["path"] = "results/sample-report-copy.json"
+    second_ref["git_blob_oid"] = {"algorithm": "sha1", "digest": "b" * 40}
+    asset["provenance"].append(second_ref)  # type: ignore[union-attr]
+    _, asset_record = _install_record(tmp_path, asset)
+
+    baseline = build_experiment_ledger(ROOT)
+    ledger = build_experiment_ledger(ROOT, imports_dir=tmp_path / "imports")
+
+    assert baseline.ok, baseline.errors
+    assert ledger.ok, ledger.errors
+    assert ledger.experiments == baseline.experiments
+    assert ledger.runs == baseline.runs
+    assert ledger.metrics == baseline.metrics
+
+    source = next(item for item in ledger.sources if item["record_origin"] == "legacy-import")
+    assert source["record_count"] == 4
+    assert source["license_status"] == "unknown"
+    assert source["tree_oid"] == {"algorithm": "sha1", "digest": "2" * 40}
+    assert str(tmp_path) not in source["snapshot_path"]
+
+    legacy_catalog = [
+        item for item in ledger.catalog if item["record_origin"] == "legacy-import"
+    ]
+    assert len(legacy_catalog) == 3
+    projected_run = next(item for item in legacy_catalog if item["record_id"] == run["record_id"])
+    assert projected_run["terminal_state"] == "completed"
+    assert projected_run["claim_eligible"] is False
+    assert projected_run["conditions"]["execution"]["budget"] == {
+        "max_cases": 10,
+        "max_cost_usd": 2.0,
+        "max_tokens": 1000,
+        "max_wall_seconds": 120.0,
+    }
+    assert projected_run["conditions"]["execution"]["image_sha256"] == "7" * 64
+    projected_declaration = next(
+        item for item in legacy_catalog if item["record_id"] == declaration["record_id"]
+    )
+    assert projected_declaration["terminal_state"] is None
+
+    legacy_observations = [
+        item
+        for item in ledger.observations
+        if item["record_origin"] == "legacy-import"
+    ]
+    assert len(legacy_observations) == 1
+    observation = legacy_observations[0]
+    assert observation["record_id"] == run["record_id"]
+    assert observation["metric_id"] == "accuracy"
+    assert observation["value"] == 0.34
+    assert observation["denominator"] == {
+        "excluded_count": 0,
+        "observed_count": 44,
+        "planned_count": 50,
+        "unit": "cases",
+    }
+    assert observation["planned_rollout_count"] is None
+    assert observation["uncertainty"]["confidence_level"] == 0.95
+    assert observation["claim_eligible"] is False
+    assert observation["provenance_refs"][0]["path"] == "results/sample-result.json"
+
+    legacy_assets = [
+        item for item in ledger.assets if item["record_origin"] == "legacy-import"
+    ]
+    assert len(legacy_assets) == 2
+    assert {item["source_asset_id"] for item in legacy_assets} == {"sample-report"}
+    assert {item["record_id"] for item in legacy_assets} == {asset_record["record_id"]}
+    assert len({item["asset_id"] for item in legacy_assets}) == 2
+
+
+def test_invalid_imports_fail_closed_without_partial_legacy_projection(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    _install_record(tmp_path, _run())
+    invalid = tmp_path / "imports/sample-source/records/not-a-record-id.json"
+    invalid.write_text("{}\n", encoding="utf-8")
+
+    ledger = build_experiment_ledger(ROOT, imports_dir=tmp_path / "imports")
+
+    assert not ledger.ok
+    assert ledger.experiments
+    assert all(item["record_origin"] == "bmp" for item in ledger.sources)
+    assert all(item["record_origin"] == "bmp" for item in ledger.catalog)
+    assert all(item["record_origin"] == "bmp" for item in ledger.observations)
+    assert all(item["record_origin"] == "bmp" for item in ledger.assets)
+    assert any(item["code"] == "historical-import-record-layout" for item in ledger.errors)
+
+
+def test_validate_imports_cli_supports_an_external_companion(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _install_source(tmp_path)
+    _install_record(tmp_path, _declaration())
+
+    return_code = collab_main(
+        (
+            "--project-root",
+            str(ROOT),
+            "validate-imports",
+            "--imports-dir",
+            str(tmp_path / "imports"),
+            "--format",
+            "json",
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert return_code == 0
+    payload = json.loads(captured.out)
+    assert payload["ok"] is True
+    assert payload["source_count"] == 1
+    assert payload["record_count"] == 1
+    assert str(tmp_path) not in captured.out
+    assert captured.err == ""
 
 
 def test_source_snapshot_identity_normalizes_github_name_and_url() -> None:

@@ -223,6 +223,8 @@ class HistoricalSource(HistoricalImportModel):
     normalizer_id: str
     normalizer_sha256: str
     visibility: Literal["public", "private", "unknown"]
+    license_status: Literal["declared", "not-detected", "unknown"]
+    license_id: str | None = None
     ref_hint: str | None = None
 
     @field_validator("source_id", "normalizer_id")
@@ -250,6 +252,13 @@ class HistoricalSource(HistoricalImportModel):
             raise ValueError("normalizer_sha256 must be lowercase 64-hex")
         return value
 
+    @field_validator("license_id")
+    @classmethod
+    def license_id_is_safe(cls, value: str | None) -> str | None:
+        if value is not None:
+            return _safe_string(value, label="license_id", max_length=128)
+        return value
+
     @field_validator("ref_hint")
     @classmethod
     def ref_hint_is_non_authoritative(cls, value: str | None) -> str | None:
@@ -263,6 +272,10 @@ class HistoricalSource(HistoricalImportModel):
     def root_tree_is_sha1(self) -> HistoricalSource:
         if self.root_tree.algorithm != "sha1":
             raise ValueError("root_tree must use the Git SHA-1 object format")
+        if (self.license_status == "declared") != (self.license_id is not None):
+            raise ValueError(
+                "license_id is required only when license_status is declared"
+            )
         return self
 
 

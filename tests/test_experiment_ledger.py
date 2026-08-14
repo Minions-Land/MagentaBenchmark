@@ -105,6 +105,12 @@ def test_checked_in_ledger_is_derived_from_bundle_and_lab() -> None:
     assert "latest_run_id" not in row
     assert ledger.runs == ()
     assert ledger.metrics == ()
+    assert len(ledger.sources) == len(ledger.experiments)
+    assert len(ledger.catalog) == len(ledger.experiments)
+    assert ledger.observations == ()
+    assert ledger.assets == ()
+    assert all(item["record_origin"] == "bmp" for item in ledger.sources)
+    assert all(item["claim_eligible"] is False for item in ledger.catalog)
     unmanaged = next(
         item
         for item in ledger.experiments
@@ -131,6 +137,16 @@ def test_csv_is_machine_readable_and_deterministic() -> None:
     assert render_csv(ledger, "metrics").splitlines() == [
         "experiment_id,lab_run_id,parent_run_id,manifest_digest,method_id,factor_values,configuration_id,configuration_digest,configuration_profiles,subject_id,model,benchmark_id,dataset_id,dataset_commit,dataset_digest,dataset_split,backend_id,purpose,metric_id,metric_digest,metric_state,value,reason,planned_rollout_count,task_count,rollouts_per_task,observed_count,zero_filled_count,excluded_count,missing_count,invalid_count,uncertainty_method,uncertainty_confidence_level,uncertainty_lower,uncertainty_upper"
     ]
+    source_rows = list(csv.DictReader(io.StringIO(render_csv(ledger, "sources"))))
+    assert len(source_rows) == len(ledger.sources)
+    assert source_rows[0]["record_origin"] == "bmp"
+    assert list(csv.DictReader(io.StringIO(render_csv(ledger, "catalog"))))
+    assert render_csv(ledger, "observations").splitlines()[0].startswith(
+        "observation_id,record_origin,source_id"
+    )
+    assert render_csv(ledger, "assets").splitlines()[0].startswith(
+        "asset_id,record_origin,source_id"
+    )
 
 
 def test_path_map_requires_absolute_unique_prefixes() -> None:
@@ -312,10 +328,14 @@ def test_finished_report_must_pass_standalone_verification(
 def test_json_projection_contains_all_normalized_tables() -> None:
     payload = build_experiment_ledger(ROOT).as_dict()
 
-    assert payload["format"] == "magentabench-experiment-ledger-v1"
+    assert payload["format"] == "magentabench-experiment-ledger-v2"
     assert payload["experiment_count"] == len(payload["experiments"])
     assert payload["run_count"] == len(payload["runs"])
     assert payload["metric_row_count"] == len(payload["metrics"])
+    assert payload["source_count"] == len(payload["sources"])
+    assert payload["catalog_count"] == len(payload["catalog"])
+    assert payload["observation_count"] == len(payload["observations"])
+    assert payload["asset_count"] == len(payload["assets"])
     json.dumps(payload, allow_nan=False, sort_keys=True)
 
 

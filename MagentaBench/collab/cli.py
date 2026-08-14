@@ -17,6 +17,7 @@ from .repository import (
     classify_changed_paths,
 )
 from .ledger import build_experiment_ledger, parse_path_maps, render_csv
+from .imports import HistoricalImportValidation, validate_historical_imports
 
 
 def _json(value: Any) -> str:
@@ -40,6 +41,20 @@ def _parser() -> argparse.ArgumentParser:
         "validate", help="validate every experiment bundle, lab link, and BMP pin"
     )
     validate.add_argument("--format", choices=("text", "json"), default="text")
+
+    validate_imports = sub.add_parser(
+        "validate-imports",
+        help="validate content-addressed historical imports without network access",
+    )
+    validate_imports.add_argument(
+        "--imports-dir",
+        type=Path,
+        default=Path("imports"),
+        help="historical import root (default: PROJECT_ROOT/imports)",
+    )
+    validate_imports.add_argument(
+        "--format", choices=("text", "json"), default="text"
+    )
 
     listing = sub.add_parser(
         "list", help="render the derived bundle queue without a hand-edited board"
@@ -143,6 +158,21 @@ def _validation_text(report: ValidationReport) -> str:
             f"- {bundle.id}: {bundle.lab_status}, mode source={bundle.bmp_spec}, "
             f"issue={bundle.lab_issue}, available={'yes' if bundle.available else 'no'}"
         )
+    return "\n".join(lines) + "\n"
+
+
+def _import_validation_text(report: HistoricalImportValidation) -> str:
+    lines = [
+        f"historical import validation: {'OK' if report.ok else 'FAILED'} "
+        f"({len(report.snapshot.sources)} sources, "
+        f"{len(report.snapshot.records)} records, {len(report.errors)} errors)"
+    ]
+    for finding in report.errors:
+        location = "" if finding.path is None else f" [{finding.path}]"
+        lines.append(f"ERROR {finding.code}{location}: {finding.message}")
+    for finding in report.warnings:
+        location = "" if finding.path is None else f" [{finding.path}]"
+        lines.append(f"WARNING {finding.code}{location}: {finding.message}")
     return "\n".join(lines) + "\n"
 
 
@@ -383,6 +413,18 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _json(report.as_dict())
                 if args.format == "json"
                 else _validation_text(report),
+                end="",
+            )
+            return 0 if report.ok else 1
+        if args.command == "validate-imports":
+            report = validate_historical_imports(
+                root,
+                imports_dir=args.imports_dir,
+            )
+            print(
+                _json(report.as_dict())
+                if args.format == "json"
+                else _import_validation_text(report),
                 end="",
             )
             return 0 if report.ok else 1

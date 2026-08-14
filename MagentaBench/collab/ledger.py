@@ -33,6 +33,17 @@ from MagentaBench.schemas.verification import (
     verify_run_report,
 )
 
+from .import_models import (
+    HistoricalAssetRecord,
+    HistoricalDeclaration,
+    HistoricalRun,
+    experiment_condition_digest,
+)
+from .imports import (
+    HistoricalImportError,
+    HistoricalImportSnapshot,
+    load_historical_imports,
+)
 from .models import ExperimentBundle
 from .repository import CollaborationError, ExperimentRepository
 
@@ -146,9 +157,12 @@ _CSV_COLUMNS = {
         "tree_oid",
         "ref_hint",
         "visibility",
+        "license_status",
+        "license_id",
         "normalizer_id",
         "normalizer_digest",
         "source_digest",
+        "snapshot_identity",
         "snapshot_path",
         "record_count",
         "evidence_tiers",
@@ -160,6 +174,7 @@ _CSV_COLUMNS = {
         "record_id",
         "record_kind",
         "experiment_id",
+        "terminal_state",
         "benchmark_id",
         "dataset_id",
         "dataset_commit",
@@ -176,11 +191,14 @@ _CSV_COLUMNS = {
         "protocol_id",
         "purpose",
         "condition_digest",
+        "conditions",
         "metric_ids",
         "evidence_tier",
         "comparability",
         "claim_eligible",
         "limitations",
+        "logical_key_sha256",
+        "supersedes",
     ),
     "observations": (
         "observation_id",
@@ -190,6 +208,7 @@ _CSV_COLUMNS = {
         "experiment_id",
         "run_id",
         "parent_run_id",
+        "terminal_state",
         "method_id",
         "subject_id",
         "model",
@@ -210,6 +229,7 @@ _CSV_COLUMNS = {
         "configuration_digest",
         "configuration_profiles",
         "condition_digest",
+        "conditions",
         "metric_id",
         "metric_digest",
         "metric_state",
@@ -217,6 +237,7 @@ _CSV_COLUMNS = {
         "unit",
         "direction",
         "aggregation",
+        "denominator",
         "planned_rollout_count",
         "task_count",
         "rollouts_per_task",
@@ -229,17 +250,22 @@ _CSV_COLUMNS = {
         "uncertainty_confidence_level",
         "uncertainty_lower",
         "uncertainty_upper",
+        "uncertainty",
         "evidence_tier",
         "comparability",
         "claim_eligible",
         "limitations",
         "provenance_paths",
+        "provenance_refs",
+        "logical_key_sha256",
+        "supersedes",
     ),
     "assets": (
         "asset_id",
         "record_origin",
         "source_id",
         "record_id",
+        "source_asset_id",
         "experiment_id",
         "run_id",
         "role",
@@ -252,6 +278,8 @@ _CSV_COLUMNS = {
         "evidence_tier",
         "materialization_state",
         "limitations",
+        "logical_key_sha256",
+        "supersedes",
     ),
 }
 
@@ -953,6 +981,7 @@ def _bmp_observation_rows(
                 "claim_eligible": run.get("claim_eligible") is True,
                 "comparability": "exact-identity",
                 "condition_digest": metric["configuration_digest"],
+                "conditions": None,
                 "configuration_digest": metric["configuration_digest"],
                 "configuration_id": metric["configuration_id"],
                 "configuration_profiles": metric["configuration_profiles"],
@@ -961,6 +990,12 @@ def _bmp_observation_rows(
                 "dataset_id": metric["dataset_id"],
                 "dataset_split": metric["dataset_split"],
                 "direction": None,
+                "denominator": {
+                    "excluded_count": metric["excluded_count"],
+                    "observed_count": metric["observed_count"],
+                    "planned_count": metric["planned_rollout_count"],
+                    "unit": "rollouts",
+                },
                 "evaluator_id": experiment["evaluator_id"],
                 "evidence_tier": "bmp-standalone",
                 "excluded_count": metric["excluded_count"],
@@ -988,6 +1023,7 @@ def _bmp_observation_rows(
                 "record_origin": "bmp",
                 "rollouts_per_task": metric["rollouts_per_task"],
                 "run_id": metric["lab_run_id"],
+                "terminal_state": run["run_state"],
                 "source_id": f"bmp:{metric['experiment_id']}",
                 "subject_id": metric["subject_id"],
                 "task_count": metric["task_count"],
@@ -997,9 +1033,22 @@ def _bmp_observation_rows(
                 "uncertainty_lower": metric["uncertainty_lower"],
                 "uncertainty_method": metric["uncertainty_method"],
                 "uncertainty_upper": metric["uncertainty_upper"],
+                "uncertainty": (
+                    None
+                    if metric["uncertainty_method"] is None
+                    else {
+                        "confidence_level": metric["uncertainty_confidence_level"],
+                        "lower": metric["uncertainty_lower"],
+                        "method": metric["uncertainty_method"],
+                        "upper": metric["uncertainty_upper"],
+                    }
+                ),
                 "unit": None,
                 "value": metric["value"],
                 "zero_filled_count": metric["zero_filled_count"],
+                "provenance_refs": [],
+                "logical_key_sha256": None,
+                "supersedes": [],
             }
         )
     return rows
@@ -1031,12 +1080,15 @@ def _bmp_source_rows(
                 "evidence_tiers": [tier],
                 "normalizer_digest": normalizer_digest,
                 "normalizer_id": normalizer_id,
+                "license_id": None,
+                "license_status": "unknown",
                 "record_count": 1,
                 "record_origin": "bmp",
                 "ref_hint": None,
                 "repository": ".",
                 "snapshot_path": experiment["bmp_spec"],
                 "source_digest": source_digest,
+                "snapshot_identity": source_digest,
                 "source_id": f"bmp:{experiment['experiment_id']}",
                 "tree_oid": None,
                 "visibility": "repository",
@@ -1067,6 +1119,7 @@ def _bmp_catalog_rows(
                     "exact-identity" if observed else "declared-identity"
                 ),
                 "condition_digest": None,
+                "conditions": None,
                 "dataset_commit": None,
                 "dataset_digest": None,
                 "dataset_id": experiment["dataset_id"],
@@ -1077,8 +1130,10 @@ def _bmp_catalog_rows(
                 ),
                 "execution_mode": experiment["execution_mode"],
                 "experiment_id": experiment["experiment_id"],
+                "terminal_state": None,
                 "harness_id": None,
                 "limitations": [],
+                "logical_key_sha256": None,
                 "method_id": experiment["subject_id"],
                 "metric_ids": experiment["metric_ids"],
                 "model": experiment["model"],
@@ -1090,6 +1145,7 @@ def _bmp_catalog_rows(
                 "record_origin": "bmp",
                 "source_id": f"bmp:{experiment['experiment_id']}",
                 "subject_id": experiment["subject_id"],
+                "supersedes": [],
             }
         )
     return rows
@@ -1138,11 +1194,288 @@ def _bmp_asset_rows(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "role": role,
                     "run_id": run["lab_run_id"],
                     "size_bytes": None,
+                    "source_asset_id": None,
                     "source_id": f"bmp:{run['experiment_id']}",
                     "status": run["standalone_verification"],
+                    "logical_key_sha256": None,
+                    "supersedes": [],
                 }
             )
     return rows
+
+
+def _historical_projection_rows(
+    snapshot: HistoricalImportSnapshot,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    """Project one fully validated historical snapshot into ledger v2 rows."""
+
+    records_by_source: dict[str, list[Any]] = {}
+    for loaded in snapshot.records:
+        records_by_source.setdefault(loaded.record.source_id, []).append(loaded)
+
+    sources: list[dict[str, Any]] = []
+    for loaded in snapshot.sources:
+        source = loaded.source
+        records = records_by_source.get(source.source_id, [])
+        sources.append(
+            {
+                "commit_sha": source.commit_sha,
+                "evidence_tiers": sorted(
+                    {item.record.evidence_tier for item in records}
+                ),
+                "license_id": source.license_id,
+                "license_status": source.license_status,
+                "normalizer_digest": source.normalizer_sha256,
+                "normalizer_id": source.normalizer_id,
+                "record_count": len(records),
+                "record_origin": "legacy-import",
+                "ref_hint": source.ref_hint,
+                "repository": source.repository,
+                "snapshot_identity": loaded.snapshot_identity,
+                "snapshot_path": loaded.path,
+                "source_digest": loaded.source_digest,
+                "source_id": source.source_id,
+                "tree_oid": source.root_tree.model_dump(mode="json"),
+                "visibility": source.visibility,
+            }
+        )
+
+    catalog: list[dict[str, Any]] = []
+    observations: list[dict[str, Any]] = []
+    assets: list[dict[str, Any]] = []
+    for loaded in snapshot.records:
+        record = loaded.record
+        if isinstance(record, (HistoricalDeclaration, HistoricalRun)):
+            experiment = record.experiment
+            execution = experiment.execution
+            metric_ids = (
+                sorted(record.metric_ids)
+                if isinstance(record, HistoricalDeclaration)
+                else sorted(metric.metric_id for metric in record.metrics)
+            )
+            catalog.append(
+                {
+                    "backend_id": execution.backend_id,
+                    "benchmark_id": experiment.benchmark.id,
+                    "catalog_id": f"legacy-catalog:{record.record_id}",
+                    "claim_eligible": False,
+                    "comparability": experiment.comparability.model_dump(mode="json"),
+                    "condition_digest": experiment_condition_digest(experiment),
+                    "conditions": experiment.model_dump(mode="json"),
+                    "dataset_commit": experiment.dataset.commit_sha,
+                    "dataset_digest": experiment.dataset.content_sha256,
+                    "dataset_id": experiment.dataset.id,
+                    "dataset_split": experiment.dataset.split,
+                    "evaluator_id": experiment.evaluator.id,
+                    "evidence_tier": record.evidence_tier,
+                    "execution_mode": execution.mode,
+                    "experiment_id": experiment.experiment_id,
+                    "harness_id": experiment.harness.id,
+                    "limitations": sorted(experiment.limitations),
+                    "logical_key_sha256": loaded.logical_key_sha256,
+                    "method_id": experiment.method.id,
+                    "metric_ids": metric_ids,
+                    "model": None if experiment.model is None else experiment.model.id,
+                    "protocol_id": experiment.harness.protocol_id,
+                    "provider_id": (
+                        None if experiment.provider is None else experiment.provider.id
+                    ),
+                    "purpose": experiment.purpose,
+                    "record_id": record.record_id,
+                    "record_kind": record.kind,
+                    "record_origin": "legacy-import",
+                    "source_id": record.source_id,
+                    "subject_id": experiment.method.subject_id,
+                    "supersedes": sorted(record.supersedes),
+                    "terminal_state": (
+                        record.terminal_state
+                        if isinstance(record, HistoricalRun)
+                        else None
+                    ),
+                }
+            )
+
+        if isinstance(record, HistoricalRun) and record.evidence_tier == "legacy-evaluated":
+            experiment = record.experiment
+            execution = experiment.execution
+            provenance = sorted(
+                (
+                    item.model_dump(mode="json")
+                    for item in record.provenance
+                ),
+                key=lambda item: (
+                    item["role"],
+                    item["path"],
+                    item["content_sha256"],
+                    item["size_bytes"],
+                ),
+            )
+            for metric in record.metrics:
+                uncertainty = (
+                    None
+                    if metric.uncertainty is None
+                    else metric.uncertainty.model_dump(mode="json")
+                )
+                observations.append(
+                    {
+                        "aggregation": metric.aggregation,
+                        "backend_id": execution.backend_id,
+                        "benchmark_id": experiment.benchmark.id,
+                        "claim_eligible": False,
+                        "comparability": experiment.comparability.model_dump(mode="json"),
+                        "condition_digest": experiment_condition_digest(experiment),
+                        "conditions": experiment.model_dump(mode="json"),
+                        "configuration_digest": execution.configuration_sha256,
+                        "configuration_id": execution.configuration_id,
+                        "configuration_profiles": sorted(
+                            execution.configuration_profiles
+                        ),
+                        "dataset_commit": experiment.dataset.commit_sha,
+                        "dataset_digest": experiment.dataset.content_sha256,
+                        "dataset_id": experiment.dataset.id,
+                        "dataset_split": experiment.dataset.split,
+                        "denominator": metric.denominator.model_dump(mode="json"),
+                        "direction": metric.direction,
+                        "evaluator_id": experiment.evaluator.id,
+                        "evidence_tier": record.evidence_tier,
+                        "excluded_count": metric.denominator.excluded_count,
+                        "execution_mode": execution.mode,
+                        "experiment_id": experiment.experiment_id,
+                        "factor_values": {
+                            factor.id: factor.value
+                            for factor in sorted(
+                                execution.factors, key=lambda item: item.id
+                            )
+                        },
+                        "harness_id": experiment.harness.id,
+                        "invalid_count": metric.invalid_count,
+                        "limitations": sorted(experiment.limitations),
+                        "logical_key_sha256": loaded.logical_key_sha256,
+                        "method_id": experiment.method.id,
+                        "metric_digest": metric.definition_sha256,
+                        "metric_id": metric.metric_id,
+                        "metric_state": metric.state,
+                        "missing_count": metric.missing_count,
+                        "model": (
+                            None if experiment.model is None else experiment.model.id
+                        ),
+                        "observation_id": _projection_id(
+                            "legacy-observation",
+                            {
+                                "metric_id": metric.metric_id,
+                                "record_id": record.record_id,
+                            },
+                        ),
+                        "observed_count": metric.denominator.observed_count,
+                        "parent_run_id": record.parent_run_id,
+                        "planned_rollout_count": (
+                            metric.denominator.planned_count
+                            if metric.denominator.unit == "rollouts"
+                            else None
+                        ),
+                        "protocol_id": experiment.harness.protocol_id,
+                        "provenance_paths": [item["path"] for item in provenance],
+                        "provenance_refs": provenance,
+                        "provider_id": (
+                            None
+                            if experiment.provider is None
+                            else experiment.provider.id
+                        ),
+                        "purpose": experiment.purpose,
+                        "record_id": record.record_id,
+                        "record_origin": "legacy-import",
+                        "rollouts_per_task": execution.repetitions_per_case,
+                        "run_id": record.run_id,
+                        "source_id": record.source_id,
+                        "subject_id": experiment.method.subject_id,
+                        "supersedes": sorted(record.supersedes),
+                        "task_count": execution.case_count,
+                        "terminal_state": record.terminal_state,
+                        "uncertainty": uncertainty,
+                        "uncertainty_confidence_level": (
+                            None
+                            if metric.uncertainty is None
+                            else metric.uncertainty.confidence_level
+                        ),
+                        "uncertainty_lower": (
+                            None
+                            if metric.uncertainty is None
+                            else metric.uncertainty.lower
+                        ),
+                        "uncertainty_method": (
+                            None
+                            if metric.uncertainty is None
+                            else metric.uncertainty.method
+                        ),
+                        "uncertainty_upper": (
+                            None
+                            if metric.uncertainty is None
+                            else metric.uncertainty.upper
+                        ),
+                        "unit": metric.unit,
+                        "value": metric.value,
+                        "zero_filled_count": metric.zero_filled_count,
+                    }
+                )
+
+        if isinstance(record, HistoricalAssetRecord):
+            matching_refs = sorted(
+                (
+                    item
+                    for item in record.provenance
+                    if item.role == "asset"
+                    and item.content_sha256 == record.asset.content_sha256
+                    and item.size_bytes == record.asset.size_bytes
+                ),
+                key=lambda item: (
+                    item.path,
+                    item.git_blob_oid.algorithm,
+                    item.git_blob_oid.digest,
+                ),
+            )
+            for provenance_ref in matching_refs:
+                provenance = provenance_ref.model_dump(mode="json")
+                assets.append(
+                    {
+                        "asset_id": _projection_id(
+                            "legacy-asset",
+                            {
+                                "provenance": provenance,
+                                "record_id": record.record_id,
+                            },
+                        ),
+                        "content_sha256": record.asset.content_sha256,
+                        "evidence_tier": record.evidence_tier,
+                        "experiment_id": record.experiment_id,
+                        "git_blob_oid": provenance["git_blob_oid"],
+                        "limitations": [],
+                        "locator": provenance_ref.path,
+                        "logical_key_sha256": loaded.logical_key_sha256,
+                        "materialization_state": record.asset.materialization_state,
+                        "media_type": record.asset.media_type,
+                        "record_id": record.record_id,
+                        "record_origin": "legacy-import",
+                        "role": record.asset.role,
+                        "run_id": record.run_id,
+                        "size_bytes": record.asset.size_bytes,
+                        "source_asset_id": record.asset.asset_id,
+                        "source_id": record.source_id,
+                        "status": record.asset.status,
+                        "supersedes": sorted(record.supersedes),
+                    }
+                )
+
+    return (
+        sorted(sources, key=lambda item: item["source_id"]),
+        sorted(catalog, key=lambda item: item["catalog_id"]),
+        sorted(observations, key=lambda item: item["observation_id"]),
+        sorted(assets, key=lambda item: item["asset_id"]),
+    )
 
 
 def build_experiment_ledger(
@@ -1298,6 +1631,35 @@ def build_experiment_ledger(
     sources = _bmp_source_rows(root, experiments, observations)
     catalog = _bmp_catalog_rows(experiments, observations)
     assets = _bmp_asset_rows(runs)
+    try:
+        historical = load_historical_imports(root, imports_dir=imports_dir)
+    except HistoricalImportError as exc:
+        errors.extend(
+            {
+                "code": f"historical-import-{finding.code}",
+                "message": finding.message,
+                "source": finding.path or "imports",
+            }
+            for finding in exc.errors
+        )
+    else:
+        (
+            historical_sources,
+            historical_catalog,
+            historical_observations,
+            historical_assets,
+        ) = _historical_projection_rows(historical)
+        sources.extend(historical_sources)
+        catalog.extend(historical_catalog)
+        observations.extend(historical_observations)
+        assets.extend(historical_assets)
+
+    sources = sorted(
+        sources, key=lambda item: (item["source_id"], item["record_origin"])
+    )
+    catalog = sorted(catalog, key=lambda item: item["catalog_id"])
+    observations = sorted(observations, key=lambda item: item["observation_id"])
+    assets = sorted(assets, key=lambda item: item["asset_id"])
     return ExperimentLedger(
         experiments=tuple(experiments),
         runs=tuple(runs),
