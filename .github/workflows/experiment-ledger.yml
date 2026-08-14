@@ -34,8 +34,11 @@ jobs:
       - name: Validate ledger sources
         run: |
           uv run --frozen bmp-collab validate
+          uv run --frozen bmp-collab validate-imports
           uv run --frozen bmp-lab doctor
-          uv run --frozen --extra test pytest -q tests/test_experiment_ledger.py
+          uv run --frozen --extra test pytest -q \
+            tests/test_experiment_ledger.py \
+            tests/test_historical_imports.py
       - name: Export normalized tables
         run: |
           mkdir -p ledger-output
@@ -43,6 +46,10 @@ jobs:
           uv run --frozen bmp-collab ledger --format csv --table experiments > ledger-output/experiments.csv
           uv run --frozen bmp-collab ledger --format csv --table runs > ledger-output/runs.csv
           uv run --frozen bmp-collab ledger --format csv --table metrics > ledger-output/metrics.csv
+          uv run --frozen bmp-collab ledger --format csv --table sources > ledger-output/sources.csv
+          uv run --frozen bmp-collab ledger --format csv --table catalog > ledger-output/catalog.csv
+          uv run --frozen bmp-collab ledger --format csv --table observations > ledger-output/observations.csv
+          uv run --frozen bmp-collab ledger --format csv --table assets > ledger-output/assets.csv
       - name: Upload disposable views
         uses: actions/upload-artifact@v4
         with:

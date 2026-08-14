@@ -74,7 +74,7 @@ jobs:
             case "$path" in
               lab/*|MagentaBench/lab/*|tests/test_lab_operations.py)
                 ;;
-              MagentaBench/*|experiments/*|plugins/*|registries/*|tests/*|scripts/*|pyproject.toml|uv.lock)
+              MagentaBench/*|experiments/*|imports/*|plugins/*|registries/*|tests/*|scripts/*|pyproject.toml|uv.lock)
                 bmp=true
                 ;;
             esac
