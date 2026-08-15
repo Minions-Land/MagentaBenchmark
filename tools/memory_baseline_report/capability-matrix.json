@@ -1,0 +1,409 @@
+{
+  "schema_version": "magentabench.memory-baseline-matrix.v1",
+  "fairness_contract": {
+    "held_fixed": [
+      "base model and provider endpoint within each comparison block",
+      "benchmark split and explicit case manifest",
+      "system prompt and tool policy",
+      "per-case token, cost, and wall-clock budgets",
+      "seed, retry policy, state reset policy, and evaluator revision"
+    ],
+    "retry_policy": "No score-driven retry. Infrastructure retries create a new retained attempt.",
+    "state_policy": "Use fresh state per method arm and per-rollout reset unless the preregistered method requires persistent state.",
+    "result_policy": "Retain unsupported and blocked cells with reasons; never encode them as zero scores."
+  },
+  "benchmarks": [
+    {
+      "id": "locomo",
+      "label": "LoCoMo",
+      "registry_ids": ["locomo", "locomo.v1"],
+      "data_status": "complete",
+      "headline_metrics": ["f1", "bleu1", "llm_as_judge", "category_f1", "category_llm_as_judge"]
+    },
+    {
+      "id": "longmemeval",
+      "label": "LongMemEval",
+      "registry_ids": ["longmemeval", "longmemeval.v1"],
+      "data_status": "complete",
+      "headline_metrics": ["llm_judge_accuracy", "category_accuracy", "retrieved_gold_page"]
+    },
+    {
+      "id": "spreadsheetbench",
+      "label": "SpreadsheetBench",
+      "registry_ids": ["spreadsheetbench", "spreadsheetbench.v1"],
+      "data_status": "complete",
+      "headline_metrics": ["pass_rate", "official_score"]
+    },
+    {
+      "id": "alfworld",
+      "label": "ALFWorld",
+      "registry_ids": ["alfworld", "alfworld.v1"],
+      "data_status": "complete",
+      "headline_metrics": ["success_rate", "episode_reward"]
+    },
+    {
+      "id": "appworld",
+      "label": "AppWorld",
+      "registry_ids": ["appworld", "appworld.v1"],
+      "data_status": "public-minimal-only",
+      "headline_metrics": ["task_goal_completion", "scenario_goal_completion"]
+    }
+  ],
+  "methods": [
+    {
+      "id": "no-memory",
+      "label": "No memory",
+      "availability": "runnable",
+      "equivalence": "generic-baseline",
+      "requirements": [],
+      "support": {"default": {"status": "needs-driver", "reason": "Benchmark-specific native driver is required."}, "overrides": {}}
+    },
+    {
+      "id": "full-text",
+      "label": "Full-text memory",
+      "availability": "runnable",
+      "equivalence": "generic-baseline",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-corpus", "reason": "A benchmark-specific corpus export and native driver are required."}, "overrides": {}}
+    },
+    {
+      "id": "naive-rag",
+      "label": "Naive sparse RAG",
+      "availability": "runnable",
+      "equivalence": "local-sparse-adaptation",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-corpus", "reason": "This is a coding-agent sparse adaptation and requires a benchmark corpus export."}, "overrides": {}}
+    },
+    {
+      "id": "raw-trajectory-rag",
+      "label": "Raw trajectory RAG",
+      "availability": "runnable",
+      "equivalence": "coding-agent-sparse-trajectory-baseline",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-corpus", "reason": "Prior trajectories must be generated without leaking evaluation cases."}, "overrides": {}}
+    },
+    {
+      "id": "static-skill",
+      "label": "Static skill",
+      "availability": "runnable",
+      "equivalence": "generic-baseline",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "A benchmark-specific frozen artifact is required."}, "overrides": {}}
+    },
+    {
+      "id": "human-skill",
+      "label": "Human-authored skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-for-human-artifact",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "No audited human artifact is pinned for this benchmark cell."}, "overrides": {}}
+    },
+    {
+      "id": "llm-skill",
+      "label": "One-shot LLM skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-for-one-shot-llm-artifact",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "The one-shot artifact must be generated and frozen before evaluation."}, "overrides": {}}
+    },
+    {
+      "id": "tool-native",
+      "label": "Tool-native memory",
+      "availability": "runnable",
+      "equivalence": "coding-agent-baseline",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-driver", "reason": "The driver must expose the corpus through the same read-only tool boundary."}, "overrides": {}}
+    },
+    {
+      "id": "skillopt-static",
+      "label": "SkillOpt frozen skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-for-official-artifact",
+      "requirements": ["artifact"],
+      "support": {
+        "default": {"status": "unsupported", "reason": "SkillOpt does not release an artifact for this benchmark."},
+        "overrides": {
+          "spreadsheetbench": {"status": "pilot-ready", "reason": "Official SpreadsheetBench skill and evaluator are public."},
+          "alfworld": {"status": "pilot-ready", "reason": "Official ALFWorld skill and evaluator are public."}
+        }
+      }
+    },
+    {
+      "id": "trace2skill-static",
+      "label": "Trace2Skill frozen skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-for-official-artifact",
+      "requirements": ["artifact"],
+      "support": {
+        "default": {"status": "unsupported", "reason": "No released Trace2Skill artifact targets this benchmark."},
+        "overrides": {"spreadsheetbench": {"status": "pilot-ready", "reason": "Released spreadsheet skills and official-compatible evaluator are public."}}
+      }
+    },
+    {
+      "id": "textgrad-static",
+      "label": "TextGrad frozen prompt",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-only-optimizer-not-run",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "Only an externally produced TextGrad artifact can be evaluated by this adapter."}, "overrides": {}}
+    },
+    {
+      "id": "gepa-static",
+      "label": "GEPA frozen prompt or skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-only-optimizer-not-run",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "Only an externally produced GEPA artifact can be evaluated by this adapter."}, "overrides": {}}
+    },
+    {
+      "id": "evoskill-static",
+      "label": "EvoSkill frozen skill",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-only-optimizer-not-run",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "Only an externally produced EvoSkill artifact can be evaluated by this adapter."}, "overrides": {}}
+    },
+    {
+      "id": "expel-static",
+      "label": "ExpeL frozen insights",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-only-distillation-not-run",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "Distilled ExpeL insights are not present for this benchmark cell."}, "overrides": {}}
+    },
+    {
+      "id": "awm-static",
+      "label": "AWM frozen workflow",
+      "availability": "runnable",
+      "equivalence": "runtime-adapter-only-distillation-not-run",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "A frozen workflow artifact is required."}, "overrides": {}}
+    },
+    {
+      "id": "reactive-update-static",
+      "label": "Reactive update artifact",
+      "availability": "runnable",
+      "equivalence": "artifact-contract-only-no-reactive-training",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "The reactive training loop is unavailable; only a frozen result can run."}, "overrides": {}}
+    },
+    {
+      "id": "maa-offline",
+      "label": "MAA offline artifact",
+      "availability": "runnable",
+      "equivalence": "artifact-contract-only-no-official-code",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "The paper has no official code release; only a declared frozen artifact can run."}, "overrides": {}}
+    },
+    {
+      "id": "mempro-gated",
+      "label": "MemPro gated recall",
+      "availability": "runnable",
+      "equivalence": "coding-agent-adaptation-not-paper-reproduction",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-driver", "reason": "This is a coding-agent recall adaptation, not the official MemPro benchmark program."}, "overrides": {}}
+    },
+    {
+      "id": "memskill-gated",
+      "label": "MemSkill gated recall",
+      "availability": "runnable",
+      "equivalence": "coding-agent-adaptation-not-trained-controller",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-driver", "reason": "This adaptation does not reproduce the trained MemSkill controller."}, "overrides": {}}
+    },
+    {
+      "id": "invmem-gated",
+      "label": "InvMem service recall",
+      "availability": "runnable",
+      "equivalence": "service-adapter-for-public-repository",
+      "requirements": ["service"],
+      "support": {"default": {"status": "service-required", "reason": "An isolated InvMem-compatible service and user id are required."}, "overrides": {}}
+    },
+    {
+      "id": "coral-shared",
+      "label": "CORAL shared files",
+      "availability": "runnable",
+      "equivalence": "shared-memory-adaptation-not-multi-agent-reproduction",
+      "requirements": ["workspace"],
+      "support": {"default": {"status": "needs-driver", "reason": "This single-agent shared-file adaptation is not a CORAL search reproduction."}, "overrides": {}}
+    },
+    {
+      "id": "con",
+      "label": "CoN",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "readagent",
+      "label": "ReadAgent",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "memorybank",
+      "label": "MemoryBank",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "a-mem",
+      "label": "A-Mem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "mem0",
+      "label": "Mem0",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "langmem",
+      "label": "LangMem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "memoryos",
+      "label": "MemoryOS",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "lightmem",
+      "label": "LightMem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Official implementation is not present in the audited workspace."}, "overrides": {}}
+    },
+    {
+      "id": "simplemem",
+      "label": "SimpleMem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Construction and retrieval pipeline is unavailable and is not replaced by BM25."}, "overrides": {}}
+    },
+    {
+      "id": "gam",
+      "label": "GAM",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Construction and retrieval pipeline is unavailable and is not replaced by BM25."}, "overrides": {}}
+    },
+    {
+      "id": "metamem",
+      "label": "MetaMem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "Evolution pipeline is unavailable and is not replaced by a static prompt."}, "overrides": {}}
+    },
+    {
+      "id": "openevolve",
+      "label": "OpenEvolve",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "External evolutionary-search orchestration is not wired to this benchmark runner."}, "overrides": {}}
+    },
+    {
+      "id": "shinkaevolve",
+      "label": "ShinkaEvolve",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "External evolutionary-search orchestration is not wired to this benchmark runner."}, "overrides": {}}
+    },
+    {
+      "id": "evox",
+      "label": "EvoX",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "External evolutionary-search orchestration is not wired to this benchmark runner."}, "overrides": {}}
+    },
+    {
+      "id": "coral-best-of-4",
+      "label": "CORAL best of 4",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "This compute control requires four independent runs and score selection."}, "overrides": {}}
+    },
+    {
+      "id": "memorax-v0.5",
+      "label": "MemoraX v0.5",
+      "availability": "blocked",
+      "equivalence": "unavailable",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "The AML-scoring hosted server and paper implementation are not public."}, "overrides": {}}
+    }
+  ],
+  "paper_native_paths": [
+    {
+      "id": "mempro-official",
+      "label": "MemPro official program",
+      "equivalence": "paper-native-reproduction",
+      "support": {
+        "locomo": {"status": "pilot-ready", "reason": "Official runner and local complete data are available."},
+        "longmemeval": {"status": "pilot-ready", "reason": "Official runner and local complete data are available."},
+        "spreadsheetbench": {"status": "unsupported", "reason": "No official MemPro program targets this benchmark."},
+        "alfworld": {"status": "unsupported", "reason": "No official MemPro program targets this benchmark."},
+        "appworld": {"status": "unsupported", "reason": "No official MemPro program targets this benchmark."}
+      }
+    },
+    {
+      "id": "memskill-official",
+      "label": "MemSkill official controller",
+      "equivalence": "paper-native-reproduction",
+      "support": {
+        "locomo": {"status": "pilot-ready", "reason": "Official evaluator and downloaded conversation controller are available."},
+        "longmemeval": {"status": "pilot-ready", "reason": "Official transfer evaluator and downloaded conversation controller are available."},
+        "spreadsheetbench": {"status": "unsupported", "reason": "No official MemSkill evaluator targets this benchmark."},
+        "alfworld": {"status": "needs-data-prep", "reason": "Controller and game data exist; offline expert trajectory preparation is still required."},
+        "appworld": {"status": "unsupported", "reason": "No official MemSkill evaluator targets this benchmark."}
+      }
+    },
+    {
+      "id": "skillopt-official",
+      "label": "SkillOpt official evaluator",
+      "equivalence": "paper-native-reproduction",
+      "support": {
+        "locomo": {"status": "unsupported", "reason": "No official SkillOpt environment targets this benchmark."},
+        "longmemeval": {"status": "unsupported", "reason": "No official SkillOpt environment targets this benchmark."},
+        "spreadsheetbench": {"status": "pilot-ready", "reason": "Official environment and frozen skill are available."},
+        "alfworld": {"status": "pilot-ready", "reason": "Official environment and frozen skill are available."},
+        "appworld": {"status": "unsupported", "reason": "No official SkillOpt environment targets this benchmark."}
+      }
+    },
+    {
+      "id": "trace2skill-official",
+      "label": "Trace2Skill official evaluator",
+      "equivalence": "paper-native-reproduction",
+      "support": {
+        "locomo": {"status": "unsupported", "reason": "No released Trace2Skill evaluator targets this benchmark."},
+        "longmemeval": {"status": "unsupported", "reason": "No released Trace2Skill evaluator targets this benchmark."},
+        "spreadsheetbench": {"status": "pilot-ready", "reason": "Verified 400 data, released skills, runner, and evaluator are available."},
+        "alfworld": {"status": "unsupported", "reason": "No released Trace2Skill evaluator targets this benchmark."},
+        "appworld": {"status": "unsupported", "reason": "No released Trace2Skill evaluator targets this benchmark."}
+      }
+    }
+  ]
+}
