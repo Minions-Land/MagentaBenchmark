@@ -40,7 +40,9 @@ SECRET_KEY_PATTERN = re.compile(
 NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
     r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
     r"max_generation|output|prompt|request|response|retry|total)_)?tokens$|"
-    r"^token_(?:budget|capacity|count|limit|quota|window)$",
+    r"^token_(?:budget|capacity|count|limit|quota|window)$|"
+    r"^(?:(?:answer|diagnostic|evaluation|metric|prediction|retrieval)_)?"
+    r"token_(?:accuracy|f1|precision|recall|score)$",
     re.IGNORECASE,
 )
 IDENTITY_EXCLUDE: frozenset[str] = frozenset(

@@ -590,6 +590,21 @@ def test_generic_metadata_maps_reject_secret_like_keys() -> None:
         )
 
 
+def test_generic_metadata_allows_token_metric_names_but_not_credential_variants() -> None:
+    evidence = VerifierEvidence(
+        verifier="token-overlap",
+        score=0.75,
+        details={"metrics": {"diagnostic_token_f1": 0.75}},
+    )
+    assert evidence.details["metrics"]["diagnostic_token_f1"] == 0.75
+
+    with pytest.raises(ValidationError, match="secret-like key"):
+        VerifierEvidence(
+            verifier="unsafe-verifier",
+            details={"access_token_score": 0.75},
+        )
+
+
 def test_unknown_discriminated_kinds_are_rejected() -> None:
     with pytest.raises(ValidationError):
         BenchmarkSpecAdapter.validate_python(
