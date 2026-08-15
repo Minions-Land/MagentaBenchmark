@@ -3,7 +3,7 @@ id = "native-process.local.v1"
 kind = "local"
 adapter = "native_process"
 bmp_version = "0.1"
-digest = "370744360cebae8fc34cdd5007b0ec1183ec21c873435c2fbdd930deb7818386"
+digest = "117c32cd6ab46771430e493c94c65833010e4c9d0fbc1c7bb7cf00eeed1ae75a"
 
 [backend.defaults]
 environment_variable_names = []

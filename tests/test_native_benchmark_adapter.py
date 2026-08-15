@@ -9,6 +9,7 @@ import pytest
 
 from MagentaBench.runner.adapter_registry import AdapterRegistry, AdapterRegistryError
 from MagentaBench.runner.compiler import Compiler
+from MagentaBench.runner.evidence import artifact_ref, source_closure_digest
 from MagentaBench.runner.pipeline import Pipeline
 from MagentaBench.runner.scheduler import ScheduledAttempt
 from MagentaBench.schemas import BudgetAllocation, RunStatus, verify_run_report
@@ -49,9 +50,12 @@ def _attempt(attempt_id: str, *, wall_seconds: float = 2.0) -> ScheduledAttempt:
 
 
 def _driver_run(run, driver: Path):
+    source_digest = source_closure_digest(driver.parent, (artifact_ref(driver),))
     subject = run.manifest.subject.model_copy(
         update={
             "source": str(driver.parent.resolve()),
+            "source_content_digest": source_digest,
+            "content_globs": (driver.name,),
             "entrypoint": "/usr/bin/python3",
             "launch_argv": (
                 "/usr/bin/python3",
@@ -71,6 +75,23 @@ def _write_driver(path: Path, body: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     return path
+
+
+def test_native_process_rejects_subject_source_drift(tmp_path: Path) -> None:
+    driver = _write_driver(
+        tmp_path / "source-drift/driver.py",
+        "raise SystemExit('original driver should not execute')\n",
+    )
+    run = _driver_run(_compiled(), driver)
+    case = _activated_case(run, tmp_path / "case-set")
+    driver.write_text("raise SystemExit('changed')\n", encoding="utf-8")
+    backend = NativeProcessBackend(
+        tmp_path / "records", workspace_root=tmp_path / "workspaces"
+    )
+    with pytest.raises(
+        NativeBenchmarkConfigurationError, match="subject source drift"
+    ):
+        backend.execute(run, case, _attempt("attempt-source-drift"))
 
 
 def test_native_pipeline_retains_all_metrics_trace_and_standalone_verifies(

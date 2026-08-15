@@ -6,6 +6,7 @@ adapter = "native-driver"
 bmp_version = "0.1"
 source = "../../tests/fixtures/native_benchmark"
 commit = "native-benchmark-conformance-v1"
+content_globs = ["driver.py"]
 entrypoint = "/usr/bin/python3"
 launch_argv = [
   "/usr/bin/python3",

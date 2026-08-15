@@ -897,6 +897,49 @@ def _git_source(root: Path) -> str:
     ).stdout.strip()
 
 
+def test_opaque_subject_explicit_content_closure_binds_driver_bytes(
+    tmp_path: Path,
+) -> None:
+    first_root = tmp_path / "first-subject"
+    second_root = tmp_path / "second-subject"
+    first_root.mkdir()
+    second_root.mkdir()
+    for root in (first_root, second_root):
+        (root / "driver.py").write_text("print('same')\n", encoding="utf-8")
+    declaration = {
+        "id": "opaque-content-bound",
+        "kind": "opaque_agent",
+        "comparison_kind": "agent",
+        "adapter": "native-driver",
+        "bmp_version": "0.1",
+        "entrypoint": "/usr/bin/python3",
+        "launch_argv": ("/usr/bin/python3", "{subject_source}/driver.py"),
+        "interface": "native-benchmark-v1",
+        "content_globs": ("driver.py",),
+    }
+    first = compile_subject_artifact(
+        SubjectSpecAdapter.validate_python(
+            declaration | {"source": str(first_root)}
+        )
+    )
+    second = compile_subject_artifact(
+        SubjectSpecAdapter.validate_python(
+            declaration | {"source": str(second_root)}
+        )
+    )
+    assert first.source_content_digest == second.source_content_digest
+    assert first.artifact_digest == second.artifact_digest
+
+    (second_root / "driver.py").write_text("print('changed')\n", encoding="utf-8")
+    changed = compile_subject_artifact(
+        SubjectSpecAdapter.validate_python(
+            declaration | {"source": str(second_root)}
+        )
+    )
+    assert changed.source_content_digest != first.source_content_digest
+    assert changed.artifact_digest != first.artifact_digest
+
+
 def test_dataset_source_rejects_mismatch_dirty_untracked_and_symlink(
     tmp_path: Path,
 ) -> None:

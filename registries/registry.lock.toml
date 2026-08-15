@@ -1,6 +1,6 @@
 [registry]
 format = "magentabench-registry-lock-v1"
-catalog_digest = "bfc9a0a515dfcbdf5cd96a18836a0933f8ec255120ef3b6987c648504380d5a9"
+catalog_digest = "b4dc5129c4a1b47e02d55ffc1fc4332ce5de00467ef5542352716aa97bf2d36d"
 
 [[registry.entries]]
 path = "adapters/cell-metrics-source.toml"
@@ -27,21 +27,21 @@ size_bytes = 370
 path = "adapters/native-benchmark-execution.toml"
 section = "adapter"
 id = "native-benchmark.execution.v1"
-sha256 = "aeb9a77ca7817ffaa116748c77016c03f6069a5e4a183e5bed77daade8398f9d"
+sha256 = "b03c1356ce8c30a817d39d1288c8242f02bd267ec1405207410741304bbf4547"
 size_bytes = 751
 
 [[registry.entries]]
 path = "adapters/native-benchmark-loader.toml"
 section = "adapter"
 id = "native-benchmark.loader.v1"
-sha256 = "73a28e87ddcb312c4388f0dc31219a6b250c127343533345450a70014c142e74"
+sha256 = "a3a84f993f4270d3edce9fd062dcf1088d07e9469fa3eda436e37af7c070d120"
 size_bytes = 393
 
 [[registry.entries]]
 path = "adapters/native-process-backend.toml"
 section = "adapter"
 id = "native-process.factory.v1"
-sha256 = "c81c1d67c5de41467fce399680dc0aa8e9396ce3ae801f4f475c77c6899c4667"
+sha256 = "d07bff83ef99fdbf3cc3c6c137fd68f8a263270dc66b6c5fc9c6d11e9598e128"
 size_bytes = 541
 
 [[registry.entries]]
@@ -111,7 +111,7 @@ size_bytes = 412
 path = "backends/native-process-local.toml"
 section = "backend"
 id = "native-process.local.v1"
-sha256 = "4d97d5916d06eb6365fb5662385226c2faac2eef97dab038a98e2fb2aa717b11"
+sha256 = "37194772835b3c4172710de770675981f59095328a030f40f22cb128b9955bc8"
 size_bytes = 293
 
 [[registry.entries]]
@@ -783,8 +783,8 @@ size_bytes = 127
 path = "subjects/native-benchmark-conformance.toml"
 section = "subject"
 id = "native-benchmark.conformance-driver"
-sha256 = "97f06ab298621558debad8cacb2a99f08d3a150393f1f9fef5b52a3ffb48870f"
-size_bytes = 532
+sha256 = "b2ebf5b9d2696f8cdfa3ec2da73926d0efe9d07bc29bf242a6f5b638c7eae4b4"
+size_bytes = 562
 
 [[registry.entries]]
 path = "subjects/terminal-bench-magenta.toml"

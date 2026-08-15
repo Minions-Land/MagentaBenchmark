@@ -223,6 +223,7 @@ class NativeBenchmarkCase:
     verifier_contract_refs: tuple[ArtifactRef, ...]
     dataset_source: str
     subject_source: str
+    subject_source_refs: tuple[ArtifactRef, ...]
     case_set_digest: str
     allow_internet: bool
 
@@ -232,6 +233,47 @@ class NativeBenchmarkLoader:
 
     adapter = "native_benchmark"
     digest = _MODULE_DIGEST
+
+    @staticmethod
+    def _subject_source_refs(run: CompiledRun) -> tuple[Path, tuple[ArtifactRef, ...]]:
+        raw_source = getattr(run.manifest.subject, "source", None)
+        if not isinstance(raw_source, str) or not raw_source:
+            raise AdapterRegistryError("native benchmark subject source is missing")
+        source = _safe_source(raw_source, label="native benchmark subject")
+        patterns = tuple(getattr(run.manifest.subject, "content_globs", ()))
+        if not patterns:
+            raise AdapterRegistryError(
+                "native benchmark subject requires non-empty content_globs"
+            )
+        files: set[Path] = set()
+        for pattern in patterns:
+            matched = False
+            for raw_path in source.glob(pattern):
+                if raw_path.is_symlink():
+                    raise AdapterRegistryError(
+                        f"native benchmark subject content is a symlink: {raw_path}"
+                    )
+                if not raw_path.is_file():
+                    continue
+                relative = raw_path.relative_to(source)
+                files.add(
+                    _safe_file(
+                        source,
+                        relative.as_posix(),
+                        label="native benchmark subject content",
+                    )
+                )
+                matched = True
+            if not matched:
+                raise AdapterRegistryError(
+                    f"native benchmark subject content_glob matched no files: {pattern!r}"
+                )
+        refs = tuple(artifact_ref(path) for path in sorted(files))
+        if source_closure_digest(source, refs) != run.manifest.subject.source_content_digest:
+            raise AdapterRegistryError(
+                "native benchmark subject source closure differs from compiled subject"
+            )
+        return source, refs
 
     @staticmethod
     def _source(run: CompiledRun) -> Path:
@@ -451,6 +493,7 @@ class NativeBenchmarkLoader:
 
     def load(self, run: CompiledRun, resolved: ResolvedCaseSet) -> LoadedCaseSet:
         source_refs = self._source_refs(run)
+        subject_source, subject_source_refs = self._subject_source_refs(run)
         by_id = {
             case.case_id: case for case in self._declared_cases(run, source_refs)
         }
@@ -481,9 +524,6 @@ class NativeBenchmarkLoader:
                 raise AdapterRegistryError(
                     f"native benchmark public input drift: {activated.case_id}"
                 )
-            subject_source = getattr(run.manifest.subject, "source", None)
-            if not isinstance(subject_source, str) or not subject_source:
-                raise AdapterRegistryError("native benchmark subject source is missing")
             loaded.append(
                 NativeBenchmarkCase(
                     task_id=activated.case_id,
@@ -491,9 +531,8 @@ class NativeBenchmarkLoader:
                     task_contract_refs=expected_task,
                     verifier_contract_refs=expected_verifier,
                     dataset_source=str(self._source(run)),
-                    subject_source=str(
-                        _safe_source(subject_source, label="native benchmark subject")
-                    ),
+                    subject_source=str(subject_source),
+                    subject_source_refs=subject_source_refs,
                     case_set_digest=resolved.artifact.canonical_digest(),
                     allow_internet=declared.allow_internet,
                 )
@@ -991,6 +1030,18 @@ class NativeProcessBackend:
         output_dir = workspace / "output"
         input_dir.mkdir(parents=True, exist_ok=False)
         output_dir.mkdir(parents=True, exist_ok=False)
+        subject_source = Path(case.subject_source).resolve(strict=True)
+        if (
+            not all(
+                _artifact_matches(ref, Path(ref.path))
+                for ref in case.subject_source_refs
+            )
+            or source_closure_digest(subject_source, case.subject_source_refs)
+            != run.manifest.subject.source_content_digest
+        ):
+            raise NativeBenchmarkConfigurationError(
+                "native benchmark subject source drift"
+            )
         staged_input = input_dir / Path(case.public_input_ref.path).name
         if not _artifact_matches(case.public_input_ref, Path(case.public_input_ref.path)):
             raise NativeBenchmarkConfigurationError("activated public input byte drift")
@@ -1017,6 +1068,21 @@ class NativeProcessBackend:
                 "native command executable must be a regular non-symlink file"
             )
         environment, forwarded, missing_env = self._environment()
+        retained_subject_refs: list[ArtifactRef] = []
+        retained_subject_root = case_dir / "subject_source"
+        for source_ref in case.subject_source_refs:
+            source_path = Path(source_ref.path).resolve(strict=True)
+            relative = source_path.relative_to(subject_source)
+            content = source_path.read_bytes()
+            for secret in forwarded.values():
+                if secret and secret.encode("utf-8") in content:
+                    raise NativeBenchmarkConfigurationError(
+                        "native benchmark subject source contains a forwarded environment value"
+                    )
+            target = retained_subject_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target)
+            retained_subject_refs.append(artifact_ref(target))
         raw_stdout = workspace / "stdout.raw"
         raw_stderr = workspace / "stderr.raw"
         returncode: int | None = None
@@ -1129,6 +1195,10 @@ class NativeProcessBackend:
             "result_error": result_error,
             "environment_variable_names": sorted(forwarded),
             "missing_environment_variable_names": sorted(missing_env),
+            "subject_source_content_digest": run.manifest.subject.source_content_digest,
+            "subject_source_refs": [
+                ref.model_dump(mode="json") for ref in retained_subject_refs
+            ],
             "workspace": str(workspace),
             "workspace_kept": workspace_kept,
             "stdout_truncated": stdout_truncated,
@@ -1145,6 +1215,7 @@ class NativeProcessBackend:
             artifact_ref(receipt_path),
             artifact_ref(status_path),
             artifact_ref(network_path),
+            *retained_subject_refs,
             *activation_refs,
         )
         provenance = self._provenance(run, workspace, executable)

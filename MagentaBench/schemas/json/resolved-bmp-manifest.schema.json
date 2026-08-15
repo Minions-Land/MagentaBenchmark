@@ -2766,6 +2766,14 @@
           "title": "Comparison Kind",
           "type": "string"
         },
+        "content_globs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Content Globs",
+          "type": "array"
+        },
         "emits_trace": {
           "default": false,
           "title": "Emits Trace",

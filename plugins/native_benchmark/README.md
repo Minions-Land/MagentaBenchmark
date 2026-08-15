@@ -25,6 +25,12 @@ are `{case_id}`, `{public_input}`, `{output_dir}`, `{workspace}`,
 `{max_tokens}`, and `{max_cost}`. Unknown placeholders, conversions, and
 format specifiers fail before launch.
 
+Native subjects must also declare non-empty `content_globs` covering the driver
+and every local module whose bytes determine execution. The compiler binds that
+closure into the subject digest, activation rejects later byte drift, and the
+backend copies the resolved source files into run evidence. Absolute source
+paths remain provenance only and are not a substitute for declared content.
+
 ## Case Manifest
 
 The dataset `config.case_manifest` points to a JSON file inside the declared

@@ -3082,6 +3082,16 @@ class OpaqueAgentSubjectSpec(SourceRegistryEntry):
     launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+    content_globs: tuple[str, ...] = ()
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("subject content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="subject content_globs")
+        return values
 
     @model_validator(mode="after")
     def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectSpec":
@@ -3166,6 +3176,16 @@ class OpaqueAgentSubjectArtifact(AbsoluteSourceArtifact):
     launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+    content_globs: tuple[str, ...] = ()
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("subject content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="subject content_globs")
+        return values
 
     @model_validator(mode="after")
     def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectArtifact":
