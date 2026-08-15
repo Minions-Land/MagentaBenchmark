@@ -1,0 +1,18 @@
+[dataset]
+id = "dataset.native-benchmark.conformance.v1"
+kind = "dataset"
+adapter = "native_benchmark"
+bmp_version = "0.1"
+source = "../../tests/fixtures/native_benchmark"
+commit = "native-benchmark-conformance-v1"
+content_globs = [
+  "cases.json",
+  "public/*.json",
+  "contracts/*",
+]
+format = "native-case-manifest"
+split = "test"
+
+[dataset.config]
+case_manifest = "cases.json"
+allow_internet = false

@@ -3597,6 +3597,11 @@ def _network_policy_binding_reasons(
         "harbor": "task_container",
     }.get(adapter)
     if expected_boundary is None:
+        expected_boundary = {
+            "local": "process",
+            "container": "task_container",
+        }.get(manifest.execution.backend.kind)
+    if expected_boundary is None:
         errors.append(
             f"{case_id}: missing NetworkPolicyActivationReceipt for adapter {adapter!r}"
         )

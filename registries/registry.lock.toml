@@ -1,6 +1,6 @@
 [registry]
 format = "magentabench-registry-lock-v1"
-catalog_digest = "132adcb1e8252f2ca56afd5142459c8e62ae838a6f183a9106f7a648cb37203d"
+catalog_digest = "bfc9a0a515dfcbdf5cd96a18836a0933f8ec255120ef3b6987c648504380d5a9"
 
 [[registry.entries]]
 path = "adapters/cell-metrics-source.toml"
@@ -22,6 +22,27 @@ section = "adapter"
 id = "deterministic-evolution.loader"
 sha256 = "8d4c66a24049684d0ad89e3921d268b5d967ccbd539c528ecaa601d3a9b2c8d6"
 size_bytes = 370
+
+[[registry.entries]]
+path = "adapters/native-benchmark-execution.toml"
+section = "adapter"
+id = "native-benchmark.execution.v1"
+sha256 = "aeb9a77ca7817ffaa116748c77016c03f6069a5e4a183e5bed77daade8398f9d"
+size_bytes = 751
+
+[[registry.entries]]
+path = "adapters/native-benchmark-loader.toml"
+section = "adapter"
+id = "native-benchmark.loader.v1"
+sha256 = "73a28e87ddcb312c4388f0dc31219a6b250c127343533345450a70014c142e74"
+size_bytes = 393
+
+[[registry.entries]]
+path = "adapters/native-process-backend.toml"
+section = "adapter"
+id = "native-process.factory.v1"
+sha256 = "c81c1d67c5de41467fce399680dc0aa8e9396ce3ae801f4f475c77c6899c4667"
+size_bytes = 541
 
 [[registry.entries]]
 path = "adapters/swebench-loader.toml"
@@ -87,6 +108,13 @@ sha256 = "26fe3ad400502154e33c0a3687043fe299d9b13eb375da59e449055614b72b6b"
 size_bytes = 412
 
 [[registry.entries]]
+path = "backends/native-process-local.toml"
+section = "backend"
+id = "native-process.local.v1"
+sha256 = "4d97d5916d06eb6365fb5662385226c2faac2eef97dab038a98e2fb2aa717b11"
+size_bytes = 293
+
+[[registry.entries]]
 path = "backends/subprocess-echo.toml"
 section = "backend"
 id = "subprocess.echo"
@@ -113,6 +141,13 @@ section = "benchmark"
 id = "fake.exact.v1"
 sha256 = "60d3d7a73766e172d58a6d878e97709f930a016ea19179b6e1fb78a19bf0a46d"
 size_bytes = 90
+
+[[registry.entries]]
+path = "benchmarks/native-benchmark-conformance.toml"
+section = "benchmark"
+id = "native-benchmark.conformance.v1"
+sha256 = "feab10ae341c1dc80c8f3ea558d5754b28437e1f6c0c552783e843aece84af5c"
+size_bytes = 116
 
 [[registry.entries]]
 path = "benchmarks/swebench-lite-local.toml"
@@ -157,6 +192,13 @@ sha256 = "cabc60ce1cc44e94eac88f50c7e89e9117b8450426b30e72be507acab1a5a36e"
 size_bytes = 308
 
 [[registry.entries]]
+path = "datasets/native-benchmark-conformance.toml"
+section = "dataset"
+id = "dataset.native-benchmark.conformance.v1"
+sha256 = "2e5e772b2a6ae9d314dba06bffac877ed5a45c56472cce7c97d417b65a7e563e"
+size_bytes = 404
+
+[[registry.entries]]
 path = "datasets/swebench-lite-local.toml"
 section = "dataset"
 id = "dataset.swebench.lite.local.v1"
@@ -190,6 +232,20 @@ section = "evaluator"
 id = "evaluator.fake.exact.v1"
 sha256 = "8d7d1f78123a3276c549cd2e979a36564d2e81c54cc4a5310f72fe4ad5098377"
 size_bytes = 338
+
+[[registry.entries]]
+path = "evaluators/native-benchmark-binary-conformance.toml"
+section = "evaluator"
+id = "evaluator.native-benchmark.binary-conformance.v1"
+sha256 = "72f71a2d0b26ce10cb715b30dea57fde74b79e1b23e36a69663f6eeba3ea1fde"
+size_bytes = 381
+
+[[registry.entries]]
+path = "evaluators/native-benchmark-continuous-conformance.toml"
+section = "evaluator"
+id = "evaluator.native-benchmark.continuous-conformance.v1"
+sha256 = "09e8e269066f4d0a5ab1ad6de11cf2d92fb1b420f6c91f9faeff9edb3e050cc2"
+size_bytes = 315
 
 [[registry.entries]]
 path = "evaluators/swebench-fail-to-pass-v1.toml"
@@ -563,6 +619,13 @@ sha256 = "82232305d81f27fc3c87fedf5ca023370ab36ce9e876f36ae2749308bd01e288"
 size_bytes = 404
 
 [[registry.entries]]
+path = "protocols/native-benchmark-conformance.toml"
+section = "protocol"
+id = "native-benchmark.conformance.v1"
+sha256 = "7daf4e4b037db862e2cb7a989cc627f4c34858fd115c55df3306e2343c99e391"
+size_bytes = 450
+
+[[registry.entries]]
 path = "protocols/subprocess-deterministic.toml"
 section = "protocol"
 id = "subprocess.deterministic.v1"
@@ -715,6 +778,13 @@ section = "subject"
 id = "fake.treatment"
 sha256 = "3c010824082e6dc6fa7f37a3fa845aad633dce509d5e30c5f48f87a8743a0db7"
 size_bytes = 127
+
+[[registry.entries]]
+path = "subjects/native-benchmark-conformance.toml"
+section = "subject"
+id = "native-benchmark.conformance-driver"
+sha256 = "97f06ab298621558debad8cacb2a99f08d3a150393f1f9fef5b52a3ffb48870f"
+size_bytes = 532
 
 [[registry.entries]]
 path = "subjects/terminal-bench-magenta.toml"

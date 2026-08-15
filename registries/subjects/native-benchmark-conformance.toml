@@ -1,0 +1,23 @@
+[subject]
+id = "native-benchmark.conformance-driver"
+kind = "opaque_agent"
+comparison_kind = "agent"
+adapter = "native-driver"
+bmp_version = "0.1"
+source = "../../tests/fixtures/native_benchmark"
+commit = "native-benchmark-conformance-v1"
+entrypoint = "/usr/bin/python3"
+launch_argv = [
+  "/usr/bin/python3",
+  "{subject_source}/driver.py",
+  "--case-id",
+  "{case_id}",
+  "--input",
+  "{public_input}",
+  "--output-dir",
+  "{output_dir}",
+  "--attempt-id",
+  "{attempt_id}",
+]
+interface = "native-benchmark-v1"
+emits_trace = false

@@ -1,0 +1,27 @@
+[experiment]
+id = "native-benchmark-binary-smoke"
+benchmark = "native-benchmark.conformance.v1"
+dataset = "dataset.native-benchmark.conformance.v1"
+evaluator = "evaluator.native-benchmark.binary-conformance.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+  "tokens.mean-completed.v1",
+  "cost.mean-completed.v1",
+  "wall-time.mean-completed.v1",
+]
+subject = "native-benchmark.conformance-driver"
+protocol = "native-benchmark.conformance.v1"
+
+[experiment.design]
+comparison_kind = "agent"
+purpose = "exploratory"
+
+[execution]
+backend = "native-process.local.v1"
+model = "none/deterministic"
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 5.0
+max_cost = 0.0

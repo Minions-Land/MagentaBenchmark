@@ -1,0 +1,1 @@
+The native fixture reads the public JSON and writes result.json.

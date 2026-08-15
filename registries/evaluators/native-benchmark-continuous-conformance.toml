@@ -1,0 +1,12 @@
+[evaluator]
+id = "evaluator.native-benchmark.continuous-conformance.v1"
+kind = "evaluator"
+adapter = "native_benchmark"
+bmp_version = "0.1"
+implementation = "native-fixture.v1"
+scoring_kind = "continuous"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "native_score"
+authoritative = true

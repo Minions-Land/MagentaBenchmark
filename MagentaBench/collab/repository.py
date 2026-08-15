@@ -722,6 +722,7 @@ class ExperimentRepository:
             "harbor-shim",
             "aose-docker",
             "harbor",
+            "native_process",
         }
 
     @staticmethod
@@ -739,6 +740,8 @@ class ExperimentRepository:
             return ExecutionMode.appcontainer, "task-container"
         if adapter == "e2b":
             return ExecutionMode.e2b, "microvm"
+        if backend.get("kind") == "local":
+            return ExecutionMode.local_process, "process"
         if defaults.get("environment_type") == "apptainer":
             return ExecutionMode.apptainer, "task-container"
         if defaults.get("environment_type") == "docker":

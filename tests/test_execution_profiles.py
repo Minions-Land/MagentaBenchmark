@@ -38,6 +38,7 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert [item["backend_id"] for item in modes["local-process"]["backends"]] == [
         "fake.local",
         "harbor.local-shim",
+        "native-process.local.v1",
         "subprocess.echo",
     ]
     assert "harbor.local-shim" not in {
@@ -54,12 +55,47 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert modes["apptainer"]["maximum_evidence_label"] == "exploratory"
 
 
+def test_execution_modes_classify_custom_local_backends_by_kind(tmp_path: Path) -> None:
+    repository = _profile_repository(tmp_path)
+    (tmp_path / "registries/backends/custom-local.toml").write_text(
+        "[backend]\n"
+        'id = "custom.local"\n'
+        'kind = "local"\n'
+        'adapter = "custom-local"\n',
+        encoding="utf-8",
+    )
+    path = tmp_path / "execution-profiles/local-process/profile.json"
+    profile = json.loads(path.read_text(encoding="utf-8"))
+    profile["registered_backend_ids"] = [
+        "custom.local",
+        "fake.local",
+        "harbor.local-shim",
+        "native-process.local.v1",
+        "subprocess.echo",
+    ]
+    path.write_text(
+        json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+    modes = {item["mode"]: item for item in repository.execution_modes()}
+    custom = next(
+        item
+        for item in modes["local-process"]["backends"]
+        if item["backend_id"] == "custom.local"
+    )
+
+    assert custom["boundary"] == "process"
+    assert custom["configured"] is False
+
+
 def test_backend_readiness_does_not_promote_inactive_registered_adapters() -> None:
     modes = {item["mode"]: item for item in ExperimentRepository(ROOT).execution_modes()}
     local = {item["backend_id"]: item for item in modes["local-process"]["backends"]}
     docker = {item["backend_id"]: item for item in modes["docker"]["backends"]}
 
     assert local["fake.local"]["configured"] is True
+    assert local["native-process.local.v1"]["configured"] is True
+    assert local["native-process.local.v1"]["standalone_verifier_boundary_closed"] is True
     assert local["subprocess.echo"]["configured"] is True
     assert local["harbor.local-shim"]["configured"] is False
     assert docker["harbor.0.20.0"]["configured"] is True

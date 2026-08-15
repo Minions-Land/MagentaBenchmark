@@ -1,0 +1,17 @@
+[adapter]
+id = "native-process.factory.v1"
+kind = "adapter"
+adapter = "native_process"
+bmp_version = "0.1"
+adapter_kind = "backend_factory"
+source = "."
+entrypoint = "plugins/native_benchmark/adapter.py:NativeProcessFactory"
+digest = "370744360cebae8fc34cdd5007b0ec1183ec21c873435c2fbdd930deb7818386"
+supported_benchmark_kinds = ["custom"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["native_process"]
+backend_default_read_set = [
+  "environment_variable_names",
+  "keep_workspace_on_failure",
+  "max_capture_bytes",
+]

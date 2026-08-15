@@ -1,0 +1,12 @@
+{
+  "schema_version": "magentabench.native-cases.v1",
+  "cases": [
+    {
+      "id": "case-one",
+      "public_input": "public/case-one.json",
+      "task_contracts": ["contracts/task.txt"],
+      "verifier_contracts": ["contracts/verifier.txt"],
+      "allow_internet": false
+    }
+  ]
+}

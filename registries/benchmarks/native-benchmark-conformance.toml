@@ -1,0 +1,5 @@
+[benchmark]
+id = "native-benchmark.conformance.v1"
+kind = "custom"
+adapter = "native_benchmark"
+bmp_version = "0.1"
