@@ -453,3 +453,57 @@ def test_partial_usage_preserves_observed_token_release_without_fake_cost(
         result.receipt_path.read_bytes()
     )
     assert restored == result.receipt
+
+
+def test_unpriced_usage_is_valid_when_cost_is_not_budgeted(tmp_path: Path) -> None:
+    """An omitted cost cap must not invalidate otherwise complete token accounting."""
+
+    run = _scheduled_run(
+        rollouts_per_case=1,
+        parallelism=1,
+        candidate_selection="single",
+    )
+    budget = Budget(max_tokens=100, max_wall_seconds=3.0)
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(update={"budget": budget})
+            }
+        ),
+    )
+    backend = FakeBackend(tmp_path / "records")
+    task = backend._load_task(run)
+
+    def attempt_runner(attempt):
+        case = backend.execute(
+            run,
+            task,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+        )
+        usage = UsageRecord(
+            input_tokens=10,
+            output_tokens=5,
+            total_tokens=15,
+        )
+        bundle = case.bundle.model_copy(update={"usage": usage})
+        atomic_write_json(case.bundle_path, bundle)
+        return replace(
+            case,
+            bundle=bundle,
+            bundle_digest=sha256_file(case.bundle_path),
+        )
+
+    result = _execute(tmp_path, run, [task], attempt_runner, backend)
+    assert result.receipt.schedule_valid is True
+    assert result.receipt.budget_ledger.reconciles_exactly is True
+    debit = result.receipt.attempts[0].debit
+    assert debit is not None
+    assert debit.usage_observable is True
+    assert debit.released.max_tokens == 85
+    assert debit.released.max_cost is None
+    restored = ScheduleActivationReceipt.model_validate_json(
+        result.receipt_path.read_bytes()
+    )
+    assert restored == result.receipt

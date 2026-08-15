@@ -5354,8 +5354,27 @@ class AttemptExecution(StrictModel):
 _USAGE_LEDGER_FIELDS = ("total_tokens", "cost")
 
 
-def _usage_reconciles(total: UsageRecord, parts: tuple[UsageRecord, ...]) -> bool:
-    for field_name in _USAGE_LEDGER_FIELDS:
+def _budget_usage_fields(allocations: tuple[Any, ...]) -> tuple[str, ...]:
+    """Return usage fields constrained by at least one declared allocation cap."""
+
+    return tuple(
+        field_name
+        for field_name, cap_name in (
+            ("total_tokens", "max_tokens"),
+            ("cost", "max_cost"),
+        )
+        if any(getattr(item.allocated, cap_name) is not None for item in allocations)
+    )
+
+
+def _usage_reconciles(
+    total: UsageRecord,
+    parts: tuple[UsageRecord, ...],
+    required_fields: tuple[str, ...] | None = None,
+) -> bool:
+    for field_name in (
+        _USAGE_LEDGER_FIELDS if required_fields is None else required_fields
+    ):
         total_value = getattr(total, field_name)
         part_values = [getattr(part, field_name) for part in parts]
         if total_value is None or any(value is None for value in part_values):
@@ -5654,9 +5673,13 @@ class ScheduleActivationReceipt(StrictModel):
         ] + completion_sequences
         if len(set(all_sequences)) != len(all_sequences):
             raise ValueError("scheduler event sequences must be globally unique")
+        usage_fields = _budget_usage_fields(
+            tuple(self.budget_ledger.attempt_allocations)
+        )
         spent_ok = _usage_reconciles(
             self.budget_ledger.total_usage,
             (*tuple(spent_records), self.budget_ledger.parent_overhead),
+            usage_fields,
         )
         if self.budget_ledger.reconciles_exactly != spent_ok:
             raise ValueError("reconciles_exactly disagrees with spend arithmetic")

@@ -615,7 +615,21 @@ class Scheduler:
 
         total_spent = _usage_total([_usage(execution.bundle, elapsed) for execution, elapsed, _ in launched_records.values()])
         parent_overhead = UsageRecord(total_tokens=0, cost=0.0)
-        reconciles = total_spent.total_tokens is not None and total_spent.cost is not None
+        required_budget_fields = tuple(
+            field_name
+            for field_name, cap_name in (
+                ("total_tokens", "max_tokens"),
+                ("cost", "max_cost"),
+            )
+            if any(
+                getattr(item.allocated, cap_name) is not None
+                for item in attempt_allocations
+            )
+        )
+        reconciles = all(
+            getattr(total_spent, field_name) is not None
+            for field_name in required_budget_fields
+        )
         ledger = BudgetLedger(
             case_allocations=tuple(case_allocations),
             attempt_allocations=tuple(attempt_allocations),
@@ -647,6 +661,8 @@ class Scheduler:
             for attempt in attempts
         ):
             mismatch_reasons.append("budget usage is unobservable")
+        if not reconciles:
+            mismatch_reasons.append("budget ledger does not reconcile exactly")
         if protocol.checkpoint_policy in {"save", "save_and_resume"}:
             mismatch_reasons.append("checkpoint receipt finalization pending")
         schedule_valid = (
