@@ -5596,38 +5596,51 @@ class ScheduleActivationReceipt(StrictModel):
             spent_records.append(attempt.debit.spent)
             if attempt.debit.completion_sequence <= (allocation.launch_sequence or 0):
                 raise ValueError("attempt debit completion must follow launch")
-            if not attempt.debit.budget_exceeded and attempt.debit.usage_observable:
-                cap = allocation.allocated
-                released = attempt.debit.released
-                if cap.max_tokens is not None and (
-                    attempt.debit.spent.total_tokens is None
-                    or released.max_tokens is None
-                    or attempt.debit.spent.total_tokens + released.max_tokens
-                    != cap.max_tokens
-                ):
-                    raise ValueError("spent plus released tokens must equal allocated cap")
-                if cap.max_cost is not None and (
-                    attempt.debit.spent.cost is None
-                    or released.max_cost is None
-                    or attempt.debit.spent.cost + released.max_cost != cap.max_cost
-                ):
-                    raise ValueError("spent plus released cost must equal allocated cap")
-            elif not attempt.debit.budget_exceeded and not attempt.debit.usage_observable:
-                # Unknown usage is a valid observation, but it can never
-                # produce a valid schedule under a finite token/cost cap.
-                # The scheduler must retain the unknown fields as ``None`` and
-                # add a mismatch reason below; rejecting the whole receipt
-                # would discard useful verifier and infrastructure evidence.
-                cap = allocation.allocated
-                released = attempt.debit.released
-                if cap.max_tokens is not None and released.max_tokens is not None:
-                    raise ValueError(
-                        "unobservable token usage must not claim released tokens"
-                    )
-                if cap.max_cost is not None and released.max_cost is not None:
-                    raise ValueError(
-                        "unobservable cost usage must not claim released cost"
-                    )
+            cap = allocation.allocated
+            spent = attempt.debit.spent
+            released = attempt.debit.released
+            expected_usage_observable = all(
+                limit is None or observed is not None
+                for limit, observed in (
+                    (cap.max_tokens, spent.total_tokens),
+                    (cap.max_cost, spent.cost),
+                )
+            )
+            if attempt.debit.usage_observable != expected_usage_observable:
+                raise ValueError(
+                    "usage_observable disagrees with capped token/cost evidence"
+                )
+            if not attempt.debit.budget_exceeded:
+                # Reconcile each budget dimension independently. A backend may
+                # expose token counts without exposing provider pricing; the
+                # known token remainder remains evidence even though the
+                # overall schedule is invalid under a finite cost cap.
+                if cap.max_tokens is not None:
+                    if spent.total_tokens is None:
+                        if released.max_tokens is not None:
+                            raise ValueError(
+                                "unobservable token usage must not claim released tokens"
+                            )
+                    elif (
+                        released.max_tokens is None
+                        or spent.total_tokens + released.max_tokens != cap.max_tokens
+                    ):
+                        raise ValueError(
+                            "spent plus released tokens must equal allocated cap"
+                        )
+                if cap.max_cost is not None:
+                    if spent.cost is None:
+                        if released.max_cost is not None:
+                            raise ValueError(
+                                "unobservable cost usage must not claim released cost"
+                            )
+                    elif (
+                        released.max_cost is None
+                        or spent.cost + released.max_cost != cap.max_cost
+                    ):
+                        raise ValueError(
+                            "spent plus released cost must equal allocated cap"
+                        )
         if len(set(child_run_ids)) != len(child_run_ids):
             raise ValueError("attempt debit child run ids must be unique")
         if len(set(completion_sequences)) != len(completion_sequences):

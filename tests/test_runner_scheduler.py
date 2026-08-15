@@ -392,3 +392,64 @@ def test_unobservable_usage_materializes_invalid_receipt_without_fake_zeroes(
         result.receipt_path.read_bytes()
     )
     assert restored == result.receipt
+
+
+def test_partial_usage_preserves_observed_token_release_without_fake_cost(
+    tmp_path: Path,
+) -> None:
+    """Known tokens remain auditable when provider pricing is unavailable."""
+
+    run = _scheduled_run(
+        rollouts_per_case=1,
+        parallelism=1,
+        candidate_selection="single",
+    )
+    budget = Budget(max_tokens=100, max_wall_seconds=3.0, max_cost=2.0)
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(update={"budget": budget})
+            }
+        ),
+    )
+    backend = FakeBackend(tmp_path / "records")
+    task = backend._load_task(run)
+
+    def attempt_runner(attempt):
+        case = backend.execute(
+            run,
+            task,
+            case_id=attempt.attempt_id,
+            execution_run_id=attempt.attempt_id,
+        )
+        partial = case.bundle.model_copy(
+            update={
+                "usage": UsageRecord(
+                    input_tokens=10,
+                    output_tokens=5,
+                    total_tokens=15,
+                )
+            }
+        )
+        atomic_write_json(case.bundle_path, partial)
+        return replace(
+            case,
+            bundle=partial,
+            bundle_digest=sha256_file(case.bundle_path),
+        )
+
+    result = _execute(tmp_path, run, [task], attempt_runner, backend)
+    assert result.receipt.schedule_valid is False
+    assert "budget usage is unobservable" in result.receipt.mismatch_reasons
+    debit = result.receipt.attempts[0].debit
+    assert debit is not None
+    assert debit.usage_observable is False
+    assert debit.spent.total_tokens == 15
+    assert debit.released.max_tokens == 85
+    assert debit.spent.cost is None
+    assert debit.released.max_cost is None
+    restored = ScheduleActivationReceipt.model_validate_json(
+        result.receipt_path.read_bytes()
+    )
+    assert restored == result.receipt
