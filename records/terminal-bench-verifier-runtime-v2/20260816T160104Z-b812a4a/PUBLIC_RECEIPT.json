@@ -1,0 +1,119 @@
+{
+  "classification": {
+    "claim_eligible": false,
+    "is_agent_score": false,
+    "outcome": "verified_fail",
+    "purpose": "exploratory",
+    "reason": "The official verifier completed, but the no-provider subject did not create /app/regex.txt. Isolation and runtime identity are incomplete."
+  },
+  "experiment": {
+    "base_commit": "b812a4a8f4f1ed65b250b53b80a1a40fe8170d11",
+    "experiment_id": "terminal-bench-regex-smoke-900s",
+    "report_manifest_digest": "b858ce914be47cbc98398620c206f1748f45388fcf3ceff958d193282623fc62",
+    "resolved_run_manifest_digest": "aeb2a50a39bbf24057418080473d6d2851ad0adbb97a7fb06433459f004d60c9",
+    "run_id": "terminal-bench-regex-smoke-900s__run0000",
+    "terminal_bench_commit": "5c8eadf1f393183288fa08b8f73ca9a469cc5e00"
+  },
+  "format": "magentabench-public-result-receipt-v1",
+  "metrics": {
+    "cost_usd": 0.0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "pass_at_1": 0.0,
+    "reward": 0.0,
+    "total_tokens": 0,
+    "wall_clock_seconds": 263.29514978197403
+  },
+  "publication": {
+    "ledger_ingested": false,
+    "metadata_only": true,
+    "raw_record_published": false,
+    "reason_codes": [
+      "machine_specific_paths_present",
+      "external_source_closure_not_materialized",
+      "runtime_identity_incomplete"
+    ],
+    "required_follow_up": "Issue #77 must materialize the exact bytes behind explicit relocation maps before this run can be linked as a finished ledger run."
+  },
+  "raw_record_inventory": {
+    "canonicalization": "SHA-256 of a UTF-8 JSON array sorted by relative path; each item has path, sha256, and size_bytes; compact sorted-key encoding with one trailing LF",
+    "file_count": 44,
+    "inventory_sha256": "fad7bdd1428f2603ae3aa89900396933dd0aef49e017b2220b533f7461f05d8c",
+    "relative_record_id": "20260816T160104Z-b812a4a/terminal-bench-regex-smoke-900s",
+    "total_size_bytes": 453211
+  },
+  "referenced_source_closure": {
+    "artifact_ref_count": 1125,
+    "declared_size_bytes": 59936717,
+    "magenta_benchmark_commit": "b812a4a8f4f1ed65b250b53b80a1a40fe8170d11",
+    "terminal_bench_commit": "5c8eadf1f393183288fa08b8f73ca9a469cc5e00",
+    "terminal_bench_license": "Apache-2.0"
+  },
+  "retained_artifacts": {
+    "aggregate": {
+      "sha256": "194e977d1ff7e2cfb851cb20269e56a70709d8cd661b0bce4749259b548885ab",
+      "size_bytes": 416
+    },
+    "ctrf": {
+      "sha256": "9823ce450b9f1b5fd860cf70615e6a411de2f6dc38fefc00d58ff0667c173cde",
+      "size_bytes": 1767
+    },
+    "evidence_bundle": {
+      "sha256": "7b228ce5cd55748c4b881073c21957070dc8c983978a4fabef4a3e1d541166d4",
+      "size_bytes": 15535
+    },
+    "observation_report": {
+      "sha256": "374e79c933beb04c0d09445ffaa5941d4c1bc3559c5dea749dd740c502053c40",
+      "size_bytes": 35291
+    },
+    "record_index": {
+      "sha256": "f02aba73e80f23bc65b6c121fd197db3c03ee47aa5dc1675575ef8de896ff0eb",
+      "size_bytes": 683
+    },
+    "resolved_manifest": {
+      "sha256": "1a8d8d797b69e55c576148acbb2e3f01020331d1b913a9756e14039b69d3ea14",
+      "size_bytes": 50798
+    },
+    "reward": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "size_bytes": 2
+    },
+    "schedule_activation_receipt": {
+      "sha256": "1ff5585dff0a08f4ea9735e69659f20876a1e4e4397363041684fefe15877492",
+      "size_bytes": 3901
+    },
+    "test_stdout": {
+      "sha256": "6e30a1203b3cdafff885e488a3f559813fdebf371853879d12f1602b4c1ffe74",
+      "size_bytes": 14849
+    },
+    "trajectory": {
+      "sha256": "0b2f1e47daaa8b806f96c581d25019dd6aa3340b47476e842e8cc7ca31b0bb1d",
+      "size_bytes": 33995
+    }
+  },
+  "runtime_gaps": {
+    "container_receipt_ref": null,
+    "executable_digest": null,
+    "image_digest": null,
+    "isolation_reasons": [
+      "regex-log: NetworkObservation cannot substantiate isolation"
+    ],
+    "isolation_valid": false,
+    "network_observation_mode": "unobservable",
+    "runtime_manifest_receipt": null
+  },
+  "schedule": {
+    "mismatch_reasons": [],
+    "observed_attempt_count": 1,
+    "reconciles_exactly": true,
+    "schedule_valid": true
+  },
+  "verification": {
+    "bmp_run_exit_code": 0,
+    "official_verifier_completed": true,
+    "protocol_reasons": [],
+    "protocol_valid": true,
+    "standalone_verifier_exit_code": 0,
+    "standalone_verifier_result": "verified"
+  }
+}
