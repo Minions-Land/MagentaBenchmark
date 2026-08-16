@@ -1,0 +1,25 @@
+{
+  "commit_sha": "150fa100ead4ab51acdfc24ed246a8c5b2141466",
+  "format": "magentabench-historical-source-v1",
+  "license_id": null,
+  "license_status": "not-detected",
+  "normalizer_id": "cmtbench-150fa10.v1",
+  "normalizer_sha256": "13ac001d94837f863b8f16afaadf5b5f21b7c08bb772837ee22ccc24af3b5687",
+  "publication_approval": {
+    "approval_id": "github-issue-85",
+    "approved_at": "2026-08-16",
+    "approved_by": "PoorOtterBob",
+    "decision_ref": "Minions-Land/MagentaBenchmark#85",
+    "decision_sha256": "5ade9379443b403714de768de47abb934a1a41e0d58f227028d2602d56ed14f4",
+    "destination_repository": "Minions-Land/MagentaBenchmark",
+    "scope": "typed-results-only"
+  },
+  "ref_hint": "main",
+  "repository": "Minions-Land/MinionsOS2-Bench",
+  "root_tree": {
+    "algorithm": "sha1",
+    "digest": "3deaec22a778564ae37cbea396765268f959fee5"
+  },
+  "source_id": "minionsos2-cmtbench-150fa10",
+  "visibility": "private"
+}

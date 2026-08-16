@@ -1,0 +1,1034 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "cmtbench",
+      "name": "CMTBench",
+      "version": "2026-07-08"
+    },
+    "comparability": {
+      "case_set_sha256": "453bd8d9848cff29b1ff0973245bebf94f57282dd17fc9db6f6ef69cee6489a3",
+      "comparison_group": "cmtbench-corrected-regrade-20260708",
+      "evaluator_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "protocol_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "cmtbench-50",
+      "name": "CMTBench 50-task set",
+      "split": "test",
+      "version": "snapshot-150fa10"
+    },
+    "evaluator": {
+      "id": "cmt-official-eval-format-repair-v1",
+      "independent": true,
+      "kind": "deterministic",
+      "name": "CMT official evaluator with deterministic format repair",
+      "version": "1"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "cmtbench-150fa10-purellm_sonnet46_1m",
+      "configuration_profiles": [
+        "purellm_sonnet46_1m"
+      ],
+      "configuration_sha256": "bed8849f4292b5d87e11287f30d67062b3f5ae36543167d573bf765a70d093f1",
+      "factors": [
+        {
+          "id": "regrade-pipeline",
+          "unit": null,
+          "value": "cmt-official-eval-format-repair-v1"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "unknown",
+      "mode": "unknown",
+      "network_policy": "unknown",
+      "order_policy": "unknown",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "cmtbench-corrected-regrade-20260708",
+    "harness": {
+      "configuration_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "id": "cmt-official-eval-format-repair-v1",
+      "name": "CMT official evaluator with deterministic format repair",
+      "protocol_id": "cmt-official-eval-format-repair.v1",
+      "version": "1"
+    },
+    "limitations": [
+      "aggregate-only",
+      "dataset-revision-unbound",
+      "evaluator-upstream-unbound",
+      "legacy-not-bmp-verified",
+      "mixed-run-configuration",
+      "model-revision-unbound",
+      "resource-accounting-provider-specific",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "purellm_sonnet46_1m",
+      "name": "purellm_sonnet46_1m",
+      "subject_id": "purellm_sonnet46_1m",
+      "version": null
+    },
+    "model": {
+      "id": "claude-sonnet-4-6",
+      "name": "claude-sonnet-4-6",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "cmtbench-20260708-purellm-sonnet46-1m",
+  "metrics": [
+    {
+      "aggregation": "rate",
+      "definition_sha256": "b0b3533aabd1f4dfaaa8210aa998a578b6fdea74964bdd4d9ba25a6ede3f2b1c",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.16,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "f7b77f01420dec53174cb0cc33a52ae2a37542bc5c2537180f3c2f3c38498c6e",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 4,
+        "planned_count": 4,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-dmrg",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "d108169b959daf9a75e1a45cc9d6f2af192381bbd5eaad9163aa468279ed7bd6",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 8,
+        "planned_count": 8,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-ed",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.125,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "60f3008d3c59a14f8c788a91a1c8ff52a51262a0631336e702f93ff55dc3d433",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 5,
+        "planned_count": 5,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-hf",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.2,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "34cc1caf613cec90fc1c4f025e6cd4adf7ed3fe6a07e941b2a78233a98b93c48",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 16,
+        "planned_count": 16,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-other",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.1875,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "adf498c96a151af607474d5f12dc8eb71d0d8556d4a8538212a9e962d07de9f5",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 3,
+        "planned_count": 3,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-peps",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.3333333333333333,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "2be14baa690f054b1b96c90b6ec85d135c192603a1fad4d62483b78ad1cc26ce",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-qmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "3ced966df80d038e9c369fe0922be5a84a15383982e1667fa317b2f1d128ef65",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-sm",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.3333333333333333,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "d3dda417d0dac57b6064d6670a9805f067ff848fa02177df88e271b8435f042a",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 2,
+        "planned_count": 2,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-accuracy-vmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "4281b96850ff86bd2b279aa5d0e9e6821c1119d4b896650aa0ec8146dd44ad94",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "adopted-success-rate",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 1.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "255c610178c0a62915f714bd997ef1a3cdb1d8e3d44ad59e39cebbb977639555",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "api-calls",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 50,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "8386508fa6e3866afe9a05b14e61569086b4ee65bc8d4f91ed5b455ec6eed059",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "cache-creation-input-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 33,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "969aeaaaea71896ef901b220f50203b7d6826d381f7bb460036e5fc2a2b0eff9",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "cache-read-input-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 7416,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "ee2d9b0c4d5edb66d6bc59c591e2f1cd75aa9ea17a08c9c2b80c215493b4d567",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "cached-input-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 7416,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "956eb0f81e9fa5d0d333059c7be1d3550cc7711e7224f58a1c36528cde18ca91",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "changed-vs-legacy",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 1,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "74183ebee062ca81812e5426b1b9446f18c6fc75f3be476564174e28de1c779f",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "lower-is-better",
+      "invalid_count": 0,
+      "metric_id": "estimated-cost-usd",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "usd",
+      "value": 1.17647355,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "931674f44c70fdbe09cb609ac3e6ce131cfceea32737357eb22a0d77bc1ab0ef",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "format-repair-attempts",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 1,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "39fab302b36f5a0d2ec388ad694094b1fc850816f428a163d6600eed7310aae0",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "format-repair-correct",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "c2ec6250337d395c7ca99f2add364ee2d5a672dfdb5bd929ea786b4873cb1d4f",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "format-repair-success",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 1,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "965eaba11609c2af02357c0a20f80abe4fbb2fa4da5470355cb1a9823d0472de",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "input-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 186295,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "24507d60f5a3e76b68e1fc1fd98947ac1897e622a80e2888edd215f2f11cb58c",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.14,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "e2bcb71b3c65a44815de7ee7a5053f0656e0ac569832920b618ba73df83b1b35",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 4,
+        "planned_count": 4,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-dmrg",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "60f8367eb9f7647952c22acdbe9bbf09468e62561b4a179e495a00a1fbf3e656",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 8,
+        "planned_count": 8,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-ed",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.125,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "61ed45ecbf5535252f5b78a466d3617a26a7557e5c4c7236ff5c51af3444c569",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 5,
+        "planned_count": 5,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-hf",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.2,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "16f827f3f5560b6c19fa36507862d9c281b4f792374cbe42f1ccd32464791bae",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 16,
+        "planned_count": 16,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-other",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.1875,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "f9d3c79c3abbe3a9dbc98ba4bb517dc9f5edfacb1d146228436dae6384dbae89",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 3,
+        "planned_count": 3,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-peps",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "5ac4b11c8af91d4058363fe8ab700307ea3aea803a7b4f566cbae2db347b18f6",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-qmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "65b6e64b2f1a00faceda0321147c56bd5d85ea965f12c176ce6ea4b0893c31ee",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-sm",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.3333333333333333,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "5df355102c2a8c72235219f9db5ab4e68901c88725c33926367fd2b98d8f0013",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 2,
+        "planned_count": 2,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "legacy-accuracy-vmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "0a4de511c0293c907c3cd3a26223e07aa3ae29dc23c21d1f064cae341c627515",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "output-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 41016,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "f1a5939cb369e09c85499ffb3f2a7eb5be7e22702c0ab6b291c9aa6751388204",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 49,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 1,
+      "metric_id": "raw-official-accuracy",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.16,
+      "zero_filled_count": 1
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "d46b4f821a51d5cb9835aef632d0e86f35539433a1a91371160d74a752fecff5",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 4,
+        "planned_count": 4,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-dmrg",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "19de3056cc8c99ac3f53db1ee42d0e5372b6fc9c1fa805c9a98eacd5943e9b59",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 8,
+        "planned_count": 8,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-ed",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.125,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "c33a5de5bb293f405f13fbd94b637b15661611ee53de05ff45a6ede91ec54ac4",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 5,
+        "planned_count": 5,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-hf",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.2,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "694484513b4fa5d526d4f8758259ab16f8a3e86922400c6870849d76d5278504",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 15,
+        "planned_count": 16,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 1,
+      "metric_id": "raw-official-accuracy-other",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.1875,
+      "zero_filled_count": 1
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "6e102e056d1b69ea618ac82dbcdaa24570eb118a0a7dcc1d08d64ade66cbd929",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 3,
+        "planned_count": 3,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-peps",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.3333333333333333,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "2620581fdd12c50c089245db9a1a3e2a38be6d8ea9fcf21116e45e5810736ce0",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-qmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "482f3b33cdcb062daa42a254c0807c8c72786e96c031ef58acd0aa6318f0a4b9",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 6,
+        "planned_count": 6,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-sm",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.3333333333333333,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "3e8c8db62575d1e6a4e6194fa0c547696e5686dc8771343f5860c7b980def3cd",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 2,
+        "planned_count": 2,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-accuracy-vmc",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "ee3520e77de14664ea79c65f5f3a6d46361cc3d47a2e62ede47ec205031beef9",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-official-success-rate",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "fraction",
+      "value": 0.98,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "c7b0b0c56c87aa0e8c0d456c1c6f13fa23798efc93e7e578f240416427f20434",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "lower-is-better",
+      "invalid_count": 0,
+      "metric_id": "raw-parser-failures",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 1,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "4afd1e61e9a75212096494bcea56ee3979445185c6dd40557d624c83c81985bb",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "reasoning-output-tokens",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "7053ac98a795e7af9edcb084115f9aaa4ae60746a7fd848551115a5c7f55bea9",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "total-tokens-excluding-cache-read",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 227344,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "686a0f450b583673dd68008fa2a9c16611939ce5074a68850dcd7c4d3adad979",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "total-tokens-including-cache-read",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 234760,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "3952201c2b1a0e10c31b8dc9ff236e9b85b462bfce715e58adc591f0f1d0dd68",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "lower-is-better",
+      "invalid_count": 0,
+      "metric_id": "unresolved-parser-failures",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "count",
+      "value": 0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "e5c27e4d8efe588d4175bba0259f84af3748f430da996bd92ed0503b3953f381",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 1,
+        "planned_count": 1,
+        "unit": "items"
+      },
+      "direction": "lower-is-better",
+      "invalid_count": 0,
+      "metric_id": "work-time-seconds",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "seconds",
+      "value": 1464.246385,
+      "zero_filled_count": 0
+    }
+  ],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "820e8f0dec9fbcc281e312bda1d447a5de8d5809"
+      },
+      "path": "experiment_logs/cmt_bench/evaluation/regrade_reports/20260708-162616/environment.json",
+      "role": "configuration",
+      "size_bytes": 1131
+    },
+    {
+      "content_sha256": "453bd8d9848cff29b1ff0973245bebf94f57282dd17fc9db6f6ef69cee6489a3",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "266e120fe437947e52b22afba16ab535badde158"
+      },
+      "path": "experiment_logs/cmt_bench/validation/summary.json",
+      "role": "dataset",
+      "size_bytes": 1734
+    },
+    {
+      "content_sha256": "6c64f4a8769f1d391035e7cfe0a83e0a90499a2bf6e598da0535daa34f7ba4d7",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "98397c375c77d10ec873c85149f8b677c3259e39"
+      },
+      "path": "experiment_logs/cmt_bench/evaluation/regrade_reports/20260708-162616/branch_summary.json",
+      "role": "metric",
+      "size_bytes": 61884
+    },
+    {
+      "content_sha256": "c299264adf7031d65c5dcc3b550db10e1653411e4e6a57e6fd049a02412b051d",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "f8210482d575bf66e5121dda4a15fb7562b12621"
+      },
+      "path": "experiment_logs/cmt_bench/evaluation/regrade_reports/20260708-162616/model_summary.json",
+      "role": "metric",
+      "size_bytes": 7807
+    },
+    {
+      "content_sha256": "e710a83605a5a22be0313fdaa0ea13f7b08a205d0efce3fa354cbd498c2e8a2d",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "7dd842535fec63c529348efe4bc9bddfb14e8032"
+      },
+      "path": "experiment_logs/cmt_bench/summary.json",
+      "role": "result",
+      "size_bytes": 3636
+    }
+  ],
+  "record_id": "f200041113de58fcc112ab9b0d14324eafdad09241791278124b9cc5a76f5f6b",
+  "run_id": "cmtbench-20260708-purellm-sonnet46-1m",
+  "source_id": "minionsos2-cmtbench-150fa10",
+  "source_snapshot_sha256": "c48d90547f2af384c2d6dc7e1dbd7242be1a1fc31de44f67a634a785d646234f",
+  "supersedes": [],
+  "terminal_state": "completed"
+}

@@ -361,8 +361,8 @@ def test_checked_in_import_readme_is_not_treated_as_a_source() -> None:
     report = validate_historical_imports(ROOT)
 
     assert report.ok, report.errors
-    assert report.snapshot.sources == ()
-    assert report.snapshot.records == ()
+    assert all(item.source.source_id != "README.md" for item in report.snapshot.sources)
+    assert all("/README.md/" not in item.path for item in report.snapshot.records)
 
 
 def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) -> None:
