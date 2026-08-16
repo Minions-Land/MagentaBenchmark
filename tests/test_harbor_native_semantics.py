@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from MagentaBench.runner.backend.harbor import parse_harbor_result, parse_harbor_results
@@ -260,6 +261,42 @@ def test_native_usage_is_read_from_nested_agent_result(tmp_path: Path) -> None:
     assert case.bundle.usage.output_tokens == 7
     assert case.bundle.usage.total_tokens == 18
     assert case.bundle.usage.cost == 0.03
+
+
+def test_none_model_without_native_usage_records_observed_zero(tmp_path: Path) -> None:
+    root = tmp_path / "none-model-usage"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps({"verifier_result": {"rewards": {"score": 0.0}}}),
+        encoding="utf-8",
+    )
+    case = _parse_test_result(_run(), result_root=root)
+    assert case.bundle.usage is not None
+    assert case.bundle.usage.input_tokens == 0
+    assert case.bundle.usage.output_tokens == 0
+    assert case.bundle.usage.total_tokens == 0
+    assert case.bundle.usage.cost == 0.0
+
+
+def test_real_model_without_native_usage_remains_unobserved(tmp_path: Path) -> None:
+    root = tmp_path / "real-model-usage"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps({"verifier_result": {"rewards": {"score": 0.0}}}),
+        encoding="utf-8",
+    )
+    run = _run()
+    execution = run.manifest.execution.model_copy(update={"model": "openai/example"})
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(update={"execution": execution}),
+    )
+    case = _parse_test_result(run, result_root=root)
+    assert case.bundle.usage is not None
+    assert case.bundle.usage.input_tokens is None
+    assert case.bundle.usage.output_tokens is None
+    assert case.bundle.usage.total_tokens is None
+    assert case.bundle.usage.cost is None
 
 
 def test_malformed_result_is_preserved_as_invalid_output(tmp_path: Path) -> None:
