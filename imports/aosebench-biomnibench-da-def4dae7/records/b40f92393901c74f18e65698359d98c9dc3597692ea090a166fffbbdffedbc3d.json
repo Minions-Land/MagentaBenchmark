@@ -1,0 +1,198 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "candidate",
+  "experiment": {
+    "benchmark": {
+      "id": "biomnibench-da",
+      "name": "BiomniBench DA",
+      "version": "snapshot-def4dae7"
+    },
+    "comparability": {
+      "case_set_sha256": "2768c95a9abb676078c62e9dcf2c2b001fc5f60f67ae959776d820c6418b74ba",
+      "comparison_group": "biomnibench-da-magenta-live-20260716",
+      "evaluator_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "protocol_sha256": "cb8963744e242d3daef7a0716bd7aa12b076029ebc67ed83a9e897313b8e30a4",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "biomnibench-da-50",
+      "name": "BiomniBench DA 50-case test set",
+      "split": "test",
+      "version": "snapshot-def4dae7"
+    },
+    "evaluator": {
+      "id": "biomnibench-da-rubric-judge",
+      "independent": true,
+      "kind": "model",
+      "name": "BiomniBench DA rubric judge",
+      "version": "snapshot-def4dae7"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "biomnibench-xhigh-magenta",
+      "configuration_profiles": [
+        "magenta",
+        "xhigh"
+      ],
+      "configuration_sha256": "932ed20f0bc7c1453c40b752910c6ffcc082230fd31f750f55e9b57120aa23fd",
+      "factors": [
+        {
+          "id": "dataset-byte-count",
+          "unit": "bytes",
+          "value": 82946366733
+        },
+        {
+          "id": "dataset-file-count",
+          "unit": "files",
+          "value": 463
+        },
+        {
+          "id": "other-terminal-error-count",
+          "unit": "cases",
+          "value": 2
+        },
+        {
+          "id": "reasoning-effort",
+          "unit": null,
+          "value": "xhigh"
+        },
+        {
+          "id": "recorded-total-token-count",
+          "unit": "tokens",
+          "value": 5708573
+        },
+        {
+          "id": "successful-case-count",
+          "unit": "cases",
+          "value": 3
+        },
+        {
+          "id": "task-memory-profile",
+          "unit": null,
+          "value": "mixed"
+        },
+        {
+          "id": "task-storage-profile",
+          "unit": null,
+          "value": "mixed"
+        },
+        {
+          "id": "terminal-case-count",
+          "unit": "cases",
+          "value": 8
+        },
+        {
+          "id": "timeout-case-count",
+          "unit": "cases",
+          "value": 3
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "container",
+      "mode": "docker",
+      "network_policy": "unknown",
+      "order_policy": "source-defined",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "biomnibench-da-magenta-live-20260716",
+    "harness": {
+      "configuration_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "id": "biomnibench-da-rubric-judge",
+      "name": "BiomniBench DA rubric judge",
+      "protocol_id": "biomnibench-da-rubric-judge.v1",
+      "version": "snapshot-def4dae7"
+    },
+    "limitations": [
+      "aggregate-only",
+      "budget-unbound",
+      "dataset-content-unbound",
+      "dataset-revision-unbound",
+      "evaluation-not-run",
+      "floating-image-reference",
+      "image-digest-unbound",
+      "in-progress-snapshot",
+      "legacy-not-bmp-verified",
+      "metrics-unavailable",
+      "mixed-task-memory-profile",
+      "mixed-task-storage-profile",
+      "model-identity-redacted",
+      "no-run-repetitions",
+      "provider-identity-redacted",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "magenta",
+      "name": "Magenta",
+      "subject_id": "magenta",
+      "version": null
+    },
+    "model": null,
+    "provider": null,
+    "purpose": "exploratory"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "biomnibench-da-magenta-xhigh",
+  "metrics": [],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "cb8963744e242d3daef7a0716bd7aa12b076029ebc67ed83a9e897313b8e30a4",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "a376dcc06fb427a15ecc884458994b33c1a44582"
+      },
+      "path": "results/live-magenta/_summary/magenta_schedule.json",
+      "role": "configuration",
+      "size_bytes": 9867
+    },
+    {
+      "content_sha256": "e922e7d71ab729c7439dd7a4409c446f1af924019431532b594756d7dc9dcdaf",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ba728ab894a69dd272267ab355e71660596f3f1e"
+      },
+      "path": "manifests/data_files.tsv",
+      "role": "dataset",
+      "size_bytes": 37415
+    },
+    {
+      "content_sha256": "eb8dfa998da520639973e7dcac574416f3c53ab847ed8131a89b6b034435459e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "449c1e0aee9d837fa86b3760b2af9ff2bf2becd6"
+      },
+      "path": "results/SNAPSHOT.md",
+      "role": "declaration",
+      "size_bytes": 2462
+    },
+    {
+      "content_sha256": "ccac90cbf4a5edf9a94e73be1c8320514e670b7215d790f8e42fcbd518f420f4",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "fb9faff1a859a98071b4fcba8135c3d589b9fcf3"
+      },
+      "path": "results/live-magenta/_summary/magenta_task_summary.tsv",
+      "role": "result",
+      "size_bytes": 3528
+    }
+  ],
+  "record_id": "b40f92393901c74f18e65698359d98c9dc3597692ea090a166fffbbdffedbc3d",
+  "run_id": "biomnibench-da-magenta-xhigh",
+  "source_id": "aosebench-biomnibench-da-def4dae7",
+  "source_snapshot_sha256": "397e138da52e51da9589cd0e8c53420e67e8a4c2867e6639a33a26a118229ed7",
+  "supersedes": [],
+  "terminal_state": "partial"
+}

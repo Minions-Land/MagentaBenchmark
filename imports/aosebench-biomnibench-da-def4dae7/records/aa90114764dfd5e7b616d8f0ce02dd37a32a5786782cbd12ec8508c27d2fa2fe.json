@@ -1,0 +1,294 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "biomnibench-da",
+      "name": "BiomniBench DA",
+      "version": "snapshot-def4dae7"
+    },
+    "comparability": {
+      "case_set_sha256": "2768c95a9abb676078c62e9dcf2c2b001fc5f60f67ae959776d820c6418b74ba",
+      "comparison_group": "biomnibench-da-official-rubric-20260716",
+      "evaluator_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "protocol_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "biomnibench-da-50",
+      "name": "BiomniBench DA 50-case test set",
+      "split": "test",
+      "version": "snapshot-def4dae7"
+    },
+    "evaluator": {
+      "id": "biomnibench-da-rubric-judge",
+      "independent": true,
+      "kind": "model",
+      "name": "BiomniBench DA rubric judge",
+      "version": "snapshot-def4dae7"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "biomnibench-xhigh-biomni",
+      "configuration_profiles": [
+        "biomni",
+        "xhigh"
+      ],
+      "configuration_sha256": null,
+      "factors": [
+        {
+          "id": "dataset-byte-count",
+          "unit": "bytes",
+          "value": 82946366733
+        },
+        {
+          "id": "dataset-file-count",
+          "unit": "files",
+          "value": 463
+        },
+        {
+          "id": "reasoning-effort",
+          "unit": null,
+          "value": "xhigh"
+        },
+        {
+          "id": "task-memory-profile",
+          "unit": null,
+          "value": "mixed"
+        },
+        {
+          "id": "task-storage-profile",
+          "unit": null,
+          "value": "mixed"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "container",
+      "mode": "docker",
+      "network_policy": "unknown",
+      "order_policy": "source-defined",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "biomnibench-da-official-20260716",
+    "harness": {
+      "configuration_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "id": "biomnibench-da-rubric-judge",
+      "name": "BiomniBench DA rubric judge",
+      "protocol_id": "biomnibench-da-rubric-judge.v1",
+      "version": "snapshot-def4dae7"
+    },
+    "limitations": [
+      "aggregate-only",
+      "budget-unbound",
+      "dataset-content-unbound",
+      "dataset-revision-unbound",
+      "image-digest-unbound",
+      "legacy-not-bmp-verified",
+      "mixed-task-memory-profile",
+      "mixed-task-storage-profile",
+      "model-identity-redacted",
+      "no-run-repetitions",
+      "provider-identity-redacted",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "biomni",
+      "name": "Biomni",
+      "subject_id": "biomni",
+      "version": null
+    },
+    "model": null,
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "biomnibench-da-xhigh-biomni",
+  "metrics": [
+    {
+      "aggregation": "sum",
+      "definition_sha256": "cefc76700d16478a1fa71496edb041d9c1301ab5457d4dde7b2c4eb11f24f7c0",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "judge-cached-tokens",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 0,
+      "zero_filled_count": 2
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "ca7e4259b4181b6a02dd1532f0f1d7aa5346de8ad980caa487d7d68dba53bd38",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "judge-reasoning-tokens",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 141846,
+      "zero_filled_count": 2
+    },
+    {
+      "aggregation": "sum",
+      "definition_sha256": "e8e3cc7f34152705cf45f770b16f4f294ac4b3a5bcfe38e9427461fe71e20c60",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "judge-total-tokens",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "tokens",
+      "value": 1822418,
+      "zero_filled_count": 2
+    },
+    {
+      "aggregation": "mean",
+      "definition_sha256": "ce308e5d956e8c1bbfbb0de8dbe498e9d5ef334b5cc34ffc89769481e4b98f88",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "score-mean",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 48.92,
+      "zero_filled_count": 2
+    },
+    {
+      "aggregation": "median",
+      "definition_sha256": "a50661abeea6e003d3ae1566277e117f10205da8a76dcfdc5e14e31b31827fe6",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "score-median",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 48.0,
+      "zero_filled_count": 2
+    },
+    {
+      "aggregation": "none",
+      "definition_sha256": "0c49944492f82194646e43d552c8974349141dcefad1f041453bd838fd310e38",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 48,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "score-sample-standard-deviation",
+      "missing_count": 2,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 33.82,
+      "zero_filled_count": 2
+    }
+  ],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "e922e7d71ab729c7439dd7a4409c446f1af924019431532b594756d7dc9dcdaf",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ba728ab894a69dd272267ab355e71660596f3f1e"
+      },
+      "path": "manifests/data_files.tsv",
+      "role": "dataset",
+      "size_bytes": 37415
+    },
+    {
+      "content_sha256": "eb8dfa998da520639973e7dcac574416f3c53ab847ed8131a89b6b034435459e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "449c1e0aee9d837fa86b3760b2af9ff2bf2becd6"
+      },
+      "path": "results/SNAPSHOT.md",
+      "role": "declaration",
+      "size_bytes": 2462
+    },
+    {
+      "content_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "6220282334cc8a6d52b4761272bc669fe04e3afd"
+      },
+      "path": "docs/EVALUATION.md",
+      "role": "evaluator",
+      "size_bytes": 1938
+    },
+    {
+      "content_sha256": "423bd424e5628750035a90d496cfb277b0bc390ba3bd834f370a002cb8029c25",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ebee2315c547970d71253ccc350dcf12391ce24e"
+      },
+      "path": "results/xhigh/_summary/llm_judge_method_summary.tsv",
+      "role": "metric",
+      "size_bytes": 577
+    },
+    {
+      "content_sha256": "1d587f28659a5fc026f8d0b6c14e6ef361991484d24d22cf59725afeee117373",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "68e7f39dd8692c904a3a8cc775b5bef2f50b0648"
+      },
+      "path": "results/xhigh/_summary/llm_judge_summary.tsv",
+      "role": "result",
+      "size_bytes": 37959
+    }
+  ],
+  "record_id": "aa90114764dfd5e7b616d8f0ce02dd37a32a5786782cbd12ec8508c27d2fa2fe",
+  "run_id": "biomnibench-da-xhigh-biomni",
+  "source_id": "aosebench-biomnibench-da-def4dae7",
+  "source_snapshot_sha256": "397e138da52e51da9589cd0e8c53420e67e8a4c2867e6639a33a26a118229ed7",
+  "supersedes": [],
+  "terminal_state": "completed"
+}

@@ -1,0 +1,712 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "biomnibench-da",
+      "name": "BiomniBench DA",
+      "version": "snapshot-def4dae7"
+    },
+    "comparability": {
+      "case_set_sha256": "2768c95a9abb676078c62e9dcf2c2b001fc5f60f67ae959776d820c6418b74ba",
+      "comparison_group": "biomnibench-da-legacy-deepseek-grades",
+      "evaluator_sha256": "00a27472fddaf80ec81faf20b5dc31f9bb8b858ab44988e75799457f14bdbdc9",
+      "protocol_sha256": "00a27472fddaf80ec81faf20b5dc31f9bb8b858ab44988e75799457f14bdbdc9",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "biomnibench-da-50",
+      "name": "BiomniBench DA 50-case test set",
+      "split": "test",
+      "version": "snapshot-def4dae7"
+    },
+    "evaluator": {
+      "id": "biomnibench-da-legacy-deepseek-judge",
+      "independent": true,
+      "kind": "model",
+      "name": "Legacy BiomniBench DA rubric judge",
+      "version": "snapshot-def4dae7"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "biomnibench-legacy-pure-gpt54",
+      "configuration_profiles": [
+        "legacy",
+        "pure-gpt54"
+      ],
+      "configuration_sha256": null,
+      "factors": [
+        {
+          "id": "dataset-byte-count",
+          "unit": "bytes",
+          "value": 82946366733
+        },
+        {
+          "id": "dataset-file-count",
+          "unit": "files",
+          "value": 463
+        },
+        {
+          "id": "reasoning-effort",
+          "unit": null,
+          "value": "legacy"
+        },
+        {
+          "id": "task-memory-profile",
+          "unit": null,
+          "value": "mixed"
+        },
+        {
+          "id": "task-storage-profile",
+          "unit": null,
+          "value": "mixed"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "unknown",
+      "mode": "unknown",
+      "network_policy": "unknown",
+      "order_policy": "source-defined",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "biomnibench-da-legacy-grades",
+    "harness": {
+      "configuration_sha256": "00a27472fddaf80ec81faf20b5dc31f9bb8b858ab44988e75799457f14bdbdc9",
+      "id": "biomnibench-da-legacy-deepseek-judge",
+      "name": "Legacy BiomniBench DA rubric judge",
+      "protocol_id": "biomnibench-da-legacy-deepseek-judge.v1",
+      "version": "snapshot-def4dae7"
+    },
+    "limitations": [
+      "aggregate-only",
+      "budget-unbound",
+      "dataset-content-unbound",
+      "dataset-revision-unbound",
+      "evaluator-lineage-distinct",
+      "execution-conditions-unbound",
+      "judge-model-identity-redacted",
+      "legacy-not-bmp-verified",
+      "model-revision-unbound",
+      "no-run-repetitions",
+      "provider-identity-redacted",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "pure-gpt54",
+      "name": "PureGPT54",
+      "subject_id": "pure-gpt54",
+      "version": null
+    },
+    "model": {
+      "id": "gpt-5.4",
+      "name": "gpt-5.4",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "biomnibench-da-legacy-pure-gpt54",
+  "metrics": [
+    {
+      "aggregation": "mean",
+      "definition_sha256": "c95c6182490c6c8c0f6b4f9aae143bab3c7dc77e08eb0cce6dab08cf1e3fa620",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "score-mean",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 25.1,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "median",
+      "definition_sha256": "c59532dee2e16c7754609b90eabf16e636519a9a1e1311b9767bb1ebed3a1a3d",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "score-median",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 20.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "none",
+      "definition_sha256": "95a69c785ac2dbab4c655a36d9fb485a7aede44aee50e8f5f55c6f2a33f1bf65",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 50,
+        "planned_count": 50,
+        "unit": "cases"
+      },
+      "direction": "neutral",
+      "invalid_count": 0,
+      "metric_id": "score-sample-standard-deviation",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "points",
+      "value": 18.958870628552855,
+      "zero_filled_count": 0
+    }
+  ],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "e922e7d71ab729c7439dd7a4409c446f1af924019431532b594756d7dc9dcdaf",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ba728ab894a69dd272267ab355e71660596f3f1e"
+      },
+      "path": "manifests/data_files.tsv",
+      "role": "dataset",
+      "size_bytes": 37415
+    },
+    {
+      "content_sha256": "eb8dfa998da520639973e7dcac574416f3c53ab847ed8131a89b6b034435459e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "449c1e0aee9d837fa86b3760b2af9ff2bf2becd6"
+      },
+      "path": "results/SNAPSHOT.md",
+      "role": "declaration",
+      "size_bytes": 2462
+    },
+    {
+      "content_sha256": "23cd51c28243422c5165877376e86c15a4ddefcffa2bf1884c66b85a0bdefa7a",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "2b866abcb53baf62ca41b5027bccfdc7dfcb83c9"
+      },
+      "path": "results/default/PureGPT54/da-1-3/grade.json",
+      "role": "metric",
+      "size_bytes": 3155
+    },
+    {
+      "content_sha256": "cb20ee564e4b299567938306581edf21449e983bd4db2090bb666dece7bc915a",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "6154761df458a5508579008639b72b900eede69f"
+      },
+      "path": "results/default/PureGPT54/da-1-4/grade.json",
+      "role": "metric",
+      "size_bytes": 2779
+    },
+    {
+      "content_sha256": "0a5d7f615fb087f2126a0da7feca18d692b8f8847e7f6f074874f7acdc9bf2d2",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "f116c02299c5cbb0feb3fa4834c861062f9fc4ec"
+      },
+      "path": "results/default/PureGPT54/da-10-1/grade.json",
+      "role": "metric",
+      "size_bytes": 3389
+    },
+    {
+      "content_sha256": "a1b65b41c3ee6e6fa6991df30b8da5ec565a8d08979c2926aa61cef61bd3a89e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "415eefc6c1ca853d52186b9d834fbef50255dabe"
+      },
+      "path": "results/default/PureGPT54/da-10-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2226
+    },
+    {
+      "content_sha256": "ef2ebf8c49a02bcfd15bed52362a95c5e276da84de835d535ec4fcb4326c1659",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "960007b0777aa4258e1d1e718beea8bf3388f20a"
+      },
+      "path": "results/default/PureGPT54/da-11-1/grade.json",
+      "role": "metric",
+      "size_bytes": 3327
+    },
+    {
+      "content_sha256": "c39b1b41d958d4a2b8d200d481b6457dcee47b0e36c700d689733df51a12e939",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "994162b37b44cb123dd83ef1ee789765fcab02ec"
+      },
+      "path": "results/default/PureGPT54/da-12-2/grade.json",
+      "role": "metric",
+      "size_bytes": 2373
+    },
+    {
+      "content_sha256": "6ec6bc194ba17ed2a20bc96999e0c580a01ba74c62b6f550919a58c96a2611c9",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "131167338b6ace302d225f6151134aba10b16e70"
+      },
+      "path": "results/default/PureGPT54/da-12-4/grade.json",
+      "role": "metric",
+      "size_bytes": 1765
+    },
+    {
+      "content_sha256": "42782a6ad06cb444e8d1926651c6349c73d4c16c82001bc2bd9727a3972c140b",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "7ef1b424a855c77b6c684fdcaeb9c727c572d05a"
+      },
+      "path": "results/default/PureGPT54/da-13-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2015
+    },
+    {
+      "content_sha256": "14e91da1fc33d5d6e3e58b530c3a36250ad2fe7ad186eeda809a739a8bb014c4",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "2a9ad9ba4f76bfcc6db658043da4e0243c5f280f"
+      },
+      "path": "results/default/PureGPT54/da-13-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2180
+    },
+    {
+      "content_sha256": "1fec94da6c79c1711ad56805127998b16bf72628076d9fd5fd9cec64db3d1234",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ef76d3917150d46c91c170116dabbef2449df644"
+      },
+      "path": "results/default/PureGPT54/da-13-5/grade.json",
+      "role": "metric",
+      "size_bytes": 2081
+    },
+    {
+      "content_sha256": "74e950576b76b76cd736206c8b26822fb82700f19c7218639f1372053010dd47",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "847c2c22e4d2d28da51784303bc6ebb4fa1114b3"
+      },
+      "path": "results/default/PureGPT54/da-13-6/grade.json",
+      "role": "metric",
+      "size_bytes": 2301
+    },
+    {
+      "content_sha256": "648d4a951ed352db904a86ac0fb8268e541a0060b6bec5df7a8654c24722c618",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "b4e7c3e4f63c4c98b81faa5c658b6af615948eea"
+      },
+      "path": "results/default/PureGPT54/da-14-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2546
+    },
+    {
+      "content_sha256": "02c96c771ffe80664c5a926a024a79e4d764e10ae95a3187b10694df070b0a11",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "235a8773e943fac0a0595b5e6149eedeca1cd159"
+      },
+      "path": "results/default/PureGPT54/da-14-3/grade.json",
+      "role": "metric",
+      "size_bytes": 1884
+    },
+    {
+      "content_sha256": "e0e85b4ac58496894f94b5e0c0802d224129364198d1920911501fe83255074b",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "74d66fbf4461116b6a798febb3d9b9a7f76e31f9"
+      },
+      "path": "results/default/PureGPT54/da-14-8/grade.json",
+      "role": "metric",
+      "size_bytes": 2343
+    },
+    {
+      "content_sha256": "71f247a6cc142d95d72f5ff797111647968fb65340dbf608fe6f814afe842b68",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "4dc5f282014eb3c7102714aaab21ff2ede051050"
+      },
+      "path": "results/default/PureGPT54/da-15-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2320
+    },
+    {
+      "content_sha256": "0b8567a30f62199e55bb10cec4ed5261bf964695b8851b3511001c5b2329dd8e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "d05b0a623a6e23ba433a35906bd6ac6fc314218c"
+      },
+      "path": "results/default/PureGPT54/da-15-2/grade.json",
+      "role": "metric",
+      "size_bytes": 2280
+    },
+    {
+      "content_sha256": "e9b4fec4a5ee06017a5fbfd817f0ede1bb935bba78173c9b77389cd76afb0bfc",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "8e28b21d178e7398762479dbf10a91310fff1fcf"
+      },
+      "path": "results/default/PureGPT54/da-15-7/grade.json",
+      "role": "metric",
+      "size_bytes": 2417
+    },
+    {
+      "content_sha256": "b2db3b1f6443ba0e75b742604409816bd9ce27f03af2bc087c2831573c128882",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "948c235c3c2be7a735ca31438cbbb736672cbe09"
+      },
+      "path": "results/default/PureGPT54/da-15-8/grade.json",
+      "role": "metric",
+      "size_bytes": 2280
+    },
+    {
+      "content_sha256": "6e9b8dbe78312eb72261af5ecde234552890fc7f10e3a3a3860efbf28a0d2843",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "4743740429303cc687794981f33c9619bb5c2bc4"
+      },
+      "path": "results/default/PureGPT54/da-16-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2853
+    },
+    {
+      "content_sha256": "f4bffed64cd2ca68a0fdb5711789049a43e642edb504f7842be0d9f23924f526",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "fb9724fc2b9fdab0f54cde2d1dddbde130119e8e"
+      },
+      "path": "results/default/PureGPT54/da-17-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2422
+    },
+    {
+      "content_sha256": "12a58ea7f962844551b86446a918a4abb96e7b24d5d0d0924666c6aceb4e6406",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "16bc38ea2642435e7e27b49e8549bf64e5242f46"
+      },
+      "path": "results/default/PureGPT54/da-17-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2442
+    },
+    {
+      "content_sha256": "f9846ce206c4bbc44d5c4b67dd55ee7eb03a8cb8b981bb000280f953d3a81207",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "1d6816d10414b3a76544a1b49e631cef6ccbd653"
+      },
+      "path": "results/default/PureGPT54/da-17-5/grade.json",
+      "role": "metric",
+      "size_bytes": 2409
+    },
+    {
+      "content_sha256": "a4c7892a2d0ead03194d4366164ff4b077a78237ac209c13b58f0570b89a9710",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "e6a61ae14bb999261e66e9cf6166fa68e9617284"
+      },
+      "path": "results/default/PureGPT54/da-18-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2271
+    },
+    {
+      "content_sha256": "b96655dea03963e1535f2cc4cda4774eb6bdd6d0fc631a069683536bd66aa11e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "502edade6f8b311dd3f12f42adb0cb3a8590fa8a"
+      },
+      "path": "results/default/PureGPT54/da-18-5/grade.json",
+      "role": "metric",
+      "size_bytes": 2591
+    },
+    {
+      "content_sha256": "55cc9c717fd4daebdd67b5c2db9a9add7627b86d28f04b083e812c41876d57d0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "c5356f3abd19598d8366c58ce664fe44c387ccd0"
+      },
+      "path": "results/default/PureGPT54/da-18-7/grade.json",
+      "role": "metric",
+      "size_bytes": 2381
+    },
+    {
+      "content_sha256": "baac4ba165f77b3fb8aa4a4b84a8132f634dd1c9be73fc84d1151db17eef7f40",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "839416d15854ab5457cf7c8748d5bedcb192a78b"
+      },
+      "path": "results/default/PureGPT54/da-19-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2853
+    },
+    {
+      "content_sha256": "8a8a96f97f4f8871460714fde59c282b953a8a3bdffb1a85303be90a1014d9d9",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "2183160f38d6e0368edfcff9a0c85f568ed4b851"
+      },
+      "path": "results/default/PureGPT54/da-19-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2057
+    },
+    {
+      "content_sha256": "9fe9a6b971dea0f013220dae73b71c250f1814e527e0562dc0439e8c5d4255ba",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "a09077afb1b3b2b765dd8c16c1ce7b79e864dc35"
+      },
+      "path": "results/default/PureGPT54/da-19-4/grade.json",
+      "role": "metric",
+      "size_bytes": 2620
+    },
+    {
+      "content_sha256": "24af2434dc831f8e348475fa826307b7d487056f7cb4849b6dd8e83cd85c7c56",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "445962856f4d9febecf5b0fb2a55abd4a2b1196f"
+      },
+      "path": "results/default/PureGPT54/da-19-6/grade.json",
+      "role": "metric",
+      "size_bytes": 2494
+    },
+    {
+      "content_sha256": "5b3ec4eea7ce79da502ec965bffefa8ace756e634f7b4c862dbeefae307f37f0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "30cff160577f9f7fd73e55b4b8bf78d68fa264d6"
+      },
+      "path": "results/default/PureGPT54/da-20-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2600
+    },
+    {
+      "content_sha256": "c239d0cc05acc54044dcd68e2e7d08e9cbc5150a237efb81efb4efa2c1b3a097",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "b0b895148503b2125e2f42e5e807ea8cd75c6052"
+      },
+      "path": "results/default/PureGPT54/da-20-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2330
+    },
+    {
+      "content_sha256": "df7e95e648d3542e634726de760f803e1517eef8d49413a6cc1e3e4db95ab97e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "f8a2290d9c504bca427ff4822fbda19101bbf94c"
+      },
+      "path": "results/default/PureGPT54/da-20-4/grade.json",
+      "role": "metric",
+      "size_bytes": 2392
+    },
+    {
+      "content_sha256": "e0291a79105bdacd1e2a5d0469a19382a907f0e96c0a039c1924ea10f7e3f577",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "14472ce67593c771f4e70f8435a82c6836ddd5e2"
+      },
+      "path": "results/default/PureGPT54/da-24-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2550
+    },
+    {
+      "content_sha256": "aee427fccc7350b38c6dcf96e34163f2d4195ea726f138f9f799e7afe08f60f6",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "43529bb391a9e804b5484c2ee3833badd43c4e37"
+      },
+      "path": "results/default/PureGPT54/da-25-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2953
+    },
+    {
+      "content_sha256": "9bc77961853ef23329218ca5dfe8e49e9dbc59161f72db63b549e8d5f8f577e8",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "4231c39eec9a4ed86dcad87a4169f222acfa588c"
+      },
+      "path": "results/default/PureGPT54/da-26-2/grade.json",
+      "role": "metric",
+      "size_bytes": 2448
+    },
+    {
+      "content_sha256": "e38f56037202adf53eb7201daaead0ea693895e1e120d557ce2f85301e3290be",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "ee6f2c88c5261807ce5d0b1b1baf325ad55ad2df"
+      },
+      "path": "results/default/PureGPT54/da-26-4/grade.json",
+      "role": "metric",
+      "size_bytes": 2836
+    },
+    {
+      "content_sha256": "43e7ff43d3fc2a86b160b5142613e95c12e99cbacf51699b1f6f0020814d748f",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "03d6b464ed5309f22e84048ef7192d71e0d0de4e"
+      },
+      "path": "results/default/PureGPT54/da-3-4/grade.json",
+      "role": "metric",
+      "size_bytes": 2201
+    },
+    {
+      "content_sha256": "d4ae070c41602ef39c7c529ee86e011c1c1771b8dc9d90e26e24564e2f9fed31",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "0c070295a9928209200811a87f77f4f9976ed24c"
+      },
+      "path": "results/default/PureGPT54/da-3-5/grade.json",
+      "role": "metric",
+      "size_bytes": 2197
+    },
+    {
+      "content_sha256": "67693a92b34aaf16687d9d84b65ca0c8dce99b42c263ebdaaf41f67a9546b9a7",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "9f6928bf24d9a2a20fb8015c4aa52be9b823cfa9"
+      },
+      "path": "results/default/PureGPT54/da-4-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2071
+    },
+    {
+      "content_sha256": "6c426c89a35415a8c63fbbe10682c147224f3025b97315ec2d9ecbd2f87a3b5e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "9b426c11d8967bde5495a9614f73855abcdf0935"
+      },
+      "path": "results/default/PureGPT54/da-4-6/grade.json",
+      "role": "metric",
+      "size_bytes": 2008
+    },
+    {
+      "content_sha256": "11f5e6b9069db894574d08ce31478ff61d0ecaef1278b979610c0b2dd1b13575",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "07f2f661e4e0a7f8fe155940e01a9df9a2ba9dae"
+      },
+      "path": "results/default/PureGPT54/da-4-7/grade.json",
+      "role": "metric",
+      "size_bytes": 2475
+    },
+    {
+      "content_sha256": "c28c0f5e9e0ec91bf3d10dde846ee23c97179ef4ee53a0f925c8b5165ae734a5",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "db6c3c8897277db0f2d9949fc7856df8b0dc40a2"
+      },
+      "path": "results/default/PureGPT54/da-5-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2621
+    },
+    {
+      "content_sha256": "efee107a11233ed00bbc634d89814d249cdcd9c1166857e0bd8800a0d929dcea",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "631a69e1a422f89fc6274f08905421fda2d71c73"
+      },
+      "path": "results/default/PureGPT54/da-5-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2044
+    },
+    {
+      "content_sha256": "4926905eaa5237a928e26871e2c5593d47b8cea0ffccc172748b0a9527900a70",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "6ec368c8f860929006d6a06c75a7222cc8d3a73b"
+      },
+      "path": "results/default/PureGPT54/da-6-2/grade.json",
+      "role": "metric",
+      "size_bytes": 2237
+    },
+    {
+      "content_sha256": "9705692911bd65d39827c263171090ea9913544b3fb2d2818b51bb14f3bb9397",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "50229988ae06079047595e667b41c2abde2db948"
+      },
+      "path": "results/default/PureGPT54/da-6-5/grade.json",
+      "role": "metric",
+      "size_bytes": 2305
+    },
+    {
+      "content_sha256": "37308735b4a4e4de55160aea37c192b4ed7ac1b403cc52f7e692c10ddf7437d9",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "0ee0131a7aab55548af53ef43248a88894909d27"
+      },
+      "path": "results/default/PureGPT54/da-8-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2888
+    },
+    {
+      "content_sha256": "7ee23a727ae0268696c10cbca0a25f397349d22fb3a5f1b23da1405561ec27f9",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "52225d5e14c53619c39722020aeb685cf67154f9"
+      },
+      "path": "results/default/PureGPT54/da-8-2/grade.json",
+      "role": "metric",
+      "size_bytes": 2010
+    },
+    {
+      "content_sha256": "dac83baf0a5d16cf0d8e07aaff7ba3135b8bec8335bfa99923c9f130bc19348b",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "37b7569207e0e54aa83217197ae8c15f816685b7"
+      },
+      "path": "results/default/PureGPT54/da-8-3/grade.json",
+      "role": "metric",
+      "size_bytes": 2608
+    },
+    {
+      "content_sha256": "7464545e58901b1bfa53c496e35386979a5a60be91960ad2dbde3d0094a4b13f",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "1b6c620907bf1c125e0d15aef3ff6be70f0e5edc"
+      },
+      "path": "results/default/PureGPT54/da-9-1/grade.json",
+      "role": "metric",
+      "size_bytes": 2470
+    },
+    {
+      "content_sha256": "447b2e595893d6fbccbd8561d761f83d5fd6cf36b92e938f95a2184c878d691b",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "80109a24f25c2bf5d63626d7cfafd9533944bcdc"
+      },
+      "path": "results/default/PureGPT54/da-9-7/grade.json",
+      "role": "metric",
+      "size_bytes": 2598
+    }
+  ],
+  "record_id": "d66649f3bbae27f3feb60296e0d2444256a1c41cd1fcbd33dfa99ba7124c62b3",
+  "run_id": "biomnibench-da-legacy-pure-gpt54",
+  "source_id": "aosebench-biomnibench-da-def4dae7",
+  "source_snapshot_sha256": "397e138da52e51da9589cd0e8c53420e67e8a4c2867e6639a33a26a118229ed7",
+  "supersedes": [],
+  "terminal_state": "completed"
+}
