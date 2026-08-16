@@ -26,6 +26,7 @@ from .ledger import (
 from .import_models import (
     HistoricalAssetRecord,
     HistoricalDeclaration,
+    HistoricalPublicationApproval,
     HistoricalRecord,
     HistoricalRun,
     HistoricalSource,
@@ -60,6 +61,7 @@ __all__ = [
     "HistoricalImportSnapshot",
     "HistoricalImportValidation",
     "HistoricalRecord",
+    "HistoricalPublicationApproval",
     "HistoricalRun",
     "HistoricalSource",
     "ValidationReport",

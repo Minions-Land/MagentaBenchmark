@@ -10,6 +10,7 @@ import json
 import math
 import re
 from collections.abc import Mapping
+from datetime import date
 from hashlib import sha256
 from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal, TypeAlias
@@ -41,6 +42,7 @@ _GITHUB_NAME_RE = re.compile(
     r"(?P<owner>[A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))/"
     r"(?P<repo>[A-Za-z0-9_.-]{1,100})"
 )
+_GITHUB_LOGIN_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 _MEDIA_TYPE_RE = re.compile(
     r"[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}"
 )
@@ -226,6 +228,48 @@ class GitObjectId(HistoricalImportModel):
         return self
 
 
+class HistoricalPublicationApproval(HistoricalImportModel):
+    """Narrow authorization to publish typed facts from one private source."""
+
+    approval_id: str
+    approved_by: str
+    approved_at: date
+    decision_ref: str
+    decision_sha256: str
+    destination_repository: str
+    scope: Literal["typed-results-only"]
+
+    @field_validator("approval_id")
+    @classmethod
+    def approval_id_is_normalized(cls, value: str) -> str:
+        return _normalized_id(value, label="approval_id")
+
+    @field_validator("approved_by")
+    @classmethod
+    def approver_is_github_login(cls, value: str) -> str:
+        if _GITHUB_LOGIN_RE.fullmatch(value) is None:
+            raise ValueError("approved_by must be a normalized GitHub login")
+        return value
+
+    @field_validator("decision_ref")
+    @classmethod
+    def decision_ref_is_safe(cls, value: str) -> str:
+        return _safe_string(value, label="decision_ref", max_length=256)
+
+    @field_validator("decision_sha256")
+    @classmethod
+    def decision_is_content_addressed(cls, value: str) -> str:
+        if _SHA256_RE.fullmatch(value) is None:
+            raise ValueError("decision_sha256 must be lowercase 64-hex")
+        return value
+
+    @field_validator("destination_repository")
+    @classmethod
+    def destination_is_canonical(cls, value: str) -> str:
+        canonical_repository_name(value)
+        return value
+
+
 class HistoricalSource(HistoricalImportModel):
     format: Literal["magentabench-historical-source-v1"] = SOURCE_FORMAT
     source_id: str
@@ -238,6 +282,7 @@ class HistoricalSource(HistoricalImportModel):
     license_status: Literal["declared", "not-detected", "unknown"]
     license_id: str | None = None
     ref_hint: str | None = None
+    publication_approval: HistoricalPublicationApproval | None = None
 
     @field_validator("source_id", "normalizer_id")
     @classmethod
@@ -289,6 +334,10 @@ class HistoricalSource(HistoricalImportModel):
         if (self.license_status == "declared") != (self.license_id is not None):
             raise ValueError(
                 "license_id is required only when license_status is declared"
+            )
+        if self.publication_approval is not None and self.visibility != "private":
+            raise ValueError(
+                "publication_approval is permitted only for a private source"
             )
         return self
 
@@ -1058,6 +1107,7 @@ __all__ = [
     "HistoricalAssetRecord",
     "HistoricalDeclaration",
     "HistoricalMetric",
+    "HistoricalPublicationApproval",
     "HistoricalRecord",
     "HistoricalRecordBase",
     "HistoricalRun",
