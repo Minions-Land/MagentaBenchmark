@@ -21,11 +21,16 @@ ROOT = Path(__file__).parents[1]
 def test_checked_in_bundle_is_pinned_to_lab_and_bmp() -> None:
     report = ExperimentRepository(ROOT).validate()
     assert report.ok, report.as_dict()
-    assert [item.id for item in report.bundles] == ["terminal-bench-magenta-smoke"]
-    item = report.bundles[0]
-    assert item.lab_issue == "magenta-single-case-pilot"
-    assert item.lab_status == "blocked"
-    assert not item.available
+    bundles = {item.id: item for item in report.bundles}
+    assert bundles
+    assert list(bundles) == sorted(bundles)
+    assert all(item.bmp_spec and item.protocol_id and item.lab_issue for item in bundles.values())
+
+    magenta_smoke = bundles["terminal-bench-magenta-smoke"]
+    assert magenta_smoke.lab_issue == "magenta-single-case-pilot"
+    assert magenta_smoke.lab_status == "blocked"
+    assert not magenta_smoke.available
+
 
 
 def test_execution_modes_keep_unregistered_cloud_targets_exploratory() -> None:
