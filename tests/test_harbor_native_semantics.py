@@ -262,6 +262,21 @@ def test_native_usage_is_read_from_nested_agent_result(tmp_path: Path) -> None:
     assert case.bundle.usage.cost == 0.03
 
 
+def test_none_model_without_native_usage_records_observed_zero(tmp_path: Path) -> None:
+    root = tmp_path / "none-model-usage"
+    root.mkdir()
+    (root / "result.json").write_text(
+        json.dumps({"verifier_result": {"rewards": {"score": 0.0}}}),
+        encoding="utf-8",
+    )
+    case = _parse_test_result(_run(), result_root=root)
+    assert case.bundle.usage is not None
+    assert case.bundle.usage.input_tokens == 0
+    assert case.bundle.usage.output_tokens == 0
+    assert case.bundle.usage.total_tokens == 0
+    assert case.bundle.usage.cost == 0.0
+
+
 def test_malformed_result_is_preserved_as_invalid_output(tmp_path: Path) -> None:
     root = tmp_path / "malformed"
     root.mkdir()
