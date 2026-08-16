@@ -54,6 +54,18 @@ def _source(
     }
 
 
+def _publication_approval() -> dict[str, object]:
+    return {
+        "approval_id": "github-issue-85",
+        "approved_at": "2026-08-16",
+        "approved_by": "PoorOtterBob",
+        "decision_ref": "Minions-Land/MagentaBenchmark#85",
+        "decision_sha256": "a" * 64,
+        "destination_repository": "Minions-Land/MagentaBenchmark",
+        "scope": "typed-results-only",
+    }
+
+
 def _experiment() -> dict[str, object]:
     return {
         "benchmark": {"id": "sample-bench", "name": "Sample Bench", "version": "1"},
@@ -397,6 +409,28 @@ def test_source_requires_coherent_license_status() -> None:
     inconsistent["license_status"] = "unknown"
     with pytest.raises(ValidationError, match="license_id is required"):
         HistoricalSource.model_validate_json(json.dumps(inconsistent), strict=True)
+
+
+def test_publication_approval_is_narrow_content_addressed_and_private_only() -> None:
+    private = _source()
+    private["visibility"] = "private"
+    private["license_status"] = "not-detected"
+    private["license_id"] = None
+    private["publication_approval"] = _publication_approval()
+
+    model = HistoricalSource.model_validate_json(json.dumps(private), strict=True)
+    assert model.publication_approval is not None
+    assert model.publication_approval.scope == "typed-results-only"
+
+    public = _source()
+    public["publication_approval"] = _publication_approval()
+    with pytest.raises(ValidationError, match="only for a private source"):
+        HistoricalSource.model_validate_json(json.dumps(public), strict=True)
+
+    bad_digest = deepcopy(private)
+    bad_digest["publication_approval"]["decision_sha256"] = "not-a-digest"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="decision_sha256"):
+        HistoricalSource.model_validate_json(json.dumps(bad_digest), strict=True)
 
 
 def test_ledger_projects_legacy_conditions_metrics_and_assets_without_changing_bmp_tables(
@@ -1124,6 +1158,68 @@ def test_checked_in_private_or_unlicensed_source_requires_publication_approval(
     external = validate_historical_imports(ROOT, imports_dir=tmp_path / "imports")
 
     assert "publication-approval" in {item.code for item in checked_in.errors}
+    assert external.ok, external.errors
+
+
+def test_checked_in_approved_private_typed_results_projection_is_accepted(
+    tmp_path: Path,
+) -> None:
+    source = _source()
+    source["visibility"] = "private"
+    source["license_status"] = "not-detected"
+    source["license_id"] = None
+    source["publication_approval"] = _publication_approval()
+    snapshot_digest = _snapshot_digest(source)
+    _install_source(tmp_path, source=source)
+    _install_record(
+        tmp_path,
+        _run(source_snapshot_sha256=snapshot_digest),
+    )
+
+    report = validate_historical_imports(tmp_path)
+
+    assert report.ok, report.errors
+    assert len(report.snapshot.records_of_kind("run")) == 1
+
+
+def test_private_projection_approval_is_destination_bound(tmp_path: Path) -> None:
+    source = _source()
+    source["visibility"] = "private"
+    source["license_status"] = "not-detected"
+    source["license_id"] = None
+    approval = _publication_approval()
+    approval["destination_repository"] = "Minions-Land/AnotherRepository"
+    source["publication_approval"] = approval
+    _install_source(tmp_path, source=source)
+
+    report = validate_historical_imports(tmp_path)
+
+    assert "publication-approval" in {item.code for item in report.errors}
+
+
+def test_private_typed_results_projection_rejects_asset_records(
+    tmp_path: Path,
+) -> None:
+    source = _source()
+    source["visibility"] = "private"
+    source["license_status"] = "not-detected"
+    source["license_id"] = None
+    source["publication_approval"] = _publication_approval()
+    snapshot_digest = _snapshot_digest(source)
+    _install_source(tmp_path, source=source)
+    _install_record(
+        tmp_path,
+        _run(source_snapshot_sha256=snapshot_digest),
+    )
+    _install_record(
+        tmp_path,
+        _asset(source_snapshot_sha256=snapshot_digest),
+    )
+
+    checked_in = validate_historical_imports(tmp_path)
+    external = validate_historical_imports(ROOT, imports_dir=tmp_path / "imports")
+
+    assert "publication-scope" in {item.code for item in checked_in.errors}
     assert external.ok, external.errors
 
 

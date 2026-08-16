@@ -66,17 +66,31 @@ the limits are repository policy rather than runtime tuning knobs.
 ## Public Repository Rule
 
 This repository is public. The validator therefore accepts a source in the
-checked-in `imports/` directory only when `visibility=public` and
-`license_status=declared`; private, unknown, and license-undetected sources fail
-with `publication-approval`, including when `imports/` is reached through an
-intermediate symlink alias. Public CI validates only checked-in canonical bytes
-and never receives a token for private source repositories. A private companion
-catalog can use the same format and be supplied explicitly to the ledger in an
-authorized environment. Supplying `--imports-dir` asserts that the companion
-must exist: a missing path is an error, and relative and absolute spellings
-normalize to the same host-independent `<external-imports>/...` locators.
+checked-in `imports/` directory when either:
 
-Regardless of source visibility, never import credentials, `.mcp` material,
+- `visibility=public`, `license_status=declared`, and a license identifier is
+  present; or
+- `visibility=private` and `publication_approval` binds an explicit
+  `typed-results-only` decision to `Minions-Land/MagentaBenchmark`, including
+  the approver, date, durable decision reference, and decision SHA-256.
+
+The private-source exception exposes only the typed declaration and run fields
+defined by this schema. Checked-in asset records remain forbidden, so an
+approval cannot publish private files indirectly through metadata-only asset
+rows. The original source stays marked private and its absent license stays
+explicit; the approval is not rewritten as a source license. Unknown sources,
+wrong-destination approvals, and unapproved private or license-undetected
+sources fail with `publication-approval`, including when `imports/` is reached
+through an intermediate symlink alias.
+
+Public CI validates only checked-in canonical records and never receives a
+token for private source repositories. A private companion catalog can use the
+same format and be supplied explicitly to the ledger in an authorized
+environment. Supplying `--imports-dir` asserts that the companion must exist: a
+missing path is an error, and relative and absolute spellings normalize to the
+same host-independent `<external-imports>/...` locators.
+
+Regardless of source visibility or approval, never import credentials, `.mcp` material,
 raw answers or gold data, traces, provider logs, commands, private host paths,
 authenticated or provider URLs, or unrestricted metadata dictionaries. Run the
 import validator and secret/path scan before review.
@@ -87,6 +101,8 @@ import validator and secret/path scan before review.
    suggested commands as untrusted input; do not import or execute it.
 2. Extract only typed facts from structured JSON, CSV, or TOML. Pin every source
    byte by path, Git blob OID, SHA-256, and size.
+   For a private checked-in projection, record the explicit publication
+   decision in `source.json` and do not create asset records.
 3. Write one `source.json` and independently reviewable records. Recompute
    aggregate metrics from per-task records when those records exist; retain a
    source summary only as a consistency input.

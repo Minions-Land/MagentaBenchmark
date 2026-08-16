@@ -20,11 +20,14 @@ limits, and explicit supersession. The record ID is the SHA-256 of its
 canonical payload and must match its filename. No global index is checked in;
 `bmp-collab ledger` derives the combined views.
 
-Because this is a public checkout, checked-in sources must declare
-`visibility=public` and a license identifier. Private or license-undetected
-sources belong in an explicitly selected external companion directory. Natural
-experiment/run/asset identities and references are validated independently of
-the caller-selected logical key.
+Because this is a public checkout, checked-in sources normally must declare
+`visibility=public` and a license identifier. A private source may appear only
+as an explicitly approved `typed-results-only` projection bound to this
+repository and a content-addressed decision. That exception permits typed
+declarations and evaluated run facts, never asset records or copied private
+bytes. Unapproved private and unknown sources belong in an explicitly selected
+external companion directory. Natural experiment/run/asset identities and
+references are validated independently of the caller-selected logical key.
 
 Do not copy private repository data into this public repository without an
 explicit publication decision. Raw answers, gold data, traces, provider logs,

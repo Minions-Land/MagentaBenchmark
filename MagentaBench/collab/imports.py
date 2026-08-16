@@ -20,6 +20,7 @@ from .import_models import (
     HistoricalRecordBase,
     HistoricalRun,
     HistoricalSource,
+    canonical_repository_name,
     logical_key_digest,
     record_natural_identity,
     source_document_digest,
@@ -31,6 +32,7 @@ _RECORD_ADAPTER = TypeAdapter(HistoricalRecord)
 _MAX_IMPORT_FILE_BYTES = 4 * 1024 * 1024
 _MAX_SUPERSESSION_RECORDS = 10_000
 _MAX_SUPERSESSION_EDGES = 100_000
+_CHECKED_IN_PUBLICATION_DESTINATION = "minions-land/magentabenchmark"
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 _SAFE_DIAGNOSTIC_PART_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
 _SECRET_KEY_PATTERN = re.compile(
@@ -811,15 +813,30 @@ def validate_historical_imports(
                 imports_root=imports_root,
             )
             continue
-        if imports_root == (root / "imports").resolve(strict=False) and (
-            source.visibility != "public" or source.license_status != "declared"
+        checked_in = imports_root == (root / "imports").resolve(strict=False)
+        approved_private_projection = (
+            source.visibility == "private"
+            and source.publication_approval is not None
+            and canonical_repository_name(
+                source.publication_approval.destination_repository
+            )
+            == _CHECKED_IN_PUBLICATION_DESTINATION
+        )
+        normally_publishable = (
+            source.visibility == "public"
+            and source.license_status == "declared"
+            and source.publication_approval is None
+        )
+        if checked_in and not (
+            normally_publishable or approved_private_projection
         ):
             _finding(
                 errors,
                 "publication-approval",
                 (
-                    "checked-in imports require public source visibility and a "
-                    "declared license"
+                    "checked-in imports require a public license-declared source "
+                    "or an approved private typed-results projection for this "
+                    "repository"
                 ),
                 path=source_path,
                 project_root=root,
@@ -960,6 +977,22 @@ def validate_historical_imports(
                     imports_root=imports_root,
                 )
                 continue
+            if (
+                checked_in
+                and approved_private_projection
+                and isinstance(record, HistoricalAssetRecord)
+            ):
+                _finding(
+                    errors,
+                    "publication-scope",
+                    (
+                        "approved private typed-results projections cannot "
+                        "publish asset records"
+                    ),
+                    path=record_path,
+                    project_root=root,
+                    imports_root=imports_root,
+                )
             loaded_record = LoadedHistoricalRecord(
                 record=record,
                 path=_display_path(record_path, root, imports_root),

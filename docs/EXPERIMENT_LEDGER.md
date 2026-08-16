@@ -58,8 +58,10 @@ normalizer, provenance bytes, conditions, evidence tier, and limitations must
 validate offline before they appear in generated views. They never enter the
 BMP `metrics` table and are always forced to `claim_eligible=false`. A private
 companion import directory can be selected explicitly; an explicitly selected
-path must exist and is normalized before projection. Checked-in sources must be
-public and license-declared, while public CI never receives credentials to
+path must exist and is normalized before projection. Checked-in sources are
+normally public and license-declared. A private source requires a
+content-addressed, destination-bound `typed-results-only` publication approval
+and cannot contribute asset records. Public CI never receives credentials to
 fetch private repositories.
 
 Catalog rows retain a deterministic condition-set wrapper so one BMP experiment
