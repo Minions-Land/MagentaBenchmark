@@ -2,6 +2,15 @@
 
 These rules apply to every human or agent working in this repository.
 
+## Two Entry Points
+
+- Human contributors: read [`TOHUMAN.md`](TOHUMAN.md) for the short GitHub,
+  experiment, and handoff path.
+- Agents and automation: read [`TOAGENT.md`](TOAGENT.md) for deterministic
+  entry checks, scope, evidence, and stop conditions.
+- Everyone: this file is the complete authority boundary; the linked guides
+  are navigation aids and must not weaken these rules.
+
 1. Enter through `uv run bmp-agent`, `uv run bmp-collab validate`, and
    `uv run bmp-collab modes`; then run `uv run bmp-lab doctor` and read the
    relevant issue with `bmp-lab show` or `bmp-lab recover`.

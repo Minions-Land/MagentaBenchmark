@@ -259,6 +259,8 @@ def _normalized_changed_path(value: str) -> str:
 
 
 def _path_class(path: str) -> str:
+    if path.startswith("imports/"):
+        return "experiment-import"
     if path.startswith("experiments/"):
         return "experiment-bundle"
     if (
@@ -272,8 +274,10 @@ def _path_class(path: str) -> str:
         return "lab-control-plane"
     if path.startswith("MagentaBench/collab/") or path in {
         "tests/test_collaboration.py",
+        "tests/test_experiment_ledger.py",
         "scripts/validate_collaboration.sh",
         "docs/EXPERIMENT_COLLABORATION.md",
+        "docs/EXPERIMENT_LEDGER.md",
     }:
         return "collaboration-control-plane"
     if path.startswith("MagentaBench/conformance/experiments/"):

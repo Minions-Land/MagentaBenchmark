@@ -22,6 +22,14 @@ body:
       placeholder: MagentaBench/conformance/experiments/terminal-bench-magenta-smoke.toml
     validations:
       required: true
+  - type: input
+    id: experiment-bundle
+    attributes:
+      label: Experiment bundle
+      description: The independently mergeable preregistration overlay used by the generated experiment ledger.
+      placeholder: experiments/terminal-bench-magenta-smoke/bundle.json
+    validations:
+      required: true
   - type: textarea
     id: tuple
     attributes:
@@ -43,6 +51,13 @@ body:
     attributes:
       label: Preflight and evidence plan
       description: List commands, expected gates, and durable artifact locations. Do not paste credential values or unverified scores.
+    validations:
+      required: true
+  - type: textarea
+    id: analysis
+    attributes:
+      label: Analysis and decision rule
+      description: State treatment, control, held-fixed variables, primary metric, uncertainty method, decision threshold, invalidation conditions, budget, artifact destination, and independent evaluator.
     validations:
       required: true
   - type: checkboxes

@@ -26,13 +26,22 @@ benchmark-native verifiers remain adapter-owned boundaries.
 
 Choose the path that matches the work you want to do.
 
+There are two deliberate entrypoints: [TOHUMAN.md](TOHUMAN.md) is the short
+guide for researchers and maintainers, while [TOAGENT.md](TOAGENT.md) is the
+deterministic startup and handoff contract for Agents and automation. Both
+point back to the same tracked GitHub, lab, and evidence rules.
+
 | Goal | Start with | What you get |
 | --- | --- | --- |
+| Join as a human contributor | [Human guide](TOHUMAN.md) | GitHub, experiment, and handoff workflow |
+| Start as an Agent or automation | [Agent guide](TOAGENT.md) | Entry checks, scope, evidence, and stop conditions |
 | Verify a checkout without a model or API key | [Five-minute smoke run](#five-minute-smoke-run) | A compiled and independently verified exploratory report |
 | Run an existing agent/benchmark pairing | [Existing paths](#existing-paths-and-readiness) | The precise readiness state and prerequisites |
 | Evaluate a new agent or harness | [Bring any agent](#bring-any-agent) | The adapter and capability contract |
 | Add a benchmark or execution target | [Extend the system](#extend-the-system) | The supported extension boundary |
 | Coordinate people and agents | [Collaborate safely](#collaborate-safely) | Leases, checkpoints, and mergeable work units |
+| Compare current and historical experiments | [Experiment ledger](docs/EXPERIMENT_LEDGER.md) | Provenance-aware design, run, observation, and asset tables |
+| Recover Git, Python, or OCI inputs | [Mirror acceleration](docs/MIRROR_ACCELERATION.md) | Fetch-only Git, locked Python, and digest-bound image acquisition |
 
 ## What Makes a Result Useful
 
@@ -80,6 +89,39 @@ uv run --frozen bmp-lab doctor
 
 `bmp-agent` is the agent-facing alias for `bmp-collab`. It reports the derived
 experiment queue and execution-mode readiness; it does not launch a model.
+
+Check the host's acceleration policy without fetching Git or pulling an image:
+
+```bash
+UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple/ \
+  uv run --frozen python -m tools.mirror_acquisition.cli doctor
+```
+
+Mirrors are transport/cache locations only. GitHub `origin` remains the only
+push target, and OCI identity remains the canonical repository plus immutable
+digest. The fetch-only Git setup, pinned Terminal-Bench OCI specs, cache-only
+verification, acquisition receipts, and Apptainer/cloud boundaries are in
+[`docs/MIRROR_ACCELERATION.md`](docs/MIRROR_ACCELERATION.md).
+
+The repository-wide experiment table is generated from its authoritative
+records, so parallel branches never edit a shared spreadsheet:
+
+```bash
+uv run --frozen bmp-collab ledger
+uv run --frozen bmp-collab ledger --table metrics
+uv run --frozen bmp-collab ledger --format csv --table metrics
+uv run --frozen bmp-collab ledger --table observations
+uv run --frozen bmp-collab validate-imports
+```
+
+The BMP truth tables include every checked-in declaration. Run and metric rows
+are added only through lab-linked, standalone-verified evidence. The unified
+catalog and observation views may also include strict historical imports, but
+they preserve origin, evidence tier, comparability, and `claim_eligible=false`
+instead of laundering legacy results into BMP metrics. See
+[`docs/EXPERIMENT_LEDGER.md`](docs/EXPERIMENT_LEDGER.md) for the data model and
+GitHub workflow, and [`docs/HISTORICAL_IMPORTS.md`](docs/HISTORICAL_IMPORTS.md)
+for the public/private import boundary.
 
 ## Five-Minute Smoke Run
 
