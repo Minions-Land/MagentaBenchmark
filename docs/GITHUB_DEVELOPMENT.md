@@ -131,8 +131,10 @@ One participant may hold multiple roles when the request makes that explicit.
 Before a GitHub write, confirm repository, authenticated identity, target,
 current state, and authorization. Follow current branch protection. When the
 required approval count is zero, the author may merge after required checks if
-the request authorizes merge; do not manufacture a self-review or claim that an
-independent reviewer approved it.
+the request authorizes merge. For protected BMP paths, the dedicated gate
+additionally accepts the exact-head self-review attestation from the
+authorized protocol owner documented in `.github/OWNERS.md`; that attestation
+must never be described as an independent review.
 
 ## 5. Collaboration Across Contributors And Machines
 

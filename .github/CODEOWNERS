@@ -1,7 +1,9 @@
 # MagentaBench ownership policy.
 #
 # The repository settings must enable branch protection with
-# `require_code_owner_reviews=true`; this file alone is not an approval gate.
+# The workflow accepts either a current listed-owner review or the explicitly
+# attributable author self-review described in `.github/OWNERS.md`; this file
+# alone is not an approval gate.
 # Lab issue/event files are intentionally split by path so unrelated work can
 # merge in parallel. Shared protocol files still require a BMP owner review.
 

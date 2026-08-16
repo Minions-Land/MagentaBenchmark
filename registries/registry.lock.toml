@@ -1,6 +1,6 @@
 [registry]
 format = "magentabench-registry-lock-v1"
-catalog_digest = "b4dc5129c4a1b47e02d55ffc1fc4332ce5de00467ef5542352716aa97bf2d36d"
+catalog_digest = "06615db2312dd70ebdc7a02c753dea09266e993201c558a03e7a16381229909e"
 
 [[registry.entries]]
 path = "adapters/cell-metrics-source.toml"
@@ -55,21 +55,21 @@ size_bytes = 331
 path = "adapters/terminal-bench-backend.toml"
 section = "adapter"
 id = "harbor.terminal-bench.factory"
-sha256 = "7dfd0617ee75e9cd924b1d91f53e6c14d4c0d48bbd9a52510337a0dabc8ed5a6"
-size_bytes = 555
+sha256 = "82dd7266665e30221117e90b6041a9e1539832b6baf56ae51d3eee8f3e898928"
+size_bytes = 573
 
 [[registry.entries]]
 path = "adapters/terminal-bench-execution.toml"
 section = "adapter"
 id = "terminal-bench.harbor.execution"
-sha256 = "54b20656fad707ed5d9cecbf9944f840aa68e95815aa5fe18d7a4c784ca8a66c"
+sha256 = "9506d6a2df1c1422d9b238e0b4bcf0e6ec6b226d437c0383c9c2a52cfe174497"
 size_bytes = 716
 
 [[registry.entries]]
 path = "adapters/terminal-bench-loader.toml"
 section = "adapter"
 id = "terminal-bench.loader"
-sha256 = "fd79808718dfb802e148fc8a10dc57a9e0f94d0216de90e76d4383f2252ea487"
+sha256 = "8aafe57a6bcef205105373bb6eb4f27aefce2c89f10fa514c2ecc352fb9226c0"
 size_bytes = 374
 
 [[registry.entries]]
@@ -90,8 +90,8 @@ size_bytes = 80
 path = "backends/harbor-020-terminal-bench.toml"
 section = "backend"
 id = "harbor.0.20.0.terminal-bench"
-sha256 = "1dc4e924691dd77a1650d56227e7a268031b848d3ba0bbb65d62336e4d66bdd9"
-size_bytes = 1031
+sha256 = "f08dc5ea2fbcac65527365ff97f2abb13a87426f8051ab316b4e66dbbbe34398"
+size_bytes = 1382
 
 [[registry.entries]]
 path = "backends/harbor-020.toml"

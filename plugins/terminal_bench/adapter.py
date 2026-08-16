@@ -46,6 +46,8 @@ from MagentaBench.schemas import (
     CaseSetArtifact,
     NetworkBoundary,
     NetworkPolicySource,
+    RunStatus,
+    VerifierEvidence,
 )
 
 # Keep the custom Harbor Agent in the statically audited source closure without
@@ -56,6 +58,9 @@ if TYPE_CHECKING:
 
 
 _ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_PYTEST_COMPLETION = re.compile(
+    r"^=+\s+(?P<body>.+?)\s+in\s+[0-9]+(?:\.[0-9]+)?s\s+=+$"
+)
 _MODULE_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
@@ -81,6 +86,7 @@ class TerminalBenchCase:
     verifier_contract_refs: tuple[ArtifactRef, ...]
     case_set_digest: str
     allow_internet: bool
+    verifier_completion_artifact: str | None
 
 
 class TerminalBenchLoader:
@@ -147,6 +153,7 @@ class TerminalBenchLoader:
             tuple[ArtifactRef, ...],
             tuple[ArtifactRef, ...],
             bool,
+            str | None,
         ],
         ...,
     ]:
@@ -159,7 +166,15 @@ class TerminalBenchLoader:
         if not task_root.is_dir() or task_root.is_symlink():
             raise AdapterRegistryError(f"Terminal-Bench task root is missing: {task_root}")
         tasks: list[
-            tuple[str, str, Path, tuple[ArtifactRef, ...], tuple[ArtifactRef, ...], bool]
+            tuple[
+                str,
+                str,
+                Path,
+                tuple[ArtifactRef, ...],
+                tuple[ArtifactRef, ...],
+                bool,
+                str | None,
+            ]
         ] = []
         for task_dir in sorted(task_root.iterdir(), key=lambda p: p.name):
             if not task_dir.is_dir() or task_dir.is_symlink():
@@ -224,6 +239,12 @@ class TerminalBenchLoader:
                 raw_allow_internet = mode_allow
             if raw_allow_internet is None:
                 raw_allow_internet = True
+            verifier_completion_artifact = None
+            test_script = task_dir / "tests" / "test.sh"
+            if test_script.is_file():
+                test_text = test_script.read_text(encoding="utf-8")
+                if "--ctrf /logs/verifier/ctrf.json" in test_text:
+                    verifier_completion_artifact = "verifier/ctrf.json"
             if not task_refs or not verifier_refs:
                 raise AdapterRegistryError(
                     f"Terminal-Bench task lacks task/verifier contract files: {task_dir}"
@@ -236,6 +257,7 @@ class TerminalBenchLoader:
                     task_refs,
                     verifier_refs,
                     raw_allow_internet,
+                    verifier_completion_artifact,
                 )
             )
         if not tasks:
@@ -249,11 +271,27 @@ class TerminalBenchLoader:
     def _ordered(
         run: CompiledRun,
         tasks: tuple[
-            tuple[str, str, Path, tuple[ArtifactRef, ...], tuple[ArtifactRef, ...], bool],
+            tuple[
+                str,
+                str,
+                Path,
+                tuple[ArtifactRef, ...],
+                tuple[ArtifactRef, ...],
+                bool,
+                str | None,
+            ],
             ...,
         ],
     ) -> tuple[
-        tuple[str, str, Path, tuple[ArtifactRef, ...], tuple[ArtifactRef, ...], bool],
+        tuple[
+            str,
+            str,
+            Path,
+            tuple[ArtifactRef, ...],
+            tuple[ArtifactRef, ...],
+            bool,
+            str | None,
+        ],
         ...,
     ]:
         protocol = run.manifest.execution.protocol
@@ -287,7 +325,7 @@ class TerminalBenchLoader:
         source_refs = self._source_refs(run)
         ordered = self._ordered(run, self._tasks(run))
         cases: list[CaseArtifact] = []
-        for task_id, task_name, task_path, task_refs, verifier_refs, _ in ordered:
+        for task_id, task_name, task_path, task_refs, verifier_refs, _, _ in ordered:
             instruction_path = task_path / "instruction.md"
             instruction = instruction_path.read_text(encoding="utf-8")
             public_payload = _json_bytes(
@@ -358,9 +396,15 @@ class TerminalBenchLoader:
         for case in resolved.artifact.cases:
             try:
                 public = json.loads(Path(case.public_input_ref.path).read_text(encoding="utf-8"))
-                task_id, task_name, task_path, task_refs, verifier_refs, allow_internet = by_id[
-                    case.case_id
-                ]
+                (
+                    task_id,
+                    task_name,
+                    task_path,
+                    task_refs,
+                    verifier_refs,
+                    allow_internet,
+                    verifier_completion_artifact,
+                ) = by_id[case.case_id]
             except (OSError, UnicodeError, json.JSONDecodeError, KeyError) as exc:
                 raise AdapterRegistryError(
                     f"Terminal-Bench activated case is unreadable: {case.case_id}"
@@ -386,6 +430,7 @@ class TerminalBenchLoader:
                     verifier_contract_refs=verifier_refs,
                     case_set_digest=case_set_digest,
                     allow_internet=allow_internet,
+                    verifier_completion_artifact=verifier_completion_artifact,
                 )
             )
         if tuple(item.task_id for item in loaded) != resolved.artifact.ordered_case_ids:
@@ -443,6 +488,7 @@ class TerminalBenchHarborBackend:
                 "Terminal-Bench adapter expected exactly one Harbor trial per attempt"
             )
         native = execution.cases[0]
+        bundle = self._validate_verifier_completion(native, case)
         # Scheduler identity belongs to BMP's attempt, while the native trial
         # name remains in VerifierEvidence.details and copied artifacts.
         network_receipt_path = native.bundle_path.parent / "network_observation.json"
@@ -457,11 +503,11 @@ class TerminalBenchHarborBackend:
             source_artifact_digest=case.case_set_digest,
             reason="Harbor task container network boundary was not observed by BMP",
         )
-        bundle = native.bundle.model_copy(
+        bundle = bundle.model_copy(
             update={
                 "run_id": attempt.attempt_id,
                 "log_refs": (
-                    *native.bundle.log_refs,
+                    *bundle.log_refs,
                     artifact_ref(staging_receipt),
                     artifact_ref(network_receipt_path),
                 ),
@@ -475,6 +521,236 @@ class TerminalBenchHarborBackend:
             bundle=bundle,
             bundle_path=native.bundle_path,
             bundle_digest=sha256_file(native.bundle_path),
+        )
+
+    @staticmethod
+    def _validate_ctrf(path: Path) -> tuple[bool, dict[str, Any]]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            return False, {"reason": f"invalid CTRF JSON: {type(exc).__name__}"}
+        if not isinstance(payload, Mapping):
+            return False, {"reason": "CTRF document must be an object"}
+        results = payload.get("results")
+        if not isinstance(results, Mapping):
+            return False, {"reason": "CTRF results object is missing"}
+        tool = results.get("tool")
+        summary = results.get("summary")
+        tests = results.get("tests")
+        if not isinstance(tool, Mapping) or tool.get("name") != "pytest":
+            return False, {"reason": "CTRF pytest tool identity is missing"}
+        if not isinstance(summary, Mapping) or not isinstance(tests, list):
+            return False, {"reason": "CTRF summary or tests are missing"}
+        counts: dict[str, int] = {}
+        for key in ("tests", "passed", "failed", "skipped", "pending", "other"):
+            value = summary.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                return False, {"reason": f"CTRF summary.{key} is invalid"}
+            counts[key] = value
+        if counts["tests"] < 1 or counts["tests"] != len(tests):
+            return False, {"reason": "CTRF contains no complete test inventory"}
+        if (
+            sum(
+                counts[key]
+                for key in ("passed", "failed", "skipped", "pending", "other")
+            )
+            != counts["tests"]
+        ):
+            return False, {"reason": "CTRF summary counts are inconsistent"}
+        observed: dict[str, int] = {}
+        for item in tests:
+            if not isinstance(item, Mapping):
+                return False, {"reason": "CTRF test entry is invalid"}
+            status = item.get("status")
+            if status not in {"passed", "failed", "skipped", "pending", "other"}:
+                return False, {"reason": "CTRF test status is invalid"}
+            observed[str(status)] = observed.get(str(status), 0) + 1
+        if any(
+            observed.get(key, 0) != counts[key]
+            for key in ("passed", "failed", "skipped", "pending", "other")
+        ):
+            return False, {"reason": "CTRF test statuses disagree with the summary"}
+        return True, {
+            "tool": "pytest",
+            "tool_version": tool.get("version"),
+            "tests": counts["tests"],
+            "passed": counts["passed"],
+            "failed": counts["failed"],
+            "skipped": counts["skipped"],
+            "pending": counts["pending"],
+            "other": counts["other"],
+        }
+
+    @staticmethod
+    def _validate_pytest_stdout(
+        path: Path,
+        *,
+        reward_passed: bool,
+        expected_counts: Mapping[str, int],
+    ) -> tuple[bool, dict[str, Any]]:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as exc:
+            return False, {"reason": f"invalid verifier stdout: {type(exc).__name__}"}
+        completions: list[dict[str, int]] = []
+        for line in lines:
+            match = _PYTEST_COMPLETION.fullmatch(line.strip())
+            if match is None:
+                continue
+            counts = {key: 0 for key in ("passed", "failed", "skipped")}
+            for amount, status in re.findall(
+                r"(\d+)\s+(passed|failed|skipped)",
+                match.group("body"),
+            ):
+                counts[status] += int(amount)
+            if sum(counts.values()) > 0:
+                completions.append(counts)
+        if not completions:
+            return False, {
+                "reason": "expected at least one completed pytest summary in verifier stdout"
+            }
+        # A small number of official Terminal-Bench verifiers intentionally run
+        # pytest more than once.  The invocation that writes the declared CTRF
+        # artifact is the last one, so bind that artifact to the last completed
+        # pytest summary rather than rejecting the verifier outright.
+        observed = completions[-1]
+        if any(observed[key] != expected_counts[key] for key in observed):
+            return False, {"reason": "verifier stdout counts disagree with CTRF"}
+        stdout_passed = all(completion["failed"] == 0 for completion in completions)
+        if stdout_passed != reward_passed:
+            return False, {"reason": "verifier stdout outcome disagrees with native reward"}
+        return True, {
+            "stdout_summary": observed,
+            "stdout_completed_pytest_runs": len(completions),
+        }
+
+    def _validate_verifier_completion(
+        self, native: CaseExecution, case: TerminalBenchCase
+    ) -> Any:
+        bundle = native.bundle
+        expected = case.verifier_completion_artifact
+        if expected is None or bundle.status not in {
+            RunStatus.pass_,
+            RunStatus.verified_fail,
+        }:
+            return bundle
+        matches = [
+            ref
+            for ref in (*bundle.output_refs, *bundle.log_refs)
+            if Path(ref.path).as_posix().endswith(f"/{expected}")
+        ]
+        stdout_matches = [
+            ref
+            for ref in bundle.log_refs
+            if Path(ref.path).as_posix().endswith("/verifier/test-stdout.txt")
+        ]
+        details: dict[str, Any]
+        valid = len(matches) == 1
+        if valid:
+            completion_path = Path(matches[0].path)
+            if (
+                not completion_path.is_file()
+                or completion_path.stat().st_size != matches[0].size_bytes
+                or sha256_file(completion_path) != matches[0].sha256
+            ):
+                valid = False
+                details = {"reason": "CTRF artifact reference digest drift"}
+            else:
+                valid, details = self._validate_ctrf(completion_path)
+        else:
+            details = {
+                "reason": (
+                    f"expected exactly one {expected} artifact, found {len(matches)}"
+                )
+            }
+        if valid:
+            if len(stdout_matches) != 1:
+                valid = False
+                details = {
+                    "reason": (
+                        "expected exactly one verifier/test-stdout.txt artifact, "
+                        f"found {len(stdout_matches)}"
+                    )
+                }
+            else:
+                stdout_path = Path(stdout_matches[0].path)
+                if (
+                    not stdout_path.is_file()
+                    or stdout_path.stat().st_size != stdout_matches[0].size_bytes
+                    or sha256_file(stdout_path) != stdout_matches[0].sha256
+                ):
+                    valid = False
+                    details = {"reason": "verifier stdout artifact reference digest drift"}
+                else:
+                    stdout_valid, stdout_details = self._validate_pytest_stdout(
+                        stdout_path,
+                        reward_passed=bundle.status == RunStatus.pass_,
+                        expected_counts=details,
+                    )
+                    valid = stdout_valid
+                    if valid:
+                        details = {**details, **stdout_details}
+                    else:
+                        details = stdout_details
+        if valid:
+            verifier = bundle.verifier_evidence
+            if verifier is None:
+                valid = False
+                details = {"reason": "native verifier evidence is missing"}
+        if valid:
+            assert bundle.verifier_evidence is not None
+            verifier = bundle.verifier_evidence
+            verifier_details = dict(verifier.details)
+            verifier_details["completion_evidence"] = {
+                "kind": "ctrf+pytest-stdout",
+                "artifact": expected,
+                **details,
+            }
+            return bundle.model_copy(
+                update={
+                    "verifier_evidence": verifier.model_copy(
+                        update={
+                            "artifact_refs": (
+                                *verifier.artifact_refs,
+                                matches[0],
+                                stdout_matches[0],
+                            ),
+                            "details": verifier_details,
+                        }
+                    )
+                }
+            )
+        status_path = native.bundle_path.parent / "verifier_completion_status.json"
+        atomic_write_json(
+            status_path,
+            {
+                "case_id": case.task_id,
+                "status": RunStatus.verifier_error.value,
+                "required_artifact": expected,
+                **details,
+            },
+        )
+        verifier = bundle.verifier_evidence
+        verifier_details = {} if verifier is None else dict(verifier.details)
+        verifier_details["completion_evidence"] = {
+            "kind": "ctrf+pytest-stdout",
+            "artifact": expected,
+            "valid": False,
+            **details,
+        }
+        verifier_evidence = VerifierEvidence(
+            verifier="harbor.native",
+            passed=False,
+            artifact_refs=(artifact_ref(status_path),),
+            details=verifier_details,
+        )
+        return bundle.model_copy(
+            update={
+                "status": RunStatus.verifier_error,
+                "output_refs": (),
+                "log_refs": (*bundle.log_refs, artifact_ref(status_path)),
+                "verifier_evidence": verifier_evidence,
+            }
         )
 
     def _stage_task(
