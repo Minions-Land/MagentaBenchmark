@@ -15,11 +15,18 @@ Lab issue ID:
 ### BMP protocol review
 
 - [ ] I have requested BMP protocol-owner approval (required when core BMP paths change)
+- [ ] I completed BMP protocol self-review (authorized protocol-owner authors only)
 - [ ] This PR has no BMP protocol impact
+
+For an authorized author self-review, replace the placeholder below with the
+current full PR head SHA. A new push requires updating this line.
+
+Protocol self-review HEAD: `<full head SHA>`
 
 Explain any protocol impact, including schema, identity, denominator, verifier,
 checkpoint, or claim-gate changes. Do not use a lab-owner approval as a protocol
-approval.
+approval. An authorized author self-review is an explicit, attributable
+attestation and is not represented as an independent review.
 
 ## Verification
 

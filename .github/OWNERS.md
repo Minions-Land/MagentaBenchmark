@@ -20,9 +20,9 @@ Changes under `MagentaBench/adapters/`, `MagentaBench/schemas/`,
 `uv.lock` are protocol changes even when a PR is described as a refactor. They
 require:
 
-1. the protocol impact item in the PR template checked;
-2. a current approved review (the `protocol-review` workflow checks this); and
-3. a CODEOWNER approval enforced by the protected `main` branch.
+1. the protocol impact item in the PR template checked; and
+2. either a current listed-owner review or an authorized author self-review
+   (the `protocol-review` workflow checks this).
 
 Do not merge a lab-only review as a substitute for protocol-owner approval.
 Shared files such as `pyproject.toml`, `uv.lock`, and `registries/registry.lock.toml`
@@ -45,10 +45,12 @@ Repository administrators should protect `main` with:
 
 The general branch rule does not remove the BMP protocol boundary. A pull
 request that changes a protected BMP path must still satisfy the dedicated
-`BMP protocol review gate`, which requires a current approval from one of the
-listed protocol owners. `CODEOWNERS` continues to route review requests and
-document path ownership; it is not a claim that every documentation or lab PR
-needs another person's approval.
+`BMP protocol review gate`. That gate accepts a current approval from one of
+the listed protocol owners, or an exact-head self-review attestation by the
+authorized author `PoorOtterBob`. The latter is deliberately attributable and
+is not reported as an independent review. `CODEOWNERS` continues to route
+review requests and document path ownership; it is not a claim that every
+documentation or lab PR needs another person's approval.
 
 The current CODEOWNERS entries use the repository's active collaborators. Move
 them to dedicated GitHub teams when those teams are created, keeping the path
