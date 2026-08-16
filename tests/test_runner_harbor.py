@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tomllib
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +105,76 @@ def test_real_harbor_rejects_runtime_agent_and_dataset_overrides() -> None:
         build_job_config(real_run, agent_name="pi")
     with pytest.raises(HarborConfigurationError, match="solely"):
         build_job_config(real_run, dataset_name="other-dataset")
+
+
+def test_registered_verifier_bootstrap_env_is_verifier_only() -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    defaults = tomllib.loads(
+        (ROOT / "registries/backends/harbor-020-terminal-bench.toml").read_text()
+    )["backend"]["defaults"]
+    backend = run.manifest.execution.backend.model_copy(
+        update={"defaults": defaults}
+    )
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(
+                    update={"backend": backend}
+                )
+            }
+        ),
+    )
+    config = build_job_config(run, agent_name="nop")
+    assert config["verifier"]["env"] == {
+        "UV_DEFAULT_INDEX": "https://mirrors.aliyun.com/pypi/simple/",
+        "UV_HTTP_RETRIES": "3",
+        "UV_HTTP_TIMEOUT": "120",
+        "UV_INSTALLER_GITHUB_BASE_URL": "https://ghfast.top/https://github.com",
+        "UV_NO_PROGRESS": "1",
+        "UV_PYTHON_INSTALL_MIRROR": (
+            "https://ghfast.top/https://github.com/astral-sh/"
+            "python-build-standalone/releases/download"
+        ),
+    }
+    assert "env" not in config["agents"][0]
+
+
+@pytest.mark.parametrize(
+    "verifier_env, message",
+    [
+        ([], "must be a table"),
+        ({"UNREGISTERED_SETTING": "value"}, "unsupported name"),
+        ({"UV_DEFAULT_INDEX": "http://example.invalid/simple"}, "HTTPS URL"),
+        ({"UV_DEFAULT_INDEX": "https://@example.invalid/simple"}, "HTTPS URL"),
+        ({"UV_DEFAULT_INDEX": "https://user@example.invalid/simple"}, "HTTPS URL"),
+        ({"UV_DEFAULT_INDEX": "https://example.invalid/simple#fragment"}, "HTTPS URL"),
+        ({"UV_DEFAULT_INDEX": "https://example.invalid/simple?token=value"}, "HTTPS URL"),
+        ({"UV_HTTP_TIMEOUT": "0"}, "accepted range"),
+        ({"UV_HTTP_TIMEOUT": "601"}, "accepted range"),
+        ({"UV_HTTP_RETRIES": "21"}, "accepted range"),
+        ({"UV_HTTP_RETRIES": "03"}, "accepted range"),
+        ({"UV_HTTP_RETRIES": 3}, "non-empty string"),
+        ({"UV_NO_PROGRESS": "true"}, "must be 0 or 1"),
+        ({"UV_HTTP_RETRIES": "${UV_HTTP_RETRIES}"}, "literal single-line"),
+    ],
+)
+def test_verifier_bootstrap_env_rejects_unsafe_values(
+    verifier_env: object, message: str
+) -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    backend = run.manifest.execution.backend.model_copy(
+        update={
+            "defaults": {"verifier_env": verifier_env},
+        }
+    )
+    execution = run.manifest.execution.model_copy(update={"backend": backend})
+    real_run = replace(
+        run,
+        manifest=run.manifest.model_copy(update={"execution": execution}),
+    )
+    with pytest.raises(HarborConfigurationError, match=message):
+        build_job_config(real_run, agent_name="nop")
 
 
 def test_harbor_shim_runs_full_toml_to_evidence_path(tmp_path: Path) -> None:
