@@ -1,0 +1,35 @@
+[experiment]
+id = "terminal-bench-regex-smoke-900s"
+benchmark = "terminal-bench-2.1"
+dataset = "dataset.terminal-bench-2.1"
+evaluator = "evaluator.terminal-bench.native.v1"
+metrics = [
+  "reward.authoritative.v1",
+  "pass-at-1.infra-zero.v1",
+  "tokens.mean-completed.v1",
+  "input-tokens.mean-completed.v1",
+  "output-tokens.mean-completed.v1",
+  "cache-read-tokens.mean-completed.v1",
+  "cache-write-tokens.mean-completed.v1",
+  "cost.mean-completed.v1",
+  "wall-time.mean-completed.v1",
+  "model-calls.mean-completed.v1",
+  "tool-calls.mean-completed.v1",
+  "throughput.completed-per-hour.v1",
+  "successes-per-million-tokens.v1",
+]
+subject = "terminal-bench.nop"
+protocol = "terminal-bench.regex-probe.v1"
+
+[experiment.design]
+comparison_kind = "coding_agent"
+purpose = "exploratory"
+
+[execution]
+backend = "harbor.0.20.0.terminal-bench"
+model = "none/echo"
+
+[execution.budget]
+max_tokens = 0
+max_wall_seconds = 900.0
+max_cost = 0.0

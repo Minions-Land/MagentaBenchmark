@@ -1,0 +1,68 @@
+{
+  "bmp_spec": "MagentaBench/conformance/experiments/terminal-bench-regex-smoke-900s.toml",
+  "bmp_spec_sha256": "251cd698aeb16725808fddca031d2cf97fd000bf9de1ffb4aedd268880522047",
+  "design": {
+    "hypothesis": "With recovered disk capacity, registered mirrors, and zero-usage accounting for the explicit none model, the official verifier will retain CTRF/stdout and produce a standalone-verifiable exploratory report.",
+    "planned_case_ids": [
+      "regex-log"
+    ],
+    "primary_metrics": [
+      "reward.authoritative.v1"
+    ],
+    "question": "Can the unchanged regex-log official verifier complete from a cold pinned Docker image within an explicit 900-second infrastructure budget while the none-model usage ledger reconciles?",
+    "repetitions_per_case": 1,
+    "seeds": [],
+    "stop_conditions": [
+      "Stop and classify any missing CTRF, verifier/bootstrap error, timeout, or non-reconciling budget without attributing it to an Agent.",
+      "Do not publish reward zero as an Agent score or claim-ready result."
+    ]
+  },
+  "evidence": {
+    "classification": "exploratory",
+    "required_files": [
+      "record_index.json",
+      "observation_report.json"
+    ],
+    "retention_policy": "Retain every terminal attempt state and all indexed bytes in a durable, access-controlled artifact root; never use .runs as the sole copy.",
+    "verifier_argv": [
+      "uv",
+      "run",
+      "bmp-verify-report",
+      "{report}"
+    ]
+  },
+  "execution": {
+    "artifact_export_required": true,
+    "backend_id": "harbor.0.20.0.terminal-bench",
+    "isolation_boundary": "task-container",
+    "mode": "docker",
+    "network_policy": "benchmark-defined",
+    "preflight_argv": [
+      "bash",
+      "scripts/preflight_experiment.sh",
+      "MagentaBench/conformance/experiments/terminal-bench-regex-smoke-900s.toml"
+    ],
+    "record_root_template": "{artifact_root}/terminal-bench-regex-smoke-900s/{run_id}",
+    "required_env": [],
+    "run_argv": [
+      "uv",
+      "run",
+      "bmp-run",
+      "MagentaBench/conformance/experiments/terminal-bench-regex-smoke-900s.toml",
+      "--project-root",
+      ".",
+      "--record-root",
+      "{record_root}"
+    ],
+    "workspace_lifecycle": "persist-on-failure"
+  },
+  "format": "magentabench-experiment-bundle-v1",
+  "id": "terminal-bench-regex-smoke-900s",
+  "lab_issue": "tb-verifier-runtime-probe-v2",
+  "protocol_id": "terminal-bench.regex-probe.v1",
+  "purpose": "exploratory",
+  "related_issues": [
+    "tb-pinned-images"
+  ],
+  "summary": "Can the unchanged regex-log official verifier complete from a cold pinned Docker image within an explicit 900-second infrastructure budget while the none-model usage ledger reconciles?"
+}
