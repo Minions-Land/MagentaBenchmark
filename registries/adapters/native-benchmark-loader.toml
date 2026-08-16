@@ -1,0 +1,11 @@
+[adapter]
+id = "native-benchmark.loader.v1"
+kind = "adapter"
+adapter = "native_benchmark"
+bmp_version = "0.1"
+adapter_kind = "benchmark_loader"
+source = "."
+entrypoint = "plugins/native_benchmark/adapter.py:NativeBenchmarkLoader"
+digest = "117c32cd6ab46771430e493c94c65833010e4c9d0fbc1c7bb7cf00eeed1ae75a"
+supported_benchmark_kinds = ["custom"]
+supported_backend_adapters = ["native_process"]

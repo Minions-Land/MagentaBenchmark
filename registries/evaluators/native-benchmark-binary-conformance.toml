@@ -1,0 +1,15 @@
+[evaluator]
+id = "evaluator.native-benchmark.binary-conformance.v1"
+kind = "evaluator"
+adapter = "native_benchmark"
+bmp_version = "0.1"
+implementation = "native-fixture.v1"
+scoring_kind = "binary"
+
+[[evaluator.metrics]]
+metric_id = "reward.authoritative.v1"
+source_key = "native_score"
+authoritative = true
+success_operator = "gte"
+success_threshold = 0.5
+absolute_tolerance = 0.0

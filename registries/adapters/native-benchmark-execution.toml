@@ -1,0 +1,18 @@
+[adapter]
+id = "native-benchmark.execution.v1"
+kind = "adapter"
+adapter = "native_benchmark"
+bmp_version = "0.1"
+adapter_kind = "execution"
+source = "."
+entrypoint = "plugins/native_benchmark/adapter.py:NativeBenchmarkExecutionAdapter"
+digest = "117c32cd6ab46771430e493c94c65833010e4c9d0fbc1c7bb7cf00eeed1ae75a"
+supported_benchmark_kinds = ["custom"]
+supported_subject_kinds = ["opaque_agent"]
+supported_backend_kinds = ["local"]
+supported_backend_adapters = ["native_process"]
+supported_subject_adapters = ["native-driver"]
+supported_subject_interfaces = ["native-benchmark-v1"]
+none_model_sentinels = ["none/deterministic", "none/echo"]
+model_activation_source = "native_result"
+supported_state_reset_policies = ["per_case", "per_rollout", "never"]

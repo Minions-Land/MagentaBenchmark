@@ -90,8 +90,11 @@ def _declared_content_patterns(
 
     if spec.kind == "dataset":
         return tuple(spec.content_globs)
+    if spec.kind == "opaque_agent":
+        return tuple(spec.content_globs)
     # Programmatic subjects are identified by their declared fields and launch
-    # argv. No undeclared source-tree walk is permitted.
+    # argv unless they explicitly bind a content closure. No undeclared
+    # source-tree walk is permitted.
     return ()
 
 

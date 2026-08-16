@@ -40,7 +40,9 @@ SECRET_KEY_PATTERN = re.compile(
 NON_SECRET_TOKEN_KEY_PATTERN = re.compile(
     r"^(?:(?:cache|completion|context|generation|input|max|max_context|"
     r"max_generation|output|prompt|request|response|retry|total)_)?tokens$|"
-    r"^token_(?:budget|capacity|count|limit|quota|window)$",
+    r"^token_(?:budget|capacity|count|limit|quota|window)$|"
+    r"^(?:(?:answer|diagnostic|evaluation|metric|prediction|retrieval)_)?"
+    r"token_(?:accuracy|f1|precision|recall|score)$",
     re.IGNORECASE,
 )
 IDENTITY_EXCLUDE: frozenset[str] = frozenset(
@@ -3082,6 +3084,16 @@ class OpaqueAgentSubjectSpec(SourceRegistryEntry):
     launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+    content_globs: tuple[str, ...] = ()
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("subject content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="subject content_globs")
+        return values
 
     @model_validator(mode="after")
     def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectSpec":
@@ -3166,6 +3178,16 @@ class OpaqueAgentSubjectArtifact(AbsoluteSourceArtifact):
     launch_argv: tuple[str, ...] | None = None
     interface: str = Field(min_length=1)
     emits_trace: bool = False
+    content_globs: tuple[str, ...] = ()
+
+    @field_validator("content_globs")
+    @classmethod
+    def content_globs_are_relative(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if len(set(values)) != len(values):
+            raise ValueError("subject content_globs must be unique")
+        for value in values:
+            _validate_logical_relative_path(value, field_name="subject content_globs")
+        return values
 
     @model_validator(mode="after")
     def launch_argv_matches_entrypoint(self) -> "OpaqueAgentSubjectArtifact":
@@ -5334,8 +5356,27 @@ class AttemptExecution(StrictModel):
 _USAGE_LEDGER_FIELDS = ("total_tokens", "cost")
 
 
-def _usage_reconciles(total: UsageRecord, parts: tuple[UsageRecord, ...]) -> bool:
-    for field_name in _USAGE_LEDGER_FIELDS:
+def _budget_usage_fields(allocations: tuple[Any, ...]) -> tuple[str, ...]:
+    """Return usage fields constrained by at least one declared allocation cap."""
+
+    return tuple(
+        field_name
+        for field_name, cap_name in (
+            ("total_tokens", "max_tokens"),
+            ("cost", "max_cost"),
+        )
+        if any(getattr(item.allocated, cap_name) is not None for item in allocations)
+    )
+
+
+def _usage_reconciles(
+    total: UsageRecord,
+    parts: tuple[UsageRecord, ...],
+    required_fields: tuple[str, ...] | None = None,
+) -> bool:
+    for field_name in (
+        _USAGE_LEDGER_FIELDS if required_fields is None else required_fields
+    ):
         total_value = getattr(total, field_name)
         part_values = [getattr(part, field_name) for part in parts]
         if total_value is None or any(value is None for value in part_values):
@@ -5576,38 +5617,51 @@ class ScheduleActivationReceipt(StrictModel):
             spent_records.append(attempt.debit.spent)
             if attempt.debit.completion_sequence <= (allocation.launch_sequence or 0):
                 raise ValueError("attempt debit completion must follow launch")
-            if not attempt.debit.budget_exceeded and attempt.debit.usage_observable:
-                cap = allocation.allocated
-                released = attempt.debit.released
-                if cap.max_tokens is not None and (
-                    attempt.debit.spent.total_tokens is None
-                    or released.max_tokens is None
-                    or attempt.debit.spent.total_tokens + released.max_tokens
-                    != cap.max_tokens
-                ):
-                    raise ValueError("spent plus released tokens must equal allocated cap")
-                if cap.max_cost is not None and (
-                    attempt.debit.spent.cost is None
-                    or released.max_cost is None
-                    or attempt.debit.spent.cost + released.max_cost != cap.max_cost
-                ):
-                    raise ValueError("spent plus released cost must equal allocated cap")
-            elif not attempt.debit.budget_exceeded and not attempt.debit.usage_observable:
-                # Unknown usage is a valid observation, but it can never
-                # produce a valid schedule under a finite token/cost cap.
-                # The scheduler must retain the unknown fields as ``None`` and
-                # add a mismatch reason below; rejecting the whole receipt
-                # would discard useful verifier and infrastructure evidence.
-                cap = allocation.allocated
-                released = attempt.debit.released
-                if cap.max_tokens is not None and released.max_tokens is not None:
-                    raise ValueError(
-                        "unobservable token usage must not claim released tokens"
-                    )
-                if cap.max_cost is not None and released.max_cost is not None:
-                    raise ValueError(
-                        "unobservable cost usage must not claim released cost"
-                    )
+            cap = allocation.allocated
+            spent = attempt.debit.spent
+            released = attempt.debit.released
+            expected_usage_observable = all(
+                limit is None or observed is not None
+                for limit, observed in (
+                    (cap.max_tokens, spent.total_tokens),
+                    (cap.max_cost, spent.cost),
+                )
+            )
+            if attempt.debit.usage_observable != expected_usage_observable:
+                raise ValueError(
+                    "usage_observable disagrees with capped token/cost evidence"
+                )
+            if not attempt.debit.budget_exceeded:
+                # Reconcile each budget dimension independently. A backend may
+                # expose token counts without exposing provider pricing; the
+                # known token remainder remains evidence even though the
+                # overall schedule is invalid under a finite cost cap.
+                if cap.max_tokens is not None:
+                    if spent.total_tokens is None:
+                        if released.max_tokens is not None:
+                            raise ValueError(
+                                "unobservable token usage must not claim released tokens"
+                            )
+                    elif (
+                        released.max_tokens is None
+                        or spent.total_tokens + released.max_tokens != cap.max_tokens
+                    ):
+                        raise ValueError(
+                            "spent plus released tokens must equal allocated cap"
+                        )
+                if cap.max_cost is not None:
+                    if spent.cost is None:
+                        if released.max_cost is not None:
+                            raise ValueError(
+                                "unobservable cost usage must not claim released cost"
+                            )
+                    elif (
+                        released.max_cost is None
+                        or spent.cost + released.max_cost != cap.max_cost
+                    ):
+                        raise ValueError(
+                            "spent plus released cost must equal allocated cap"
+                        )
         if len(set(child_run_ids)) != len(child_run_ids):
             raise ValueError("attempt debit child run ids must be unique")
         if len(set(completion_sequences)) != len(completion_sequences):
@@ -5621,9 +5675,13 @@ class ScheduleActivationReceipt(StrictModel):
         ] + completion_sequences
         if len(set(all_sequences)) != len(all_sequences):
             raise ValueError("scheduler event sequences must be globally unique")
+        usage_fields = _budget_usage_fields(
+            tuple(self.budget_ledger.attempt_allocations)
+        )
         spent_ok = _usage_reconciles(
             self.budget_ledger.total_usage,
             (*tuple(spent_records), self.budget_ledger.parent_overhead),
+            usage_fields,
         )
         if self.budget_ledger.reconciles_exactly != spent_ok:
             raise ValueError("reconciles_exactly disagrees with spend arithmetic")

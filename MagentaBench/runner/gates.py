@@ -1133,6 +1133,18 @@ _NETWORK_BOUNDARIES = {
 }
 
 
+def _network_boundary_for_backend(backend: Any) -> NetworkBoundary | None:
+    """Resolve registered custom backends without weakening known overrides."""
+
+    explicit = _NETWORK_BOUNDARIES.get(backend.adapter)
+    if explicit is not None:
+        return explicit
+    return {
+        "local": NetworkBoundary.process,
+        "container": NetworkBoundary.task_container,
+    }.get(backend.kind)
+
+
 def _network_policy_errors(item: CompletedRun) -> list[str]:
     bundle = item.case.bundle
     policy = bundle.network_policy
@@ -1153,7 +1165,7 @@ def _network_policy_errors(item: CompletedRun) -> list[str]:
         )
     if policy.case_id != item.case.case_id:
         errors.append(f"{item.case.case_id}: network policy case binding mismatch")
-    expected_boundary = _NETWORK_BOUNDARIES.get(backend_adapter)
+    expected_boundary = _network_boundary_for_backend(manifest.execution.backend)
     if expected_boundary is None:
         errors.append(
             f"{item.case.case_id}: missing NetworkPolicyActivationReceipt for "
