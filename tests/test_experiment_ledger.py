@@ -106,11 +106,42 @@ def test_checked_in_ledger_is_derived_from_bundle_and_lab() -> None:
     assert "latest_run_id" not in row
     assert ledger.runs == ()
     assert ledger.metrics == ()
-    assert len(ledger.sources) == len(ledger.experiments)
-    assert len(ledger.catalog) == len(ledger.experiments)
-    assert ledger.observations == ()
-    assert ledger.assets == ()
-    assert all(item["record_origin"] == "bmp" for item in ledger.sources)
+    bmp_sources = [
+        item for item in ledger.sources if item["record_origin"] == "bmp"
+    ]
+    bmp_catalog = [
+        item for item in ledger.catalog if item["record_origin"] == "bmp"
+    ]
+    legacy_catalog = [
+        item for item in ledger.catalog if item["record_origin"] == "legacy-import"
+    ]
+    legacy_observations = [
+        item
+        for item in ledger.observations
+        if item["record_origin"] == "legacy-import"
+    ]
+    assert len(bmp_sources) == len(ledger.experiments)
+    assert len(bmp_catalog) == len(ledger.experiments)
+    assert {item["source_id"] for item in bmp_sources} == {
+        f"bmp:{item['experiment_id']}" for item in ledger.experiments
+    }
+    assert {item["catalog_id"] for item in bmp_catalog} == {
+        f"bmp:{item['experiment_id']}" for item in ledger.experiments
+    }
+    assert {
+        item["record_origin"]
+        for rows in (
+            ledger.sources,
+            ledger.catalog,
+            ledger.observations,
+            ledger.assets,
+        )
+        for item in rows
+    } <= {"bmp", "legacy-import"}
+    assert all(item["claim_eligible"] is False for item in legacy_catalog)
+    assert all(
+        item["claim_eligible"] is False for item in legacy_observations
+    )
     assert all(item["claim_eligible"] is False for item in ledger.catalog)
     unmanaged = next(
         item
@@ -140,7 +171,10 @@ def test_csv_is_machine_readable_and_deterministic() -> None:
     ]
     source_rows = list(csv.DictReader(io.StringIO(render_csv(ledger, "sources"))))
     assert len(source_rows) == len(ledger.sources)
-    assert source_rows[0]["record_origin"] == "bmp"
+    assert {row["record_origin"] for row in source_rows} <= {
+        "bmp",
+        "legacy-import",
+    }
     assert list(csv.DictReader(io.StringIO(render_csv(ledger, "catalog"))))
     assert (
         render_csv(ledger, "observations")
