@@ -1,0 +1,267 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "naturebench",
+      "name": "NatureBench",
+      "version": "official-reference"
+    },
+    "comparability": {
+      "case_set_sha256": "10020a26ab2c5d510a916a72db668123396555ec5352661d79f856370f084ac2",
+      "comparison_group": "naturebench-cellular-omics-upstream-reference",
+      "evaluator_sha256": "a8a4a3579548b9097f063d2575dcf9452e81e74a79cda763a8766039026bef2e",
+      "protocol_sha256": "eb86495388fd19c61992b73ce8a409f622f4ee8a94ce7c3fe84e7bbfa82c3b2f",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "naturebench-cellular-omics-31",
+      "name": "NatureBench Cellular Omics 31-case domain",
+      "split": "Cellular Omics",
+      "version": "source-task-set-4b51202"
+    },
+    "evaluator": {
+      "id": "naturebench-gpt-5.5-judged",
+      "independent": true,
+      "kind": "hybrid",
+      "name": "NatureBench deterministic scoring with GPT-5.5 validity judge",
+      "version": null
+    },
+    "execution": {
+      "backend_id": "naturebench-reference-docker",
+      "budget": {
+        "max_cases": 31,
+        "max_cost_usd": null,
+        "max_tokens": null,
+        "max_wall_seconds": null
+      },
+      "case_count": 31,
+      "configuration_id": "naturebench-reference-deepseek-v4-pro-claude-code",
+      "configuration_profiles": [
+        "claude-code",
+        "deepseek-v4-pro"
+      ],
+      "configuration_sha256": "5845271b8751624dacbfb093a7329fc2d38ba2d0f8e441f9a3f03ba1a462f600",
+      "factors": [
+        {
+          "id": "judge-model",
+          "unit": null,
+          "value": "GPT-5.5"
+        },
+        {
+          "id": "reference-harness",
+          "unit": null,
+          "value": "Claude Code"
+        },
+        {
+          "id": "web-search",
+          "unit": null,
+          "value": false
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "container",
+      "mode": "docker",
+      "network_policy": "benchmark-defined",
+      "order_policy": "unknown",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "naturebench-cellular-omics-upstream-deepseek-v4-pro-claude-code",
+    "harness": {
+      "configuration_sha256": "5845271b8751624dacbfb093a7329fc2d38ba2d0f8e441f9a3f03ba1a462f600",
+      "id": "naturebench-official-claude-code",
+      "name": "NatureBench official Claude Code harness",
+      "protocol_id": "naturebench-official-reference",
+      "version": null
+    },
+    "limitations": [
+      "aggregate-only",
+      "dataset-bytes-unbound",
+      "evaluator-revision-unbound",
+      "hardware-unbound",
+      "invalid-missing-counts-unavailable",
+      "legacy-not-bmp-verified",
+      "model-revision-unbound",
+      "not-aosebench-output",
+      "per-task-results-unavailable",
+      "provider-unbound",
+      "rounded-source-value",
+      "source-private-approved-projection",
+      "upstream-reference"
+    ],
+    "method": {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "subject_id": "claude-code",
+      "version": null
+    },
+    "model": {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek-V4-Pro",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "naturebench-upstream-reference-deepseek-v4-pro-claude-code",
+  "metrics": [
+    {
+      "aggregation": "rate",
+      "definition_sha256": "0e194817593d89a9a433a4b08f9ce937d288c7f2a144b5b467b9279b23aa52ad",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 31,
+        "planned_count": 31,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "completion-rate",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "percent",
+      "value": 83.9,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "64cee2b41465cf9847f7ac645df79058717d0313793de92c2a9f46fd357d10e0",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 31,
+        "planned_count": 31,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "match-sota",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "percent",
+      "value": 29.0,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "median",
+      "definition_sha256": "23843246a26374c289b97a39186e757b68d3ffd4490ff32e089c717578b606a1",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 31,
+        "planned_count": 31,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "median-g-all",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "aggregate-improvement",
+      "value": -0.261,
+      "zero_filled_count": 0
+    },
+    {
+      "aggregation": "rate",
+      "definition_sha256": "ba6abff8f04433dd1e3e762c6db06e59210af9bb27bcedf6f361c37700e5b10a",
+      "denominator": {
+        "excluded_count": 0,
+        "observed_count": 31,
+        "planned_count": 31,
+        "unit": "cases"
+      },
+      "direction": "higher-is-better",
+      "invalid_count": 0,
+      "metric_id": "surpass-sota",
+      "missing_count": 0,
+      "state": "observed",
+      "uncertainty": null,
+      "unit": "percent",
+      "value": 9.7,
+      "zero_filled_count": 0
+    }
+  ],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "10020a26ab2c5d510a916a72db668123396555ec5352661d79f856370f084ac2",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "18c02dafc5759479c2d91904402b6ce3099e1cd9"
+      },
+      "path": "task-set/cellomics.txt",
+      "role": "dataset",
+      "size_bytes": 589
+    },
+    {
+      "content_sha256": "a8a4a3579548b9097f063d2575dcf9452e81e74a79cda763a8766039026bef2e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "860dfb66603572dd1720e1e4244f688af7275044"
+      },
+      "path": "vendor/naturebench/submit_results/compute_scores.py",
+      "role": "evaluator",
+      "size_bytes": 9392
+    },
+    {
+      "content_sha256": "eefa3fccf5db57e36e1bb506016032df9062e212d6dcacf8d2ff2ffc7baa6f15",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "8611acec9c7fbe3fd206b7c0c8335ecb887f87e1"
+      },
+      "path": "vendor/naturebench/VENDOR.md",
+      "role": "harness",
+      "size_bytes": 5467
+    },
+    {
+      "content_sha256": "85a064dc6389ce4148667701cfc99b92e330618811975a8288254b8b78e59145",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "694778143483d629a12df5e878c766378f89e8da"
+      },
+      "path": "vendor/naturebench/submit_results/case_metadata.csv",
+      "role": "manifest",
+      "size_bytes": 3252
+    },
+    {
+      "content_sha256": "eb86495388fd19c61992b73ce8a409f622f4ee8a94ce7c3fe84e7bbfa82c3b2f",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "c302cc6d46f54e73bd7fa09883f875fc8f2dce23"
+      },
+      "path": "scripts/aggregate_results.py",
+      "role": "metric",
+      "size_bytes": 11725
+    },
+    {
+      "content_sha256": "f9c80ffa6fb92ed83157432678015d56f7b9b8287611caa845a8a8339fd6cbec",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "14f1cd8239607c46fa427a3f3e0a0e1f1afdf07c"
+      },
+      "path": "docs/REBUILD.md",
+      "role": "result",
+      "size_bytes": 13424
+    }
+  ],
+  "record_id": "34190ab49c7543f018eff30b6dd55d730b698dd70670d22651691ab43f189a50",
+  "run_id": "naturebench-upstream-reference-deepseek-v4-pro-claude-code",
+  "source_id": "aosebench-naturebench-4b51202",
+  "source_snapshot_sha256": "1ffe3ccfa97a9f56b72c7400311571c72fbe0be9de6dc1b7920defb71ec2b5c7",
+  "supersedes": [],
+  "terminal_state": "completed"
+}

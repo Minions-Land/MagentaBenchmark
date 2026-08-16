@@ -1,0 +1,25 @@
+{
+  "commit_sha": "4b512029f3ad37746502ce377e4fcc2027fd46db",
+  "format": "magentabench-historical-source-v1",
+  "license_id": null,
+  "license_status": "not-detected",
+  "normalizer_id": "naturebench-4b51202.v1",
+  "normalizer_sha256": "8c90dffea900ff9b0730f2862bee261f91b1014bdcee545562ebe64a3b182e00",
+  "publication_approval": {
+    "approval_id": "github-issue-85",
+    "approved_at": "2026-08-16",
+    "approved_by": "PoorOtterBob",
+    "decision_ref": "Minions-Land/MagentaBenchmark#85",
+    "decision_sha256": "5ade9379443b403714de768de47abb934a1a41e0d58f227028d2602d56ed14f4",
+    "destination_repository": "Minions-Land/MagentaBenchmark",
+    "scope": "typed-results-only"
+  },
+  "ref_hint": "NatureBranch",
+  "repository": "Minions-Land/AOSEBench-NatureBench",
+  "root_tree": {
+    "algorithm": "sha1",
+    "digest": "e11636f88a5d74e9cb4dcaa06518b9a3a71c87ea"
+  },
+  "source_id": "aosebench-naturebench-4b51202",
+  "visibility": "private"
+}

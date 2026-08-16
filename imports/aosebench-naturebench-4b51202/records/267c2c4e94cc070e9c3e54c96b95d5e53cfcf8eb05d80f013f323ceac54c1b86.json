@@ -1,0 +1,214 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "declaration-only",
+  "experiment": {
+    "benchmark": {
+      "id": "naturebench",
+      "name": "NatureBench",
+      "version": "snapshot-4b51202"
+    },
+    "comparability": {
+      "case_set_sha256": "10020a26ab2c5d510a916a72db668123396555ec5352661d79f856370f084ac2",
+      "comparison_group": "naturebench-cellular-omics-apptainer",
+      "evaluator_sha256": "a8a4a3579548b9097f063d2575dcf9452e81e74a79cda763a8766039026bef2e",
+      "protocol_sha256": "eb86495388fd19c61992b73ce8a409f622f4ee8a94ce7c3fe84e7bbfa82c3b2f",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "naturebench-cellular-omics-31",
+      "name": "NatureBench Cellular Omics 31-case domain",
+      "split": "Cellular Omics",
+      "version": "source-task-set-4b51202"
+    },
+    "evaluator": {
+      "id": "naturebench-score-and-gpt55-validity-judge",
+      "independent": true,
+      "kind": "hybrid",
+      "name": "NatureBench score evaluator and GPT-5.5 validity judge",
+      "version": null
+    },
+    "execution": {
+      "backend_id": "aosebench-nature-apptainer",
+      "budget": {
+        "max_cases": 31,
+        "max_cost_usd": null,
+        "max_tokens": null,
+        "max_wall_seconds": null
+      },
+      "case_count": 31,
+      "configuration_id": "naturebranch-pantheonos",
+      "configuration_profiles": [
+        "pantheonos"
+      ],
+      "configuration_sha256": "38237f280876c834a8f62bc7a6c10000c4b8f1cd4893494dc055720966d78f2b",
+      "factors": [
+        {
+          "id": "agent-timeout",
+          "unit": "seconds",
+          "value": 14400
+        },
+        {
+          "id": "cpu-cases",
+          "unit": "cases",
+          "value": 3
+        },
+        {
+          "id": "gpu-high-cases",
+          "unit": "cases",
+          "value": 4
+        },
+        {
+          "id": "gpu-low-cases",
+          "unit": "cases",
+          "value": 24
+        },
+        {
+          "id": "judge-model",
+          "unit": null,
+          "value": "openai/gpt-5.5"
+        },
+        {
+          "id": "rootless",
+          "unit": null,
+          "value": true
+        },
+        {
+          "id": "web-search",
+          "unit": null,
+          "value": false
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "container",
+      "mode": "apptainer",
+      "network_policy": "benchmark-defined",
+      "order_policy": "source-defined",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "naturebranch-cellular-omics-pantheonos",
+    "harness": {
+      "configuration_sha256": "38237f280876c834a8f62bc7a6c10000c4b8f1cd4893494dc055720966d78f2b",
+      "id": "aosebench-nature-apptainer-v1",
+      "name": "AOSEBench-Nature rootless Apptainer harness",
+      "protocol_id": "naturebench-cellular-omics.v1",
+      "version": "1"
+    },
+    "limitations": [
+      "dataset-bytes-unbound",
+      "declaration-only",
+      "hardware-unbound",
+      "legacy-not-bmp-verified",
+      "model-revision-unbound",
+      "no-naturebranch-results",
+      "official-docker-cohort-not-directly-comparable",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "pantheonos",
+      "name": "PantheonOS",
+      "subject_id": "pantheonos",
+      "version": null
+    },
+    "model": {
+      "id": "openai-gpt-5.5",
+      "name": "openai/gpt-5.5",
+      "revision": null,
+      "version": null
+    },
+    "provider": {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "region": null,
+      "version": null
+    },
+    "purpose": "benchmark"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "declaration",
+  "logical_key": "naturebranch-cellular-omics-pantheonos",
+  "metric_ids": [
+    "completion-rate",
+    "match-sota",
+    "mean-g-all",
+    "median-g-all",
+    "median-g-valid",
+    "score-rate",
+    "surpass-sota"
+  ],
+  "provenance": [
+    {
+      "content_sha256": "b1b40d91e4d21c2848ff1cfb4fd22ff156e02f632631fbe9edc3ffbfed2d84d7",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "6177723a5079e6f26d1c03a7fb0fbdb6a7377ddc"
+      },
+      "path": "bench-env.template.sh",
+      "role": "configuration",
+      "size_bytes": 10671
+    },
+    {
+      "content_sha256": "10020a26ab2c5d510a916a72db668123396555ec5352661d79f856370f084ac2",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "18c02dafc5759479c2d91904402b6ce3099e1cd9"
+      },
+      "path": "task-set/cellomics.txt",
+      "role": "dataset",
+      "size_bytes": 589
+    },
+    {
+      "content_sha256": "a28950e7d0d35805d70c697d119b81632b2d1c5ed7fa39b88f542abed7b7a024",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "5e2484a6e6b49c494d488ddd5698320bae159afa"
+      },
+      "path": "README.md",
+      "role": "declaration",
+      "size_bytes": 2529
+    },
+    {
+      "content_sha256": "a8a4a3579548b9097f063d2575dcf9452e81e74a79cda763a8766039026bef2e",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "860dfb66603572dd1720e1e4244f688af7275044"
+      },
+      "path": "vendor/naturebench/submit_results/compute_scores.py",
+      "role": "evaluator",
+      "size_bytes": 9392
+    },
+    {
+      "content_sha256": "24d667df9d14a433a460a6115e6c4c24e8d6b7186cc2c528be648c199f7dfc09",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "f5821c63e3575fefb501c6e02d3c5cfeddf91cfb"
+      },
+      "path": "manifests/tasks.tsv",
+      "role": "manifest",
+      "size_bytes": 5829
+    },
+    {
+      "content_sha256": "eb86495388fd19c61992b73ce8a409f622f4ee8a94ce7c3fe84e7bbfa82c3b2f",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "c302cc6d46f54e73bd7fa09883f875fc8f2dce23"
+      },
+      "path": "scripts/aggregate_results.py",
+      "role": "metric",
+      "size_bytes": 11725
+    }
+  ],
+  "record_id": "267c2c4e94cc070e9c3e54c96b95d5e53cfcf8eb05d80f013f323ceac54c1b86",
+  "source_id": "aosebench-naturebench-4b51202",
+  "source_snapshot_sha256": "1ffe3ccfa97a9f56b72c7400311571c72fbe0be9de6dc1b7920defb71ec2b5c7",
+  "supersedes": []
+}
