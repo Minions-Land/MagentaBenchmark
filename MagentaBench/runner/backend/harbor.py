@@ -761,6 +761,9 @@ def parse_harbor_results(
         input_tokens = usage_source.get("n_input_tokens")
         output_tokens = usage_source.get("n_output_tokens")
         cost = usage_source.get("cost_usd")
+        observed_input_tokens = 0 if no_model and input_tokens is None else input_tokens
+        observed_output_tokens = 0 if no_model and output_tokens is None else output_tokens
+        observed_cost = 0.0 if no_model and cost is None else cost
         model_activation = None
         if not no_model:
             model_activation = make_model_activation_receipt(
@@ -775,18 +778,15 @@ def parse_harbor_results(
             log_refs=log_refs,
             verifier_evidence=verifier_evidence,
             usage=UsageRecord(
-                input_tokens=(0 if no_model and input_tokens is None else input_tokens),
-                output_tokens=(0 if no_model and output_tokens is None else output_tokens),
+                input_tokens=observed_input_tokens,
+                output_tokens=observed_output_tokens,
                 total_tokens=(
-                    0
-                    if no_model and input_tokens is None and output_tokens is None
-                    else (
-                        int(input_tokens or 0) + int(output_tokens or 0)
-                        if input_tokens is not None and output_tokens is not None
-                        else None
-                    )
+                    int(observed_input_tokens or 0) + int(observed_output_tokens or 0)
+                    if observed_input_tokens is not None
+                    and observed_output_tokens is not None
+                    else None
                 ),
-                cost=(0.0 if no_model and cost is None else cost),
+                cost=observed_cost,
                 wall_clock_seconds=_native_wall_seconds(result),
             ),
             provenance=ProvenanceRecord(
