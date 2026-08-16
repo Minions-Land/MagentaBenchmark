@@ -757,8 +757,12 @@ def parse_harbor_results(
         backend = run.manifest.execution.backend
         agent_result = result.get("agent_result")
         usage_source = agent_result if isinstance(agent_result, Mapping) else {}
+        no_model = is_none_model(run.manifest.execution.model)
+        input_tokens = usage_source.get("n_input_tokens")
+        output_tokens = usage_source.get("n_output_tokens")
+        cost = usage_source.get("cost_usd")
         model_activation = None
-        if not is_none_model(run.manifest.execution.model):
+        if not no_model:
             model_activation = make_model_activation_receipt(
                 run,
                 evidence_refs=(() if result_ref is None else (result_ref,)),
@@ -771,16 +775,18 @@ def parse_harbor_results(
             log_refs=log_refs,
             verifier_evidence=verifier_evidence,
             usage=UsageRecord(
-                input_tokens=usage_source.get("n_input_tokens"),
-                output_tokens=usage_source.get("n_output_tokens"),
+                input_tokens=(0 if no_model and input_tokens is None else input_tokens),
+                output_tokens=(0 if no_model and output_tokens is None else output_tokens),
                 total_tokens=(
-                    int(usage_source.get("n_input_tokens") or 0)
-                    + int(usage_source.get("n_output_tokens") or 0)
-                    if usage_source.get("n_input_tokens") is not None
-                    and usage_source.get("n_output_tokens") is not None
-                    else None
+                    0
+                    if no_model and input_tokens is None and output_tokens is None
+                    else (
+                        int(input_tokens or 0) + int(output_tokens or 0)
+                        if input_tokens is not None and output_tokens is not None
+                        else None
+                    )
                 ),
-                cost=usage_source.get("cost_usd"),
+                cost=(0.0 if no_model and cost is None else cost),
                 wall_clock_seconds=_native_wall_seconds(result),
             ),
             provenance=ProvenanceRecord(
