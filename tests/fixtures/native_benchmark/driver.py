@@ -48,6 +48,7 @@ def main() -> int:
             "cost": 0.0,
             "model_calls": 0,
             "tool_calls": 0,
+            "tool_errors": 0,
         },
         "artifacts": ["answer.json"],
         "trace": "trace.jsonl",

@@ -16,12 +16,13 @@ from MagentaBench.schemas import (
     GateName,
     ObservationReport,
     ResolvedBmpManifest,
+    RunStatus,
     verify_run_report,
 )
 
 
 MATRIX_SCHEMA = "magentabench.memory-baseline-matrix.v1"
-REPORT_SCHEMA = "magentabench.memory-baseline-report.v1"
+REPORT_SCHEMA = "magentabench.memory-baseline-report.v2"
 SUPPORT_STATES = frozenset(
     {
         "pilot-ready",
@@ -35,6 +36,10 @@ SUPPORT_STATES = frozenset(
     }
 )
 AVAILABILITY_STATES = frozenset({"runnable", "blocked"})
+BASELINE_FAMILY_COUNT = 48
+COMPLETED_STATUSES = frozenset(
+    {RunStatus.pass_, RunStatus.verified_fail, RunStatus.scored}
+)
 
 
 class MemoryBaselineReportError(ValueError):
@@ -128,9 +133,10 @@ def load_matrix(path: str | Path) -> dict[str, Any]:
             )
         for benchmark_id, value in support.items():
             _support(value, label=f"paper-native path {native['id']} {benchmark_id}")
-    if len(method_ids) != 37:
+    if len(method_ids) != BASELINE_FAMILY_COUNT:
         raise MemoryBaselineReportError(
-            f"capability matrix must retain all 37 registered methods; observed {len(method_ids)}"
+            "capability matrix must retain all "
+            f"{BASELINE_FAMILY_COUNT} registered methods; observed {len(method_ids)}"
         )
     return matrix
 
@@ -231,6 +237,24 @@ def _report_validity(report: ObservationReport | ClaimReport) -> tuple[bool, boo
     return report.protocol_valid, report.isolation_valid
 
 
+def _completion_eligibility(
+    status: RunStatus,
+    tool_errors: int | None,
+    *,
+    protocol_valid: bool,
+) -> tuple[bool, list[str]]:
+    exclusions: list[str] = []
+    if not protocol_valid:
+        exclusions.append("protocol_invalid")
+    if status not in COMPLETED_STATUSES:
+        exclusions.append(f"non_scoring_status:{status.value}")
+    if tool_errors is None:
+        exclusions.append("tool_errors_unobserved")
+    elif tool_errors > 0:
+        exclusions.append(f"tool_errors_nonzero:{tool_errors}")
+    return not exclusions, exclusions
+
+
 def collect_verified_results(
     matrix: Mapping[str, Any],
     report_paths: Sequence[str | Path],
@@ -296,6 +320,12 @@ def collect_verified_results(
                         key = f"usage:{name}"
                         values[key] = value
                         metric_columns.add(key)
+            tool_errors = None if bundle.usage is None else bundle.usage.tool_errors
+            completion_eligible, completion_exclusions = _completion_eligibility(
+                bundle.status,
+                tool_errors,
+                protocol_valid=protocol_valid,
+            )
             activation = bundle.provenance.model_activation
             rows.append(
                 {
@@ -321,6 +351,9 @@ def collect_verified_results(
                         }
                     ),
                     "status": bundle.status.value,
+                    "tool_error_count": tool_errors,
+                    "completion_eligible": completion_eligible,
+                    "completion_exclusions": completion_exclusions,
                     "passed": None if verifier is None else verifier.passed,
                     "score": None if verifier is None else verifier.score,
                     "values": values,
@@ -362,6 +395,12 @@ def build_report(
             "pilot_ready_cell_count": sum(item["status"] == "pilot-ready" for item in all_cells),
             "blocked_cell_count": sum(item["status"] == "blocked" for item in all_cells),
             "result_row_count": len(results),
+            "completion_eligible_result_row_count": sum(
+                row["completion_eligible"] for row in results
+            ),
+            "completion_ineligible_result_row_count": sum(
+                not row["completion_eligible"] for row in results
+            ),
         },
         "source_reports": sources,
         "metric_columns": metric_columns,
@@ -458,7 +497,7 @@ def render_html(document: Mapping[str, Any]) -> str:
             else activation["activated_model_id"]
         )
         results.append(
-            "<tr>"
+            f'<tr class="completion-{"yes" if row["completion_eligible"] else "no"}">'
             f"<td>{html.escape(row['benchmark_id'])}</td>"
             f"<td>{html.escape(row['method_id'])}</td>"
             f"<td>{html.escape(row['case_id'])}</td>"
@@ -468,6 +507,8 @@ def render_html(document: Mapping[str, Any]) -> str:
             f"<td>{html.escape(activated_model)}</td>"
             f"<td>{html.escape(_format_value(row['score']))}</td>"
             f"<td>{html.escape(_format_value(row['passed']))}</td>"
+            f"<td>{html.escape(_format_value(row['completion_eligible']))}</td>"
+            f"<td>{html.escape(', '.join(row['completion_exclusions']) or '-')}</td>"
             f"{values}"
             f'<td><a href="{html.escape(evidence["path"], quote=True)}">evidence</a></td>'
             "</tr>"
@@ -476,7 +517,8 @@ def render_html(document: Mapping[str, Any]) -> str:
         '<div class="table-wrap"><table><thead><tr><th>Benchmark</th><th>Method</th>'
         f"<th>Case</th><th>Status</th><th>Requested model</th><th>Activation</th>"
         f"<th>Activated model</th><th>Verifier score</th>"
-        f"<th>Passed</th>{metric_head}<th>Evidence</th>"
+        f"<th>Passed</th><th>Completion eligible</th><th>Completion exclusions</th>"
+        f"{metric_head}<th>Evidence</th>"
         f"</tr></thead><tbody>{''.join(results)}</tbody></table></div>"
         if results
         else '<div class="empty">No verified run results yet.</div>'
@@ -489,7 +531,7 @@ header { background: #ffffff; border-bottom: 1px solid #d9dee3; padding: 28px 32
 h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
 main { max-width: 1800px; margin: 0 auto; padding: 24px 32px 48px; }
 h2 { margin: 30px 0 12px; font-size: 19px; letter-spacing: 0; }
-.summary { display: grid; grid-template-columns: repeat(6, minmax(120px, 1fr)); border-bottom: 1px solid #d9dee3; background: #ffffff; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); border-bottom: 1px solid #d9dee3; background: #ffffff; }
 .summary div { padding: 16px 20px; border-right: 1px solid #e4e8eb; }
 .summary div:last-child { border-right: 0; }
 .summary strong { display: block; font-size: 24px; }
@@ -509,6 +551,7 @@ tbody th { min-width: 210px; background: #fafbfb; }
 .state-needs-driver, .state-needs-corpus, .state-needs-artifact, .state-needs-data-prep { background: #f8e9c9; color: #76530d; }
 .reason { margin-top: 6px; color: #46535e; }
 .run-status { font-weight: 700; }
+.completion-no { background: #fff8f1; }
 .digest { max-width: 280px; overflow-wrap: anywhere; font-family: ui-monospace, monospace; }
 .empty { border: 1px solid #d9dee3; background: #ffffff; padding: 20px; color: #53616d; }
 a { color: #0b6254; font-weight: 700; }
@@ -526,6 +569,8 @@ a { color: #0b6254; font-weight: 700; }
         f"<div><strong>{summary['pilot_ready_cell_count']}</strong><span>Pilot-ready cells</span></div>"
         f"<div><strong>{summary['blocked_cell_count']}</strong><span>Blocked cells</span></div>"
         f"<div><strong>{summary['result_row_count']}</strong><span>Verified result rows</span></div>"
+        f"<div><strong>{summary['completion_eligible_result_row_count']}</strong><span>Completion eligible</span></div>"
+        f"<div><strong>{summary['completion_ineligible_result_row_count']}</strong><span>Completion excluded</span></div>"
         "</section><main>"
         "<h2>Verified Reports</h2>"
         f"{source_table}"

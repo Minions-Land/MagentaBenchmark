@@ -67,6 +67,30 @@
       "support": {"default": {"status": "needs-corpus", "reason": "A benchmark-specific corpus export and native driver are required."}, "overrides": {}}
     },
     {
+      "id": "frozen-demos",
+      "label": "Frozen demonstrations",
+      "availability": "runnable",
+      "equivalence": "generic-static-demo-control",
+      "requirements": ["artifact"],
+      "support": {"default": {"status": "needs-artifact", "reason": "Leakage-audited demonstrations must be frozen before evaluation."}, "overrides": {}}
+    },
+    {
+      "id": "recency-window",
+      "label": "Recency window",
+      "availability": "runnable",
+      "equivalence": "common-bounded-context-control",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-corpus", "reason": "A benchmark-specific ordered corpus and fixed window budget are required."}, "overrides": {}}
+    },
+    {
+      "id": "random-retrieval",
+      "label": "Random retrieval",
+      "availability": "runnable",
+      "equivalence": "budget-matched-retrieval-negative-control",
+      "requirements": ["corpus"],
+      "support": {"default": {"status": "needs-corpus", "reason": "A fixed seed and the same retrieval budget as the compared retriever are required."}, "overrides": {}}
+    },
+    {
       "id": "naive-rag",
       "label": "Naive sparse RAG",
       "availability": "runnable",
@@ -75,12 +99,52 @@
       "support": {"default": {"status": "needs-corpus", "reason": "This is a coding-agent sparse adaptation and requires a benchmark corpus export."}, "overrides": {}}
     },
     {
+      "id": "dense-rag",
+      "label": "Dense RAG",
+      "availability": "runnable",
+      "equivalence": "local-dense-retrieval-adaptation",
+      "requirements": ["corpus", "embedding-model"],
+      "support": {"default": {"status": "needs-corpus", "reason": "A leakage-audited corpus and pinned embedding model are required."}, "overrides": {}}
+    },
+    {
+      "id": "hybrid-rag",
+      "label": "Hybrid RAG",
+      "availability": "runnable",
+      "equivalence": "local-sparse-dense-retrieval-adaptation",
+      "requirements": ["corpus", "embedding-model"],
+      "support": {"default": {"status": "needs-corpus", "reason": "Sparse and dense retrievers must share one audited corpus and fixed fusion policy."}, "overrides": {}}
+    },
+    {
       "id": "raw-trajectory-rag",
       "label": "Raw trajectory RAG",
       "availability": "runnable",
       "equivalence": "coding-agent-sparse-trajectory-baseline",
       "requirements": ["corpus"],
       "support": {"default": {"status": "needs-corpus", "reason": "Prior trajectories must be generated without leaking evaluation cases."}, "overrides": {}}
+    },
+    {
+      "id": "raw-trajectory-dense-rag",
+      "label": "Raw trajectory dense RAG",
+      "availability": "runnable",
+      "equivalence": "coding-agent-dense-trajectory-baseline",
+      "requirements": ["corpus", "embedding-model"],
+      "support": {"default": {"status": "needs-corpus", "reason": "Leakage-free prior trajectories and a pinned embedding model are required."}, "overrides": {}}
+    },
+    {
+      "id": "rolling-summary",
+      "label": "Rolling summary memory",
+      "availability": "runnable",
+      "equivalence": "generic-bounded-summary-adaptation",
+      "requirements": ["corpus", "driver"],
+      "support": {"default": {"status": "needs-driver", "reason": "A benchmark driver must freeze the summarization schedule and context budget."}, "overrides": {}}
+    },
+    {
+      "id": "structured-event-memory",
+      "label": "Structured event memory",
+      "availability": "runnable",
+      "equivalence": "generic-event-fact-extraction-adaptation",
+      "requirements": ["corpus", "driver"],
+      "support": {"default": {"status": "needs-driver", "reason": "A benchmark driver must freeze the event schema, extractor, and retrieval budget."}, "overrides": {}}
     },
     {
       "id": "static-skill",
@@ -226,6 +290,30 @@
       "equivalence": "shared-memory-adaptation-not-multi-agent-reproduction",
       "requirements": ["workspace"],
       "support": {"default": {"status": "needs-driver", "reason": "This single-agent shared-file adaptation is not a CORAL search reproduction."}, "overrides": {}}
+    },
+    {
+      "id": "structmem",
+      "label": "StructMem",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "No audited StructMem driver is bundled in this public repository."}, "overrides": {}}
+    },
+    {
+      "id": "memzero",
+      "label": "MemZero",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "No audited MemZero toolkit driver is bundled in this public repository."}, "overrides": {}}
+    },
+    {
+      "id": "memzero-graph",
+      "label": "MemZero Graph",
+      "availability": "blocked",
+      "equivalence": "unavailable-not-substituted",
+      "requirements": [],
+      "support": {"default": {"status": "blocked", "reason": "No audited MemZero graph driver is bundled in this public repository."}, "overrides": {}}
     },
     {
       "id": "con",
