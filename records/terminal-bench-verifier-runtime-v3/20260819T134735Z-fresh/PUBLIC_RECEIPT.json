@@ -1,0 +1,79 @@
+{
+  "format": "magentabench-public-result-receipt-v1",
+  "experiment": {
+    "id": "terminal-bench-regex-smoke-900s",
+    "run_id": "terminal-bench-regex-smoke-900s__run0000",
+    "manifest_digest": "c1ce4e070f8437cf8389f042272ba02857429cb3c9f3afacaec3ac1ec6bb9442",
+    "resolved_manifest_digest": "1663b675627c6861ba320f146842c7e5b17ea81d581c3a3615d18b93874e3c23",
+    "magentabench_commit": "dd9e63def877ed711ad45b56390ca2660bca9335",
+    "terminal_bench_commit": "5c8eadf1f393183288fa08b8f73ca9a469cc5e00"
+  },
+  "classification": {
+    "purpose": "exploratory",
+    "outcome": "verified_fail",
+    "reward": 0.0,
+    "is_agent_score": false,
+    "claim_eligible": false,
+    "reason": "The unchanged official verifier completed with valid CTRF and pytest stdout, but none/echo did not create /app/regex.txt."
+  },
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "cost_usd": 0.0,
+    "wall_clock_seconds": 137.8239842230687,
+    "schedule_reconciles_exactly": true
+  },
+  "runtime_identity": {
+    "format": "magentabench-harbor-runtime-identity-v1",
+    "harbor_version": "0.20.0",
+    "harbor_executable_sha256": "998eb086b23784f317a336d2cf6d306896ea1cb6fc8998806b2ecacba2ebad7c",
+    "docker_executable_sha256": "99d23b43792eaafe4baa171ef18a9d0244b0517c2b2271dab5900fb0fef3b428",
+    "docker_client_version": "26.1.3",
+    "docker_server_version": "26.1.3",
+    "image_id": "sha256:0a15c19cc78685f8d322945e882ba702ef3d0265d1f621ee00991b8e64ddb750",
+    "image_manifest_digest": "sha256:90101b2e815323a8da20528a1439bebc407eb9761c9c68a3d557730856c878e9",
+    "container_id": "4dca6ebf9c43025dcab3f3c2e1176ce6c42690155ae01ec0c420082f6fda6cff",
+    "network_probe": {
+      "mode": "active_probe",
+      "host": "mirrors.aliyun.com",
+      "port": 443,
+      "outcome": "connected"
+    },
+    "cleanup": {
+      "container_stopped": true,
+      "container_removed": true,
+      "network_removed": true
+    }
+  },
+  "verification": {
+    "official_verifier_completed": true,
+    "bmp_run_exit_code": 0,
+    "standalone_verifier": "verified",
+    "ctrf": {
+      "sha256": "8d7a11b9b51f8a14cb769ee00bc960a6c672d7c205734805e0b45cc1a541dca3",
+      "size_bytes": 1769
+    },
+    "pytest_stdout": {
+      "sha256": "74c2ceb2d64a3d7969d2c3a667d27f2b86cae49ab41838bd17ee61a697242962",
+      "size_bytes": 14845
+    }
+  },
+  "raw_record": {
+    "file_count": 45,
+    "total_size_bytes": 571249,
+    "inventory_sha256": "93cd15eb712552cc96040854ca71541ed0ae44c69739e2f83fac149c4cb0439c",
+    "report_sha256": "34e1d15c5920f59b710e7e47cbf596c46088ccc37c319f3b18e077a761213350",
+    "record_index_sha256": "ebaac086a6d2d891883473b6850f5a3419f09d8ed51f3e200092134f383ff7ca",
+    "aggregate_sha256": "e35179c0306bb1ffc05271f338e3a5e57c958bebdadeaa235ae9edd2554295ea",
+    "publication": "raw graph retained in an external durable root; exact byte materialization and relocation remain tracked by Issue #77"
+  },
+  "publication": {
+    "metadata_only": true,
+    "ledger_ingested": false,
+    "reason_codes": [
+      "external_record_graph_not_materialized",
+      "claim_ineligible_exploratory_run"
+    ]
+  }
+}
