@@ -14,19 +14,30 @@ Lab issue ID:
 
 ### BMP protocol review
 
-- [ ] I have requested BMP protocol-owner approval (required when core BMP paths change)
-- [ ] I completed BMP protocol self-review (authorized protocol-owner authors only)
+- [ ] I have requested PoorOtterBob review (required when core BMP paths change and I am not PoorOtterBob)
+- [ ] I completed PoorOtterBob self-review (only PoorOtterBob may check this)
 - [ ] This PR has no BMP protocol impact
 
-For an authorized author self-review, replace the placeholder below with the
-current full PR head SHA. A new push requires updating this line.
+For a PoorOtterBob self-review, replace the placeholder below with the current
+full PR head SHA. A new push requires updating this line.
 
 Protocol self-review HEAD: `<full head SHA>`
 
+### Repository review authority
+
+- [ ] I requested PoorOtterBob review (required when I am not PoorOtterBob)
+- [ ] I completed PoorOtterBob final review/self-review (only PoorOtterBob may check this)
+
+For a PoorOtterBob-authored PR, replace the placeholder below with the current
+full PR head SHA. A new push requires updating this line. Other collaborators
+may comment or submit advisory findings, but they are not required approvers.
+
+Final review HEAD: `<full head SHA>`
+
 Explain any protocol impact, including schema, identity, denominator, verifier,
 checkpoint, or claim-gate changes. Do not use a lab-owner approval as a protocol
-approval. An authorized author self-review is an explicit, attributable
-attestation and is not represented as an independent review.
+approval. A PoorOtterBob self-review is an explicit, attributable attestation
+and is not represented as an independent review.
 
 ## Verification
 

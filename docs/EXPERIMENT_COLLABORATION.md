@@ -132,8 +132,8 @@ uv run bmp-collab changes --base-ref origin/main
 Protocol/shared registry paths require an explicit protocol-change review and
 registry declarations require a refreshed `registries/registry.lock.toml`.
 Mixing a protocol edit with a bundle is reported as a split-PR warning. GitHub
-branch protection should require the two aggregate checks described in
-`.github/OWNERS.md`, plus CODEOWNER review for protocol paths.
+branch protection should require the aggregate checks described in
+`.github/OWNERS.md`; `PoorOtterBob` is the sole CODEOWNER and final reviewer.
 
 ## Recovery and Exactly-Once Limits
 

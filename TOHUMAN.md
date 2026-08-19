@@ -55,7 +55,8 @@ manifest, log, or artifact.
    manifests, case evidence, aggregate, report, and verifier inputs together.
 5. Open a focused pull request. Describe the design, included and excluded
    scope, verification commands, artifacts and digests, risks, and checks not
-   run. An Agent review is not human approval.
+   run. `PoorOtterBob` is the sole final reviewer; other collaborators may
+   comment but are not required approvers.
 6. After merge, verify the new `main` commit, publish the checkpoint/release
    records, and close the lab issue only when the durable chain is complete.
 
