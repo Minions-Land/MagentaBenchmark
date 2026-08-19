@@ -2,6 +2,7 @@
 
 from .models import (
     LAB_EVENT_FORMAT,
+    LAB_FINAL_REVIEWER,
     LAB_ISSUE_FORMAT,
     LabArtifactRef,
     LabBlocker,
@@ -33,6 +34,7 @@ from .store import (
 
 __all__ = [
     "LAB_EVENT_FORMAT",
+    "LAB_FINAL_REVIEWER",
     "LAB_ISSUE_FORMAT",
     "LabArtifactRef",
     "LabBlocker",

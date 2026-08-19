@@ -56,7 +56,9 @@ manifest, log, or artifact.
 5. Open a focused pull request. Describe the design, included and excluded
    scope, verification commands, artifacts and digests, risks, and checks not
    run. `PoorOtterBob` is the sole final reviewer; other collaborators may
-   comment but are not required approvers.
+   comment but are not required approvers. The same rule applies to new
+   `bmp-lab` approved work-item reviews; collaborators can provide evidence
+   and advisory findings without approving the item.
 6. After merge, verify the new `main` commit, publish the checkpoint/release
    records, and close the lab issue only when the durable chain is complete.
 
