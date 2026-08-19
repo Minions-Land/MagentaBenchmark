@@ -56,8 +56,7 @@ jobs:
       PR_BODY: ${{ github.event.pull_request.body }}
       PR_AUTHOR: ${{ github.event.pull_request.user.login }}
       PR_REPOSITORY: ${{ github.repository }}
-      PROTOCOL_CODEOWNERS: '["ChengAoShen","DataLab-atom","PoorOtterBob","wpx-coder","CodeRider26"]'
-      PROTOCOL_SELF_REVIEWERS: '["PoorOtterBob"]'
+      REQUIRED_REVIEWER: PoorOtterBob
     steps:
       - name: Require changed-path detection
         shell: bash
@@ -75,13 +74,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! grep -Fqi -- "[x] I have requested BMP protocol-owner approval" <<<"${PR_BODY:-}" \
-            && ! grep -Fqi -- "[x] I completed BMP protocol self-review" <<<"${PR_BODY:-}"; then
+          if ! grep -Fqi -- "[x] I have requested PoorOtterBob review" <<<"${PR_BODY:-}" \
+            && ! grep -Fqi -- "[x] I completed PoorOtterBob self-review" <<<"${PR_BODY:-}"; then
             echo "Core BMP paths changed, but the PR does not declare a protocol review path." >&2
             echo "Check the protocol review items in the PR template." >&2
             exit 1
           fi
-      - name: Require a current CODEOWNER approval or authorized author self-review
+      - name: Require PoorOtterBob approval or authorized self-review
         if: env.PROTOCOL_CHANGED == 'true'
         shell: bash
         run: |
@@ -93,7 +92,7 @@ jobs:
           approved="$(
             jq -r \
               --arg head "$HEAD_SHA" \
-              --argjson owners "$PROTOCOL_CODEOWNERS" \
+              --arg required "$REQUIRED_REVIEWER" \
               '
                 add
                 | map(select(
@@ -106,7 +105,7 @@ jobs:
                 | map(select(
                     .state == "APPROVED"
                     and .commit_id == $head
-                    and (.user.login as $login | $owners | index($login))
+                    and .user.login == $required
                   ))
                 | map(.user.login)
                 | unique
@@ -114,7 +113,7 @@ jobs:
               ' <<<"$reviews"
           )"
           if [[ -n "$approved" ]]; then
-            echo "Current CODEOWNER approvals: $approved"
+            echo "Current PoorOtterBob approval: $approved"
             exit 0
           fi
 
@@ -122,15 +121,13 @@ jobs:
           # protocol review. This is attributable self-review, not an
           # independent GitHub approval, and it names the exact immutable head
           # so a new push invalidates the attestation.
-          if jq -e --arg author "$PR_AUTHOR" \
-              --argjson owners "$PROTOCOL_SELF_REVIEWERS" \
-              '$owners | index($author) != null' <<<"{}" >/dev/null 2>&1 \
-            && grep -Fqi -- "[x] I completed BMP protocol self-review" <<<"${PR_BODY:-}" \
+          if [[ "$PR_AUTHOR" == "$REQUIRED_REVIEWER" ]] \
+            && grep -Fqi -- "[x] I completed PoorOtterBob self-review" <<<"${PR_BODY:-}" \
             && grep -Fq -- "Protocol self-review HEAD: \`$HEAD_SHA\`" <<<"${PR_BODY:-}"; then
             echo "Authorized author self-review attested by $PR_AUTHOR for $HEAD_SHA"
             exit 0
           fi
 
-          echo "A current CODEOWNER approval or an authorized author self-review for $HEAD_SHA is required." >&2
-          echo "Reviews must be current; self-review must use the exact checkbox and HEAD line from the PR template." >&2
+          echo "A current PoorOtterBob approval or an authorized author self-review for $HEAD_SHA is required." >&2
+          echo "Other collaborator reviews are advisory only; self-review must use the exact checkbox and HEAD line from the PR template." >&2
           exit 1
