@@ -71,7 +71,9 @@ decision owner. A multi-party effort normally needs:
 - a coordinator for the project contract, dependencies, and current route;
 - a package owner for facts and artifacts;
 - an integration owner for versions and end-to-end checks;
-- an independent reviewer for evidence and acceptance;
+- `PoorOtterBob` as the accountable final reviewer for evidence and acceptance;
+  other contributors may provide advisory findings without being required
+  approvers;
 - a decision owner for scope, resource, and risk trade-offs.
 
 Two parties may combine roles, but execution and acceptance should remain
