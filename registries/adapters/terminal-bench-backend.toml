@@ -6,7 +6,7 @@ bmp_version = "0.1"
 adapter_kind = "backend_factory"
 source = "."
 entrypoint = "plugins/terminal_bench/adapter.py:TerminalBenchHarborFactory"
-digest = "f358ff4103a441d8fdc115a7332db90ef50e56c98883f7cdc43bf9fbfdec0a3e"
+digest = "77119746acf88f633bb4c2860d22dbb86882b28af06d804173994da746e6fcd0"
 supported_benchmark_kinds = ["custom"]
 supported_backend_kinds = ["local"]
 supported_backend_adapters = ["harbor"]
@@ -16,5 +16,6 @@ backend_default_read_set = [
   "agent_import_path",
   "agent_timeout_multiplier",
   "environment_type",
+  "runtime_identity",
   "verifier_env",
 ]

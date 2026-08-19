@@ -140,6 +140,71 @@ def test_registered_verifier_bootstrap_env_is_verifier_only() -> None:
     assert "env" not in config["agents"][0]
 
 
+def test_registered_runtime_identity_retains_harbor_task_container() -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    policy = {
+        "format": "magentabench-harbor-runtime-identity-v1",
+        "required": True,
+        "retain_task_container": True,
+        "docker_executable": "/usr/bin/docker",
+    }
+    backend = run.manifest.execution.backend.model_copy(
+        update={"defaults": {"runtime_identity": policy}}
+    )
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(
+                    update={"backend": backend}
+                )
+            }
+        ),
+    )
+    assert build_job_config(run, agent_name="nop")["environment"] == {
+        "type": "docker",
+        "delete": False,
+        "kwargs": {"keep_containers": True},
+    }
+
+
+@pytest.mark.parametrize(
+    ("update", "message"),
+    [
+        ({"format": "unsupported"}, "format is unsupported"),
+        ({"required": False}, "required must be true"),
+        ({"retain_task_container": False}, "retain_task_container must be true"),
+        ({"docker_executable": "docker"}, "absolute Docker path"),
+    ],
+)
+def test_runtime_identity_retention_policy_fails_closed(
+    update: dict[str, object], message: str
+) -> None:
+    run = Compiler(ROOT, allow_test_override=True).compile(EXPERIMENT)[0]
+    policy: dict[str, object] = {
+        "format": "magentabench-harbor-runtime-identity-v1",
+        "required": True,
+        "retain_task_container": True,
+        "docker_executable": "/usr/bin/docker",
+    }
+    policy.update(update)
+    backend = run.manifest.execution.backend.model_copy(
+        update={"defaults": {"runtime_identity": policy}}
+    )
+    run = replace(
+        run,
+        manifest=run.manifest.model_copy(
+            update={
+                "execution": run.manifest.execution.model_copy(
+                    update={"backend": backend}
+                )
+            }
+        ),
+    )
+    with pytest.raises(HarborConfigurationError, match=message):
+        build_job_config(run, agent_name="nop")
+
+
 @pytest.mark.parametrize(
     "verifier_env, message",
     [
@@ -199,6 +264,7 @@ def test_harbor_shim_runs_full_toml_to_evidence_path(tmp_path: Path) -> None:
     assert payload["provenance"]["backend_kind"] == "harbor"
     assert payload["provenance"]["version"] == "0.20.0"
     assert payload["provenance"]["backend_digest"] == sha256_file(shim)
+    assert payload["provenance"]["executable_digest"] == sha256_file(shim)
 
 
 def test_harbor_nonzero_exit_emits_infra_evidence(tmp_path: Path) -> None:
@@ -209,6 +275,7 @@ def test_harbor_nonzero_exit_emits_infra_evidence(tmp_path: Path) -> None:
     ).run(run)
     assert execution.case.bundle.status == RunStatus.infra_error
     assert execution.case.bundle.log_refs
+    assert execution.case.bundle.provenance.executable_digest == sha256_file(shim)
 
 
 def test_harbor_rejects_relative_and_manifest_mismatched_executables(tmp_path: Path) -> None:

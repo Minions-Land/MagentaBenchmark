@@ -1070,6 +1070,12 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
             errors.append(f"artifact reference digest drift: {ref.path}")
 
     backend = item.plan.manifest.execution.backend
+    runtime_identity = backend.defaults.get("runtime_identity")
+    harbor_identity_required = (
+        backend.adapter == "harbor"
+        and isinstance(runtime_identity, Mapping)
+        and runtime_identity.get("required") is True
+    )
     if backend.adapter == "subprocess":
         if backend.executable is None or provenance.executable_digest is None:
             errors.append("subprocess executable digest missing")
@@ -1081,7 +1087,17 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
                 or provenance.executable_digest != backend.digest
             ):
                 errors.append("subprocess executable digest drift")
-    if provenance.backend_kind == "docker":
+    if harbor_identity_required:
+        if (
+            backend.executable is None
+            or provenance.executable != backend.executable
+            or provenance.executable_digest is None
+            or provenance.executable_digest != backend.digest
+        ):
+            errors.append("Harbor executable digest missing or drifted")
+        if provenance.image_digest is None:
+            errors.append("Harbor task image digest missing")
+    if provenance.backend_kind == "docker" or harbor_identity_required:
         ref = provenance.container_receipt_ref
         if ref is None:
             errors.append("container receipt reference missing")
@@ -1098,6 +1114,31 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
                     != provenance.executable_digest
                 ):
                     errors.append("container executable digest cross-link drift")
+                if harbor_identity_required:
+                    lifecycle = receipt.get("lifecycle")
+                    image = receipt.get("image")
+                    harbor = receipt.get("harbor")
+                    if receipt.get("format") != (
+                        "magentabench-harbor-container-receipt-v1"
+                    ):
+                        errors.append("Harbor container receipt format drift")
+                    if (
+                        not isinstance(lifecycle, Mapping)
+                        or lifecycle.get("removed") is not True
+                        or lifecycle.get("network_removed") is not True
+                    ):
+                        errors.append("Harbor container cleanup receipt missing")
+                    if (
+                        not isinstance(image, Mapping)
+                        or image.get("config_digest") != provenance.image_digest
+                    ):
+                        errors.append("Harbor OCI config digest cross-link drift")
+                    if (
+                        not isinstance(harbor, Mapping)
+                        or harbor.get("executable_sha256")
+                        != provenance.executable_digest
+                    ):
+                        errors.append("Harbor executable receipt cross-link drift")
     return errors
 
 
