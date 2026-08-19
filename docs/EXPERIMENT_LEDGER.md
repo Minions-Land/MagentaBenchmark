@@ -27,7 +27,7 @@ query, not a checked-in spreadsheet or a second progress board.
 | Benchmark, dataset, evaluator, subject, protocol, factors, metrics, model, and budget | `MagentaBench/conformance/experiments/*.toml` | BMP protocol owners |
 | Question, hypothesis, planned cases, repetitions, target mode, and evidence policy | `experiments/<id>/bundle.json` | One experiment branch or PR |
 | Status, owner, lease, blockers, checkpoints, and linked runs | Immutable `lab/issues/<id>/` event chain | Current lease holder |
-| Actual method, dataset digest/split, backend, model, metric value, denominator, and uncertainty | Standalone-verified report, record index, manifest, and indexed evidence | Evidence producer and reviewer |
+| Actual method, dataset digest/split, backend, model, metric value, denominator, and uncertainty | Standalone-verified report, record index, manifest, and indexed evidence | Evidence producer; `PoorOtterBob` final reviewer |
 | Historical declarations, evaluated observations, assets, conditions, and comparability limits | Canonical `imports/<source-id>/source.json` and content-addressed records | One source snapshot branch or PR |
 
 The join is by stable identifiers: bundle id to BMP experiment id, bundle lab

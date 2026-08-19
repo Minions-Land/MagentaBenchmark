@@ -208,11 +208,13 @@ receipts; do not select repetitions after seeing outcomes.
 
 ### Stage E: claim review
 
-The release owner reviews the report, record index, and standalone verifier from
-a clean environment. Publish only if identity, execution, isolation/network,
-scoring, usage, lineage, and statistical gates are all positive. A report with
-an unobserved model activation, missing image digest, incomplete verifier, or
-unverifiable reference remains exploratory.
+`PoorOtterBob`, the sole final reviewer, reviews the report, record index, and
+standalone verifier from a clean environment. Publish only if identity,
+execution, isolation/network, scoring, usage, lineage, and statistical gates
+are all positive. Independent evaluators and evidence producers may provide
+findings, but they are not additional approvers. A report with an unobserved
+model activation, missing image digest, incomplete verifier, or unverifiable
+reference remains exploratory.
 
 ## 7. Artifact Layout
 

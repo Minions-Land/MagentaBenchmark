@@ -19,6 +19,14 @@ recovery intent. It does **not** make benchmark execution, model/provider API
 calls, external side effects, or billing exactly-once. A lease is not a
 cross-machine distributed lock.
 
+`PoorOtterBob` is the sole final reviewer for newly recorded approved lab
+reviews. Other contributors may hold leases, run checks, record checkpoints,
+report blockers, and submit advisory or `changes_requested` reviews; those
+records do not approve work. Existing pre-policy approved events are immutable
+and remain replay-compatible so an interrupted lab history is not rewritten.
+The lab review is a work-item acceptance record, not a benchmark claim and not
+a substitute for standalone evaluator verification.
+
 ## 2. Sources of Truth
 
 | Question | Authoritative source |
@@ -145,7 +153,8 @@ Entering `done` requires all of the following:
 - every blocker is resolved;
 - the recorded lease is explicitly released (expiry alone is not release);
 - a recovery checkpoint exists; and
-- an approved review covers every declared acceptance criterion.
+- a criterion-complete approved review is recorded by `PoorOtterBob` (new
+  events; pre-policy immutable records remain replay-compatible).
 
 Those conditions govern work-item completion only. Benchmark promotion still
 depends on the report and evidence gates in `docs/EXPERIMENT_RUNBOOK.md`.
@@ -290,7 +299,7 @@ declared criterion IDs, release the lease, and then set `done`:
 ~~~bash
 uv run bmp-lab review tb-images \
   --event-id review-tb-images \
-  --actor agent-name \
+  --actor PoorOtterBob \
   --verdict approved \
   --summary "Pinned image identities and checks are present." \
   --accept-criterion images \
@@ -383,6 +392,9 @@ Before declaring completion:
 
 - rerun `doctor` and the relevant code/evidence checks;
 - verify persisted reports from referenced bytes;
-- resolve blockers, checkpoint, and obtain criterion-complete review;
+- resolve blockers, checkpoint, and obtain criterion-complete `PoorOtterBob`
+  final review;
 - release the lease before setting the issue to `done`;
-- update `EVIDENCE.md` only through an independent claim review.
+- update `EVIDENCE.md` only after `PoorOtterBob` final claim review. The
+  standalone evaluator and evidence producer remain independent evidence
+  sources, not additional approvers.
