@@ -39,9 +39,22 @@ def test_capability_matrix_retains_every_registered_cell() -> None:
     paper_native = renderer.expand_paper_native(matrix)
 
     assert len(matrix["benchmarks"]) == 5
-    assert len(matrix["methods"]) == 37
-    assert len(capabilities) == 37 * 5
+    assert len(matrix["methods"]) == 48
+    assert len(capabilities) == 48 * 5
     assert len(paper_native) == len(matrix["paper_native_paths"]) * 5
+    assert {
+        "frozen-demos",
+        "recency-window",
+        "random-retrieval",
+        "dense-rag",
+        "hybrid-rag",
+        "raw-trajectory-dense-rag",
+        "rolling-summary",
+        "structured-event-memory",
+        "structmem",
+        "memzero",
+        "memzero-graph",
+    } <= {item["id"] for item in matrix["methods"]}
     assert all(
         row["status"] == "blocked"
         for row in capabilities
@@ -51,6 +64,38 @@ def test_capability_matrix_retains_every_registered_cell() -> None:
         row["status"] != "blocked" or "0" not in row["reason"]
         for row in capabilities
     )
+
+
+def test_reviewable_matrix_covers_every_declared_family() -> None:
+    renderer = _load_renderer()
+    matrix = renderer.load_matrix(PROGRAM / "capability-matrix.json")
+    document = (PROGRAM / "BASELINE_MATRIX.md").read_text(encoding="utf-8")
+    entries = (*matrix["methods"], *matrix["paper_native_paths"])
+    rows = {
+        cells[0]: cells
+        for line in document.splitlines()
+        if line.startswith("| `")
+        for cells in [[cell.strip().strip("`") for cell in line.split("|")[1:-1]]]
+    }
+
+    assert len(rows) == len(entries)
+    for entry in entries:
+        assert entry["id"] in rows
+        assert rows[entry["id"]][2] == entry["equivalence"]
+    for method in matrix["methods"]:
+        expected = [
+            method["support"]["overrides"].get(
+                benchmark["id"], method["support"]["default"]
+            )["status"]
+            for benchmark in matrix["benchmarks"]
+        ]
+        assert rows[method["id"]][3:] == expected
+    for method in matrix["paper_native_paths"]:
+        expected = [
+            method["support"][benchmark["id"]]["status"]
+            for benchmark in matrix["benchmarks"]
+        ]
+        assert rows[method["id"]][3:] == expected
 
 
 def test_claim_report_validity_comes_from_gates() -> None:
@@ -80,6 +125,29 @@ def test_claim_report_validity_comes_from_gates() -> None:
     assert renderer._report_validity(report) == (True, False)
 
 
+def test_completion_eligibility_fails_closed_on_tool_error_telemetry() -> None:
+    renderer = _load_renderer()
+
+    assert renderer._completion_eligibility(
+        renderer.RunStatus.scored, 0, protocol_valid=True
+    ) == (True, [])
+    assert renderer._completion_eligibility(
+        renderer.RunStatus.verified_fail, 0, protocol_valid=True
+    ) == (True, [])
+    assert renderer._completion_eligibility(
+        renderer.RunStatus.scored, 3, protocol_valid=True
+    ) == (False, ["tool_errors_nonzero:3"])
+    assert renderer._completion_eligibility(
+        renderer.RunStatus.scored, None, protocol_valid=True
+    ) == (False, ["tool_errors_unobserved"])
+    assert renderer._completion_eligibility(
+        renderer.RunStatus.agent_error, 0, protocol_valid=False
+    ) == (
+        False,
+        ["protocol_invalid", "non_scoring_status:agent_error"],
+    )
+
+
 def test_verified_native_report_preserves_all_metrics_and_usage(tmp_path: Path) -> None:
     renderer = _load_renderer()
     pipeline_result = Pipeline(ROOT, tmp_path / "records").run(EXPERIMENT)
@@ -105,6 +173,7 @@ def test_verified_native_report_preserves_all_metrics_and_usage(tmp_path: Path) 
         "usage:cost",
         "usage:model_calls",
         "usage:tool_calls",
+        "usage:tool_errors",
     }
     assert expected_native <= set(document["metric_columns"])
     assert expected_usage <= set(document["metric_columns"])
@@ -112,6 +181,23 @@ def test_verified_native_report_preserves_all_metrics_and_usage(tmp_path: Path) 
     assert document["results"][0]["score"] == 0.75
     assert document["results"][0]["passed"] is None
     assert document["results"][0]["model_activation"] is None
+    assert document["results"][0]["tool_error_count"] == 0
+    assert document["results"][0]["completion_eligible"] is True
+    assert document["results"][0]["completion_exclusions"] == []
+    assert document["summary"]["completion_eligible_result_row_count"] == 1
+    assert document["summary"]["completion_ineligible_result_row_count"] == 0
+
+    ineligible = json.loads(json.dumps(document))
+    ineligible["results"][0]["tool_error_count"] = 2
+    ineligible["results"][0]["completion_eligible"] = False
+    ineligible["results"][0]["completion_exclusions"] = ["tool_errors_nonzero:2"]
+    ineligible["results"][0]["values"]["usage:tool_errors"] = 2
+    ineligible["summary"]["completion_eligible_result_row_count"] = 0
+    ineligible["summary"]["completion_ineligible_result_row_count"] = 1
+    ineligible_html = renderer.render_html(ineligible)
+    assert "tool_errors_nonzero:2" in ineligible_html
+    assert "usage:tool_errors" in ineligible_html
+    assert "<td>0.75</td>" in ineligible_html
 
     encoded = json.loads(output_json.read_text(encoding="utf-8"))
     rendered = output_html.read_text(encoding="utf-8")
@@ -121,6 +207,8 @@ def test_verified_native_report_preserves_all_metrics_and_usage(tmp_path: Path) 
     for metric in document["metric_columns"]:
         assert metric in rendered
     assert "Verifier score" in rendered
+    assert "Completion eligible" in rendered
+    assert "Completion exclusions" in rendered
     assert "Activation" in rendered
     assert "missing" in rendered
     assert "Protocol valid" in rendered
