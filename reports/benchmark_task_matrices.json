@@ -1,0 +1,4605 @@
+{
+  "format": "magentabench-task-matrix-v1",
+  "generated_from": "Feishu Base task-level records; raw answers and gold omitted",
+  "generated_at": "2026-08-19",
+  "benchmarks": [
+    {
+      "benchmark_id": "cmtbench",
+      "name": "CMTBench",
+      "row_count": 50,
+      "method_columns": [
+        "purellm_gpt54 · gpt-5.4",
+        "purellm · gpt-5.5",
+        "codex_gpt54 · gpt-5.4",
+        "codex · gpt-5.5",
+        "purellm_sonnet46_1m · claude-sonnet-4-6",
+        "claudecode · claude-sonnet-4-6[1m]",
+        "autoscientist · claude-sonnet-4-6[1m]",
+        "minionsos2 · claude-sonnet-4-6[1m]"
+      ],
+      "method_summaries": [
+        {
+          "method": "purellm_gpt54 · gpt-5.4",
+          "verdict_counts": {
+            "正确": 9,
+            "错误": 41
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "purellm · gpt-5.5",
+          "verdict_counts": {
+            "正确": 17,
+            "错误": 33
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "codex_gpt54 · gpt-5.4",
+          "verdict_counts": {
+            "未解析": 1,
+            "正确": 14,
+            "错误": 35
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "codex · gpt-5.5",
+          "verdict_counts": {
+            "未解析": 2,
+            "正确": 17,
+            "错误": 31
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "purellm_sonnet46_1m · claude-sonnet-4-6",
+          "verdict_counts": {
+            "正确": 8,
+            "错误": 42
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "claudecode · claude-sonnet-4-6[1m]",
+          "verdict_counts": {
+            "未解析": 1,
+            "正确": 16,
+            "错误": 33
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "autoscientist · claude-sonnet-4-6[1m]",
+          "verdict_counts": {
+            "未解析": 1,
+            "正确": 8,
+            "错误": 41
+          },
+          "numeric_summaries": {}
+        },
+        {
+          "method": "minionsos2 · claude-sonnet-4-6[1m]",
+          "verdict_counts": {
+            "未解析": 1,
+            "正确": 18,
+            "错误": 31
+          },
+          "numeric_summaries": {}
+        }
+      ],
+      "rows": [
+        {
+          "task_id": "HF/000",
+          "category": "HF",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "HF/001",
+          "category": "HF",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "未解析"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "未解析"
+            }
+          }
+        },
+        {
+          "task_id": "HF/002",
+          "category": "HF",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "HF/003",
+          "category": "HF",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "HF/004",
+          "category": "HF",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "ED/005",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "VMC/006",
+          "category": "VMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "DMRG/007",
+          "category": "DMRG",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/008",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/009",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/010",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "DMRG/011",
+          "category": "DMRG",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "未解析"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "未解析"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "DMRG/012",
+          "category": "DMRG",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "VMC/013",
+          "category": "VMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "ED/014",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "ED/015",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "ED/016",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/017",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/018",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "ED/019",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "ED/020",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "PEPS/021",
+          "category": "PEPS",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "未解析"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "ED/022",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "Other/023",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/024",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "ED/025",
+          "category": "ED",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "Other/026",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "QMC/027",
+          "category": "QMC",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "DMRG/028",
+          "category": "DMRG",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/029",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/030",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "Other/031",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/032",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/033",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/034",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "Other/035",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "PEPS/036",
+          "category": "PEPS",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/037",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/038",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/039",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/040",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/041",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "SM/042",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "未解析"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "SM/043",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "SM/044",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "SM/045",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "SM/046",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            }
+          }
+        },
+        {
+          "task_id": "Other/047",
+          "category": "Other",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "正确"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "PEPS/048",
+          "category": "PEPS",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "正确"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "错误"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        },
+        {
+          "task_id": "SM/049",
+          "category": "SM",
+          "methods": {
+            "purellm_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "purellm · gpt-5.5": {
+              "verdict": "错误"
+            },
+            "codex_gpt54 · gpt-5.4": {
+              "verdict": "错误"
+            },
+            "codex · gpt-5.5": {
+              "verdict": "正确"
+            },
+            "purellm_sonnet46_1m · claude-sonnet-4-6": {
+              "verdict": "错误"
+            },
+            "claudecode · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "autoscientist · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            },
+            "minionsos2 · claude-sonnet-4-6[1m]": {
+              "verdict": "正确"
+            }
+          }
+        }
+      ],
+      "source": "MinionsOS2-Bench@150fa10 / CML-Bench/evaluation/regrade_reports/20260708-162616/per_answer_regrade.csv",
+      "result_route": "cmt-official-eval+deterministic-format-repair/v1 adopted verdict",
+      "claim_eligible": false,
+      "limitations": [
+        "legacy-not-bmp-verified",
+        "raw-answers-and-gold-omitted",
+        "source-private-approved-projection"
+      ]
+    },
+    {
+      "benchmark_id": "biomnibench-da",
+      "name": "BiomniBench DA",
+      "row_count": 50,
+      "method_columns": [
+        "Biomni · default",
+        "PantheonOS · default",
+        "CellVoyager · default",
+        "CodexCLI · default",
+        "BaseLLM · default",
+        "Biomni · xhigh",
+        "PantheonOS · xhigh",
+        "CellVoyager · xhigh",
+        "CodexCLI · xhigh",
+        "BaseLLM · xhigh"
+      ],
+      "method_summaries": [
+        {
+          "method": "Biomni · default",
+          "verdict_counts": {
+            "成功": 50
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 28.58,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "PantheonOS · default",
+          "verdict_counts": {
+            "失败": 1,
+            "成功": 49
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 58.18,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "CellVoyager · default",
+          "verdict_counts": {
+            "失败": 47,
+            "成功": 3
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 2.4,
+              "min": 0.0,
+              "max": 58.0
+            }
+          }
+        },
+        {
+          "method": "CodexCLI · default",
+          "verdict_counts": {
+            "失败": 3,
+            "成功": 47
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 57.1,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "BaseLLM · default",
+          "verdict_counts": {
+            "成功": 50
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 1.16,
+              "min": 0.0,
+              "max": 21.0
+            }
+          }
+        },
+        {
+          "method": "Biomni · xhigh",
+          "verdict_counts": {
+            "失败": 2,
+            "成功": 48
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 48.92,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "PantheonOS · xhigh",
+          "verdict_counts": {
+            "失败": 18,
+            "成功": 32
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 26.0,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "CellVoyager · xhigh",
+          "verdict_counts": {
+            "失败": 50
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 0.0,
+              "min": 0.0,
+              "max": 0.0
+            }
+          }
+        },
+        {
+          "method": "CodexCLI · xhigh",
+          "verdict_counts": {
+            "失败": 6,
+            "成功": 44
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 59.16,
+              "min": 0.0,
+              "max": 100.0
+            }
+          }
+        },
+        {
+          "method": "BaseLLM · xhigh",
+          "verdict_counts": {
+            "成功": 50
+          },
+          "numeric_summaries": {
+            "score": {
+              "observed_count": 50,
+              "mean": 1.04,
+              "min": 0.0,
+              "max": 21.0
+            }
+          }
+        }
+      ],
+      "rows": [
+        {
+          "task_id": "da-1-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 62.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 74.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 75.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 70.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 75.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-1-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 92.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 86.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 86.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 89.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-3-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 89.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 21.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 21.0
+            }
+          }
+        },
+        {
+          "task_id": "da-3-5",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 50.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 85.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 92.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-4-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 93.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 82.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-4-6",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 45.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 29.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 65.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 65.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-4-7",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 49.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 59.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 50.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-5-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 75.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 6.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-5-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 70.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 70.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 56.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 82.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-6-2",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 37.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-6-5",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 39.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 66.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 82.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-8-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 86.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 92.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 94.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-8-2",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 72.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 72.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 62.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 72.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-8-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 42.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 48.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 63.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 48.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-9-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 21.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 42.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 49.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 36.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 42.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-9-7",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-10-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 61.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 46.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-10-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 9.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-11-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 69.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 75.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 81.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 87.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-12-2",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 52.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 93.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-12-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 79.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 86.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 93.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 86.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-13-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 55.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 69.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 69.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 95.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-13-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 52.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 52.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 52.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 52.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 64.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 77.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-13-5",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 40.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 70.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-13-6",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 50.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 80.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 50.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-14-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 83.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-14-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 68.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 45.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 54.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 6.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 45.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 34.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 34.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 6.0
+            }
+          }
+        },
+        {
+          "task_id": "da-14-8",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 15.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 71.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 5.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 93.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-15-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 10.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 77.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-15-2",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 10.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 42.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-15-7",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 40.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 50.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 67.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 67.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-15-8",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 60.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-16-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 93.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 85.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 74.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-17-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "CellVoyager · default": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 78.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 6.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 78.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 78.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 6.0
+            }
+          }
+        },
+        {
+          "task_id": "da-17-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 15.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 73.0
+            },
+            "CellVoyager · default": {
+              "verdict": "成功",
+              "score": 27.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 65.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 81.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 73.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-17-5",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 48.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "CellVoyager · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 85.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 8.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 25.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 100.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-18-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 12.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 72.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 82.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-18-5",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 24.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 19.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 59.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 36.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-18-7",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 85.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 57.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 70.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 67.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-19-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 79.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 65.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 72.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 5.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 48.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 65.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 84.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 19.0
+            }
+          }
+        },
+        {
+          "task_id": "da-19-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 85.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 42.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 90.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-19-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 40.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 45.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 55.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-19-6",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 61.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 39.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 29.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 59.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-20-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 23.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 28.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 18.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 18.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 31.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-20-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 76.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 58.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 61.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-20-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 5.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 5.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 15.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-24-3",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 30.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 20.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 20.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 20.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 20.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-25-1",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 44.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 64.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 48.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 78.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-26-2",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "成功",
+              "score": 43.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 35.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        },
+        {
+          "task_id": "da-26-4",
+          "category": "DA",
+          "methods": {
+            "Biomni · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "PantheonOS · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · default": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · default": {
+              "verdict": "成功",
+              "score": 47.0
+            },
+            "BaseLLM · default": {
+              "verdict": "成功",
+              "score": 0.0
+            },
+            "Biomni · xhigh": {
+              "verdict": "成功",
+              "score": 32.0
+            },
+            "PantheonOS · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CellVoyager · xhigh": {
+              "verdict": "失败",
+              "score": 0.0
+            },
+            "CodexCLI · xhigh": {
+              "verdict": "成功",
+              "score": 40.0
+            },
+            "BaseLLM · xhigh": {
+              "verdict": "成功",
+              "score": 0.0
+            }
+          }
+        }
+      ],
+      "source": "AOSEBench@def4dae7 / results/{default,xhigh}/_summary/llm_judge_summary.tsv",
+      "result_route": "BiomniBench DA rubric judge score; no-output remains zero and in the denominator",
+      "claim_eligible": false,
+      "limitations": [
+        "legacy-not-bmp-verified",
+        "judge-score-not-gold-verdict",
+        "source-private-approved-projection"
+      ]
+    },
+    {
+      "benchmark_id": "naturebench",
+      "name": "NatureBench",
+      "row_count": 31,
+      "method_columns": [
+        "Magenta · Claude Opus 4.7 · medium"
+      ],
+      "method_summaries": [
+        {
+          "method": "Magenta · Claude Opus 4.7 · medium",
+          "verdict_counts": {
+            "失败": 5,
+            "成功": 26
+          },
+          "numeric_summaries": {
+            "g": {
+              "observed_count": 31,
+              "mean": -0.11114193548387094,
+              "min": -0.8962,
+              "max": 0.6693
+            },
+            "upstream_g": {
+              "observed_count": 27,
+              "mean": 0.06654444444444449,
+              "min": -1.0,
+              "max": 2.2198
+            }
+          }
+        }
+      ],
+      "rows": [
+        {
+          "task_id": "s41467-025-63418-x",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.0106,
+              "upstream_g": 0.0048
+            }
+          }
+        },
+        {
+          "task_id": "s41551-024-01312-5",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.1521,
+              "upstream_g": 0.1767
+            }
+          }
+        },
+        {
+          "task_id": "s41551-025-01528-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.004,
+              "upstream_g": 0.0075
+            }
+          }
+        },
+        {
+          "task_id": "s41587-024-02414-w",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0496,
+              "upstream_g": -0.0582
+            }
+          }
+        },
+        {
+          "task_id": "s41587-025-02688-8",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.2851,
+              "upstream_g": 1.6145
+            }
+          }
+        },
+        {
+          "task_id": "s41592-022-01709-7",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0812,
+              "upstream_g": -0.1352
+            }
+          }
+        },
+        {
+          "task_id": "s41592-023-01940-w",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.5238,
+              "upstream_g": -0.9339
+            }
+          }
+        },
+        {
+          "task_id": "s41592-023-01955-3",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.1485,
+              "upstream_g": 2.2198
+            }
+          }
+        },
+        {
+          "task_id": "s41592-023-02035-2",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0729,
+              "upstream_g": -0.0111
+            }
+          }
+        },
+        {
+          "task_id": "s41592-023-02124-2",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.092,
+              "upstream_g": 0.0996
+            }
+          }
+        },
+        {
+          "task_id": "s41592-023-02148-8",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "失败",
+              "g": -0.778,
+              "upstream_g": 0.2625
+            }
+          }
+        },
+        {
+          "task_id": "s41592-024-02191-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.6189,
+              "upstream_g": 0.0346
+            }
+          }
+        },
+        {
+          "task_id": "s41592-024-02257-y",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.3421,
+              "upstream_g": -0.288
+            }
+          }
+        },
+        {
+          "task_id": "s41592-024-02316-4",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0014,
+              "upstream_g": 0.0309
+            }
+          }
+        },
+        {
+          "task_id": "s41592-024-02372-w",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "失败",
+              "g": 0.6693,
+              "upstream_g": -1.0
+            }
+          }
+        },
+        {
+          "task_id": "s41592-024-02523-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0321,
+              "upstream_g": -0.0669
+            }
+          }
+        },
+        {
+          "task_id": "s41592-025-02854-5",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "失败",
+              "g": -0.8962,
+              "upstream_g": "n/a"
+            }
+          }
+        },
+        {
+          "task_id": "s41592-025-02870-5",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.0467,
+              "upstream_g": -0.0021
+            }
+          }
+        },
+        {
+          "task_id": "s41592-025-02924-8",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0866,
+              "upstream_g": -0.0986
+            }
+          }
+        },
+        {
+          "task_id": "s41592-025-02926-6",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.5125,
+              "upstream_g": -0.4278
+            }
+          }
+        },
+        {
+          "task_id": "s41592-025-02983-x",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.2007,
+              "upstream_g": -0.0272
+            }
+          }
+        },
+        {
+          "task_id": "s42256-022-00518-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.1446,
+              "upstream_g": "n/a"
+            }
+          }
+        },
+        {
+          "task_id": "s42256-022-00534-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "失败",
+              "g": 0.0004,
+              "upstream_g": "n/a"
+            }
+          }
+        },
+        {
+          "task_id": "s42256-023-00627-3",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.0411,
+              "upstream_g": 0.4616
+            }
+          }
+        },
+        {
+          "task_id": "s42256-024-00836-4",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0924,
+              "upstream_g": -0.089
+            }
+          }
+        },
+        {
+          "task_id": "s42256-025-01003-z",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.4579,
+              "upstream_g": -0.356
+            }
+          }
+        },
+        {
+          "task_id": "s42256-025-01016-8",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "失败",
+              "g": 0.2414,
+              "upstream_g": 0.0759
+            }
+          }
+        },
+        {
+          "task_id": "s43588-024-00689-2",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.125,
+              "upstream_g": 0.218
+            }
+          }
+        },
+        {
+          "task_id": "s43588-024-00698-1",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": -0.0047,
+              "upstream_g": 0.006
+            }
+          }
+        },
+        {
+          "task_id": "s43588-024-00765-7",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.0993,
+              "upstream_g": 0.0783
+            }
+          }
+        },
+        {
+          "task_id": "s43588-025-00878-7",
+          "category": "Cellular Omics",
+          "methods": {
+            "Magenta · Claude Opus 4.7 · medium": {
+              "verdict": "成功",
+              "g": 0.1129,
+              "upstream_g": "n/a"
+            }
+          }
+        }
+      ],
+      "source": "AOSEBench-NatureBench@4b51202 / opus4.7_medium.csv",
+      "result_route": "NatureBench score evaluator with GPT-5.5 validity judge",
+      "claim_eligible": false,
+      "limitations": [
+        "legacy-not-bmp-verified",
+        "medium-cohort-only",
+        "cellular-omics-31-case-domain-only"
+      ]
+    },
+    {
+      "benchmark_id": "bioml-bench",
+      "name": "BioML-Bench",
+      "row_count": 8,
+      "method_columns": [
+        "MinionsOS2（8-agent team）"
+      ],
+      "method_summaries": [
+        {
+          "method": "MinionsOS2（8-agent team）",
+          "verdict_counts": {
+            "优于基线": 3,
+            "未击败基线": 5
+          },
+          "numeric_summaries": {}
+        }
+      ],
+      "rows": [
+        {
+          "task_id": "polaris-adme-fang-hppb-1",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "未击败基线",
+              "metric_summary": "MinionsOS2=0.8535 Pearson r；AutoScientists=0.8729；leaderboard percentile=50；medal=-；beats AutoScientists=no"
+            }
+          }
+        },
+        {
+          "task_id": "polaris-adme-fang-solu-1",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "未击败基线",
+              "metric_summary": "MinionsOS2=0.6434 Pearson r；AutoScientists=0.6578；leaderboard percentile=0；medal=-；beats AutoScientists=no"
+            }
+          }
+        },
+        {
+          "task_id": "tdcommons-caco2-wang",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "未击败基线",
+              "metric_summary": "MinionsOS2=0.2823 MAE(lower)；AutoScientists=0.2766；leaderboard percentile=25；medal=-；beats AutoScientists=no"
+            }
+          }
+        },
+        {
+          "task_id": "polaris-pkis2-egfr-wt-c-1",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "优于基线",
+              "metric_summary": "MinionsOS2=0.8418 PR-AUC；AutoScientists=0.7662；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+            }
+          }
+        },
+        {
+          "task_id": "tdcommons-cyp2d6-substrate-carbonmangels",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "优于基线",
+              "metric_summary": "MinionsOS2=0.6954 AUPRC；AutoScientists=0.6187；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+            }
+          }
+        },
+        {
+          "task_id": "tdcommons-bbb-martins",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "未击败基线",
+              "metric_summary": "MinionsOS2=0.9163 AUROC；AutoScientists=0.9203；leaderboard percentile=40；medal=Bronze；beats AutoScientists=no"
+            }
+          }
+        },
+        {
+          "task_id": "tdcommons-lipophilicity-astrazeneca",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "未击败基线",
+              "metric_summary": "MinionsOS2=0.5418 MAE(lower)；AutoScientists=0.4219；leaderboard percentile=25；medal=-；beats AutoScientists=no"
+            }
+          }
+        },
+        {
+          "task_id": "tdcommons-herg",
+          "category": "drug-discovery",
+          "methods": {
+            "MinionsOS2（8-agent team）": {
+              "verdict": "优于基线",
+              "metric_summary": "MinionsOS2=0.8672 AUROC；AutoScientists=0.8667；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+            }
+          }
+        }
+      ],
+      "source": "MinionsOS_Paper@48173d1 / bioml_bench_drug_results.json",
+      "result_route": "per-task AUROC and AutoScientists baseline comparison",
+      "claim_eligible": false,
+      "limitations": [
+        "legacy-not-bmp-verified",
+        "eight-completed-drug-discovery-tasks-only",
+        "single-local-method"
+      ]
+    },
+    {
+      "benchmark_id": "swe-bench-lite-(not-verified)",
+      "name": "SWE-bench Lite (not Verified)",
+      "row_count": 1,
+      "method_columns": [
+        "Codex CLI 0.144.4 · gpt-5.6-sol · high"
+      ],
+      "method_summaries": [
+        {
+          "method": "Codex CLI 0.144.4 · gpt-5.6-sol · high",
+          "verdict_counts": {
+            "成功": 1
+          },
+          "numeric_summaries": {}
+        }
+      ],
+      "rows": [
+        {
+          "task_id": "astropy-6938",
+          "category": "astropy",
+          "methods": {
+            "Codex CLI 0.144.4 · gpt-5.6-sol · high": {
+              "verdict": "成功",
+              "metric_summary": "focused verifier=2 passed；instances=1；wall time=290.3s；tokens=111,311"
+            }
+          }
+        }
+      ],
+      "source": "MagentaBenchmark@a913967 / records/swebench-astropy-6938-probe/probe.json",
+      "result_route": "focused verifier for one SWE-bench Lite instance",
+      "claim_eligible": false,
+      "limitations": [
+        "exploratory-single-instance",
+        "not-swe-bench-verified",
+        "not-statistically-claim-ready"
+      ]
+    }
+  ]
+}
