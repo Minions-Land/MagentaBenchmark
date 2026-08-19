@@ -1,0 +1,30 @@
+[adapter]
+id = "apptainer.rootless.factory"
+kind = "adapter"
+adapter = "apptainer"
+bmp_version = "0.1"
+adapter_kind = "backend_factory"
+source = "."
+entrypoint = "plugins/apptainer/adapter.py:ApptainerBackendFactory"
+digest = "12a31ebef037f048f9d3bf75c55648321610426c1d7752da41a05a3f7344e577"
+supported_benchmark_kinds = ["custom", "task_suite", "tool_agent_suite"]
+supported_backend_kinds = ["container"]
+supported_backend_adapters = ["apptainer"]
+backend_default_read_set = [
+  "binds",
+  "forwarded_env_names",
+  "fakeroot",
+  "gpu",
+  "gpu_library_path",
+  "gpu_library_sha256",
+  "image_kind",
+  "image_sha256",
+  "launcher_build_config_sha256",
+  "max_artifact_bytes",
+  "max_artifact_entries",
+  "max_capture_bytes",
+  "network_mode",
+  "overlay",
+  "keep_workspace_on_failure",
+  "termination_grace_seconds",
+]

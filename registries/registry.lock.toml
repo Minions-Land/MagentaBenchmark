@@ -1,6 +1,13 @@
 [registry]
 format = "magentabench-registry-lock-v1"
-catalog_digest = "06615db2312dd70ebdc7a02c753dea09266e993201c558a03e7a16381229909e"
+catalog_digest = "7621baa9b30f1dcf38c92a58038d45e150c8325d53d34991f5c1e6029cd85feb"
+
+[[registry.entries]]
+path = "adapters/apptainer-backend.toml"
+section = "adapter"
+id = "apptainer.rootless.factory"
+sha256 = "319f233d7366631690462fabd338ad0f8f54bc2678caf5509d8dce9bdd0aa109"
+size_bytes = 819
 
 [[registry.entries]]
 path = "adapters/cell-metrics-source.toml"
@@ -78,6 +85,13 @@ section = "backend"
 id = "aose.docker.immutable"
 sha256 = "50a1c4a52a23f315e57486800b12aba0ecd747405c4b038f208504848621f5bd"
 size_bytes = 260
+
+[[registry.entries]]
+path = "backends/apptainer.toml"
+section = "backend"
+id = "apptainer.rootless.exploratory"
+sha256 = "2c3b25e013c8fe69ae5405c2e43d8d3eaa4b9ed13a0c6ff91e58b5cfd1003fd2"
+size_bytes = 966
 
 [[registry.entries]]
 path = "backends/fake-local.toml"
