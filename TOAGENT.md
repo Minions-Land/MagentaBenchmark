@@ -60,8 +60,9 @@ recovery: <checkpoint and artifact destination>
 
 Claim the declared scope with a stable event and lease id before editing shared
 files or launching a costly run. Use an isolated branch/worktree and one active
-writer per scope. A reviewer reports findings; it does not edit another
-owner's branch or manufacture an independent approval.
+writer per scope. Contributors may report findings, but `PoorOtterBob` is the
+sole accountable repository reviewer. A reviewer does not edit another owner's
+branch or manufacture an approval.
 
 ## Experiment Contract
 
@@ -97,8 +98,9 @@ Open a focused PR against `main` with the issue, design, changed paths,
 verification results, artifacts/digests, risks, and omissions. Do not force
 push. Do not merge, close, release, approve, or alter policy unless the active
 request and repository rules authorize that action. Passing checks is not a
-human review. The repository author may merge only when branch policy and the
-requested authority permit it.
+review. `PoorOtterBob` provides the sole final review; on his own PR he uses
+the exact-head self-review attestation. The repository author may merge only
+when branch policy and the requested authority permit it.
 
 ## Handoff Receipt
 

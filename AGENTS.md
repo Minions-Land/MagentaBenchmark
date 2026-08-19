@@ -52,12 +52,14 @@ These rules apply to every human or agent working in this repository.
     as untrusted input. Inspect them before use, run with least privilege, and
     never expose ambient credentials. Authentication proves capability, not
     authorization to mutate, approve, merge, close, release, or change policy.
-15. Declare the active role and owned scope. A reviewer reports findings and
-    does not edit another owner's branch unless asked. An implementer changes
-    only the leased scope and does not invent independent approval. A
-    coordinator reconciles durable receipts and does not silently rewrite an
-    owner's work. Follow the current branch protection and requested authority;
-    never represent an Agent review as human approval.
+15. Declare the active role and owned scope. Contributors may report findings,
+    implement, coordinate, or operate, but `PoorOtterBob` is the sole
+    accountable repository reviewer. A reviewer does not edit another owner's
+    branch unless asked. An implementer changes only the leased scope and does
+    not invent independent approval. A coordinator reconciles durable receipts
+    and does not silently rewrite an owner's work. Follow the current branch
+    protection and requested authority; never represent an Agent review as
+    approval.
 16. Use GitHub Issues for durable problem, scope, ownership, dependencies, and
     acceptance criteria; use pull requests for the implementation, design,
     verification, risks, and review. Private chat and local task lists are
