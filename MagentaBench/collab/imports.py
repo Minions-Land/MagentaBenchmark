@@ -766,6 +766,19 @@ def validate_historical_imports(
                     imports_root=imports_root,
                 )
             continue
+        # Materializer fixtures and blocked-candidate notes are support data,
+        # not historical source snapshots or ledger inputs.
+        if source_dir.name == "materialized":
+            if source_dir.is_symlink() or not source_dir.is_dir():
+                _finding(
+                    errors,
+                    "source-layout",
+                    "materialized evidence namespace must be a real directory",
+                    path=source_dir,
+                    project_root=root,
+                    imports_root=imports_root,
+                )
+            continue
         if source_dir.is_symlink() or not source_dir.is_dir():
             _finding(
                 errors,
