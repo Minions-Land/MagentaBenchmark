@@ -199,6 +199,31 @@ def test_verify_grid_does_not_collapse_string_and_integer_ids(tmp_path: Path) ->
     assert run_script(VERIFY_GRID, mixed, *_grid_args(expected)).returncode == 0
 
 
+def test_verify_grid_rejects_non_scalar_empty_and_non_finite_fields(
+    tmp_path: Path,
+) -> None:
+    expected = tmp_path / "expected.json"
+    expected.write_text(
+        json.dumps({"task_ids": ["task"], "trial_ids": [0]}), encoding="utf-8"
+    )
+    malformed_values = [[], {}, True, "   ", float("nan"), float("inf")]
+    for field in ("reward", "terminal_state"):
+        for index, value in enumerate(malformed_values):
+            row: dict[str, object] = {
+                "task_id": "task",
+                "trial": 0,
+                "reward": 0.0,
+                "terminal_state": "completed",
+            }
+            row[field] = value
+            result = tmp_path / f"malformed-{field}-{index}.json"
+            result.write_text(json.dumps([row]), encoding="utf-8")
+            assert (
+                run_script(VERIFY_GRID, result, *_grid_args(expected)).returncode
+                == 2
+            )
+
+
 def _create_project_layout(root: Path) -> None:
     (root / "AGENTS.md").write_text("authority\n", encoding="utf-8")
     (root / "README.md").write_text("project\n", encoding="utf-8")
@@ -245,6 +270,60 @@ def test_validate_project_layout_rejects_wrong_node_types(tmp_path: Path) -> Non
     (project / "runs").write_text("not a directory\n", encoding="utf-8")
 
     assert run_script(VALIDATE_LAYOUT, project, "--require-ready").returncode == 1
+
+
+def test_validate_project_layout_rejects_in_root_package_symlink(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    _create_project_layout(project)
+    actual = project / "actual-package"
+    actual.mkdir()
+    for name in ("CONTRACT.md", "HANDOFF.md", "STATUS.md"):
+        (actual / name).write_text(f"{name}\n", encoding="utf-8")
+    package = project / "work-packages/wp-alias"
+    try:
+        package.symlink_to("../actual-package", target_is_directory=True)
+    except OSError:
+        pytest.skip("filesystem does not support symlinks")
+
+    outside = tmp_path / "outside-package"
+    outside.mkdir()
+    for name in ("CONTRACT.md", "HANDOFF.md", "STATUS.md"):
+        (outside / name).write_text(f"{name}\n", encoding="utf-8")
+    (project / "work-packages/wp-outside").symlink_to(
+        "../../outside-package", target_is_directory=True
+    )
+
+    result = run_script(VALIDATE_LAYOUT, project, "--require-ready")
+    assert result.returncode == 1
+    assert "symlink" in result.stdout
+    assert "wp-outside" in result.stdout
+
+    (project / "work-packages/wp-no-contract").symlink_to(
+        "../actual-package", target_is_directory=True
+    )
+    (actual / "CONTRACT.md").unlink()
+    no_contract_result = run_script(VALIDATE_LAYOUT, project, "--require-ready")
+    assert no_contract_result.returncode == 1
+    assert "wp-no-contract" in no_contract_result.stdout
+    assert "symlink" in no_contract_result.stdout
+
+    component_project = tmp_path / "component-project"
+    component_project.mkdir()
+    _create_project_layout(component_project)
+    (component_project / "work-packages").rename(
+        component_project / "actual-work-packages"
+    )
+    (component_project / "work-packages").symlink_to(
+        "actual-work-packages", target_is_directory=True
+    )
+    component_result = run_script(
+        VALIDATE_LAYOUT, component_project, "--require-ready"
+    )
+    assert component_result.returncode == 1
+    assert "symlink" in component_result.stdout
 
 
 def _receipt(
@@ -399,6 +478,30 @@ def test_validate_receipt_rejects_forged_review_and_credentials(
     assert result.returncode == 1
     assert "credential" in result.stdout
     assert "Final reviewer must be PoorOtterBob" in result.stdout
+
+
+def test_validate_receipt_rejects_credential_bearing_uri_schemes(
+    tmp_path: Path,
+) -> None:
+    relative = tmp_path / "relative.md"
+    _write_receipt(
+        relative,
+        _receipt(
+            "incomplete",
+            "incomplete",
+            "artifact: results/report.json\nfixture://local/report.json#sha256",
+        ),
+    )
+    assert run_script(VALIDATE_RECEIPT, relative).returncode == 0
+
+    authority_template = "${USER}:${PASSWORD}@example.invalid"
+    for index, scheme in enumerate(("postgresql", "redis", "ssh")):
+        uri = f"_{scheme}://{authority_template}/path_"
+        receipt = tmp_path / f"uri-{index}.md"
+        _write_receipt(receipt, _receipt("incomplete", "incomplete", uri))
+        result = run_script(VALIDATE_RECEIPT, receipt)
+        assert result.returncode == 1
+        assert "URI" in result.stdout
 
 
 def test_external_declaration_must_be_non_claim(tmp_path: Path) -> None:

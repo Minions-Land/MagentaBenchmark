@@ -29,7 +29,7 @@ SECRET_VALUE = re.compile(
     r"-----BEGIN .*PRIVATE KEY-----)",
     re.IGNORECASE,
 )
-URL = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+URI = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://[^\s<>()]+")
 SIDECAR = re.compile(r"^([0-9a-f]{64})(?:[ \t]+\*?(.+))?\n?$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -58,13 +58,17 @@ def _exact_field(text: str, label: str, errors: list[str]) -> str | None:
     return values[0]
 
 
-def _contains_authenticated_url(text: str) -> bool:
-    for match in URL.finditer(text):
+def _contains_unsafe_uri(text: str) -> bool:
+    for match in URI.finditer(text):
         try:
             parsed = urlsplit(match.group(0).rstrip(".,;"))
         except ValueError:
             return True
-        if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        has_userinfo = parsed.username is not None or parsed.password is not None
+        unsafe_http_suffix = parsed.scheme.casefold() in {"http", "https"} and (
+            parsed.query or parsed.fragment
+        )
+        if has_userinfo or unsafe_http_suffix:
             return True
     return False
 
@@ -157,8 +161,10 @@ def main() -> int:
     ]
     if SECRET_ASSIGNMENT.search(text) or SECRET_VALUE.search(text):
         errors.append("possible credential value")
-    if _contains_authenticated_url(text):
-        errors.append("authenticated, query-bearing, or fragmented URL")
+    if _contains_unsafe_uri(text):
+        errors.append(
+            "credential-bearing URI or query-bearing/fragmented HTTP(S) URL"
+        )
 
     state = _exact_field(text, "State", errors)
     evidence_class = _exact_field(text, "Evidence class", errors)
