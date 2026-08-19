@@ -1,0 +1,4 @@
+interface:
+  display_name: "Experiment Integrity"
+  short_description: "Verify parity, provenance, results, and run sentinels"
+  default_prompt: "Use $experiment-integrity to verify this run with provenance, five sentinels, completeness checks, and claim boundaries."

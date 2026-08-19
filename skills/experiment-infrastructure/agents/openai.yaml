@@ -1,0 +1,4 @@
+interface:
+  display_name: "Experiment Infrastructure"
+  short_description: "Operate APIs, GPUs, storage, and isolated run environments"
+  default_prompt: "Use $experiment-infrastructure to preflight shared resources and run this experiment without leaking secrets or touching unrelated work."

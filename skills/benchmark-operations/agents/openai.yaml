@@ -1,0 +1,4 @@
+interface:
+  display_name: "Benchmark Operations"
+  short_description: "Run long benchmarks with fixed contracts and evidence"
+  default_prompt: "Use $benchmark-operations to plan and run this benchmark with resource limits, ordered gates, and complete evidence."
