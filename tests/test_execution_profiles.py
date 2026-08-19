@@ -56,7 +56,7 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert apptainer["backends"][0]["configured"] is True
     assert apptainer["backends"][0]["standalone_verifier_boundary_closed"] is False
     assert apptainer["isolation_boundary"] == "task-container"
-    assert apptainer["lab_issue"] == "apptainer-runtime-core"
+    assert apptainer["lab_issue"] == "apptainer-verifier-boundary"
     assert apptainer["lab_status"] not in {None, "done", "cancelled"}
     assert apptainer["maximum_evidence_label"] == "exploratory"
 

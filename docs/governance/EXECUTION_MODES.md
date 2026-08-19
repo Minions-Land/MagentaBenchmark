@@ -15,7 +15,7 @@ target requirements live in `execution-profiles/<mode>/profile.json`.
 | --- | --- | --- | --- | --- |
 | `local-process` | fake/subprocess configured; Harbor shim registered-only | process | BMP-gated for configured backends | none |
 | `docker` | Harbor configured; AOSE Docker registered-only until its factory capability is present | task container | BMP-gated for configured backends | benchmark-specific blockers remain in `lab/` |
-| `apptainer` | host readiness probe only; no registered backend | task container | exploratory | `apptainer-runtime-core` |
+| `apptainer` | exploratory backend factory registered; host identity remains unbound | task container | exploratory | `apptainer-verifier-boundary` |
 | `appcontainer` | no concrete runtime or adapter | task container | exploratory | `appcontainer-backend-adapter` |
 | `e2b` | no adapter | microVM | exploratory | `e2b-backend-adapter` |
 | `remote-sandbox` | extension slot only | microVM | exploratory | `remote-sandbox-backend-adapter` |
@@ -66,13 +66,14 @@ path exists. Fakeroot, cgroup v2, and GPU visibility are explicit per-Benchmark
 requirements rather than universal Apptainer requirements. The probe never
 pulls, builds, inspects, or executes an image.
 
-This mode has no registered backend today, remains `exploratory`, and cannot be
-selected for a BMP execution. The linked `apptainer-runtime-core` work item
-must first bind a launcher and SIF/sandbox identity, implement effective
-bind/overlay/network/GPU arguments, export artifacts, and persist cancellation
-and teardown receipts. The separate `apptainer-verifier-boundary` work item
-must then close standalone verification. Host readiness is not a runtime
-activation receipt and does not upgrade evidence.
+This mode has a registered exploratory backend factory and runtime receipt
+implementation, but its checked-in launcher, build configuration, and image
+pins are deliberately non-runnable placeholders. It cannot be selected by a
+benchmark execution tuple. The linked `apptainer-verifier-boundary` work item
+must independently verify launcher and image identity, effective policy,
+artifact export, cancellation, and teardown before the profile can report a
+closed boundary. Host readiness and factory registration are not runtime
+activation receipts and do not upgrade evidence.
 
 NatureBench-specific translation belongs in the NatureBench repository on its
 dedicated `NatureBranch`; it must not import NatureBench task, scoring, hidden
