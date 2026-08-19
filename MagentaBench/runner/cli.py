@@ -12,10 +12,49 @@ try:
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10
     import tomli as tomllib
 
-from MagentaBench.schemas import verify_run_report
+from MagentaBench.schemas import EvidenceBundle, RunStatus, verify_run_report
 
 from .compiler import Compiler
-from .pipeline import Pipeline
+from .pipeline import Pipeline, PipelineResult
+
+
+_NON_EXECUTION_FAILURE_STATUSES = frozenset(
+    {RunStatus.pass_, RunStatus.verified_fail, RunStatus.scored}
+)
+
+
+def _failed_attempts(result: PipelineResult) -> list[dict[str, Any]]:
+    """Return structured locators for attempts that did not reach scoring."""
+
+    failures = []
+    seen: set[tuple[str, str]] = set()
+    for completed in result.runs:
+        receipt = completed.schedule_receipt
+        for attempt in receipt.attempts:
+            identity = (receipt.run_id, attempt.attempt_id)
+            if (
+                identity in seen
+                or attempt.status in _NON_EXECUTION_FAILURE_STATUSES
+            ):
+                continue
+            seen.add(identity)
+            bundle_ref = attempt.evidence_bundle_ref
+            if bundle_ref is None:  # verify_run_report rejects this first.
+                continue
+            bundle = EvidenceBundle.model_validate_json(
+                Path(bundle_ref.path).read_bytes()
+            )
+            failures.append(
+                {
+                    "run_id": receipt.run_id,
+                    "case_id": attempt.case_id,
+                    "attempt_id": attempt.attempt_id,
+                    "status": attempt.status.value,
+                    "evidence_bundle": bundle_ref.path,
+                    "log_artifacts": [ref.path for ref in bundle.log_refs],
+                }
+            )
+    return failures
 
 
 def _parse_set(value: str) -> tuple[str, Any]:
@@ -128,6 +167,7 @@ def run_main(argv: Sequence[str] | None = None) -> int:
                 "report": str(result.report_path.resolve()),
                 "aggregate": str(result.aggregate_path.resolve()),
                 "run_count": len(result.runs),
+                "failed_attempts": _failed_attempts(result),
                 "verified": True,
             },
             sort_keys=True,

@@ -99,8 +99,10 @@ verification results, artifacts/digests, risks, and omissions. Do not force
 push. Do not merge, close, release, approve, or alter policy unless the active
 request and repository rules authorize that action. Passing checks is not a
 review. `PoorOtterBob` provides the sole final review; on his own PR he uses
-the exact-head self-review attestation. The repository author may merge only
-when branch policy and the requested authority permit it.
+the exact-head self-review attestation. New `bmp-lab` `approved` reviews must
+also be authored by `PoorOtterBob`; other actors can record advisory or
+`changes_requested` findings. The repository author may merge only when branch
+policy and the requested authority permit it.
 
 ## Handoff Receipt
 

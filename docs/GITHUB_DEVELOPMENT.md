@@ -260,7 +260,7 @@ Use the lab ledger for state, not ad-hoc labels:
 | Run cannot proceed | Structured blocker with recovery and unblock condition | Current holder records it; coordinator resolves it with evidence |
 | Shift is ready | Committed checkpoint, stable run query, released lease, recovery Issue | No writer until the next claim wins |
 | Shift accepted | New claim event and verified `recover` output | New lease holder |
-| Work is complete | Approved review, released lease, all blockers resolved, `done` event | Coordinator/authorized closer |
+| Work is complete | `PoorOtterBob` final review, released lease, all blockers resolved, `done` event | Coordinator/authorized closer records the mechanical closeout |
 
 An `@mention`, an Issue assignment, a PR comment, or a green command does not
 transfer ownership. The new claim event is the ownership boundary. The same

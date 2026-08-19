@@ -58,8 +58,9 @@ These rules apply to every human or agent working in this repository.
     branch unless asked. An implementer changes only the leased scope and does
     not invent independent approval. A coordinator reconciles durable receipts
     and does not silently rewrite an owner's work. Follow the current branch
-    protection and requested authority; never represent an Agent review as
-    approval.
+    protection and requested authority; a new `bmp-lab` `approved` review must
+    also be written by `PoorOtterBob`. Other actors may record advisory or
+    `changes_requested` findings, but never represent them as final approval.
 16. Use GitHub Issues for durable problem, scope, ownership, dependencies, and
     acceptance criteria; use pull requests for the implementation, design,
     verification, risks, and review. Private chat and local task lists are
