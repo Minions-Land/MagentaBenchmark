@@ -17,7 +17,9 @@
     "scripts/check_execution_profiles.py",
     "apptainer"
   ],
-  "registered_backend_ids": [],
+  "registered_backend_ids": [
+    "apptainer.rootless.exploratory"
+  ],
   "required_identity_evidence": [
     "absolute Apptainer launcher path digest version and build configuration",
     "content-addressed SIF or reproducible sandbox image identity",

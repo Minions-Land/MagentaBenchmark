@@ -47,21 +47,24 @@ def test_execution_modes_join_profiles_backends_and_lab_work() -> None:
     assert modes["e2b"]["lab_issue"] == "e2b-backend-adapter"
     assert modes["e2b"]["lab_status"] not in {None, "done", "cancelled"}
     assert modes["e2b"]["maximum_evidence_label"] == "exploratory"
-    assert modes["apptainer"]["backends"] == []
-    assert modes["apptainer"]["configured"] is False
-    assert modes["apptainer"]["isolation_boundary"] == "task-container"
-    assert modes["apptainer"]["lab_issue"] == "apptainer-runtime-core"
-    assert modes["apptainer"]["lab_status"] not in {None, "done", "cancelled"}
-    assert modes["apptainer"]["maximum_evidence_label"] == "exploratory"
+    apptainer = modes["apptainer"]
+    assert [item["backend_id"] for item in apptainer["backends"]] == [
+        "apptainer.rootless.exploratory"
+    ]
+    assert apptainer["configured"] is True
+    assert apptainer["standalone_verifier_boundary_closed"] is False
+    assert apptainer["backends"][0]["configured"] is True
+    assert apptainer["backends"][0]["standalone_verifier_boundary_closed"] is False
+    assert apptainer["isolation_boundary"] == "task-container"
+    assert apptainer["lab_issue"] == "apptainer-runtime-core"
+    assert apptainer["lab_status"] not in {None, "done", "cancelled"}
+    assert apptainer["maximum_evidence_label"] == "exploratory"
 
 
 def test_execution_modes_classify_custom_local_backends_by_kind(tmp_path: Path) -> None:
     repository = _profile_repository(tmp_path)
     (tmp_path / "registries/backends/custom-local.toml").write_text(
-        "[backend]\n"
-        'id = "custom.local"\n'
-        'kind = "local"\n'
-        'adapter = "custom-local"\n',
+        '[backend]\nid = "custom.local"\nkind = "local"\nadapter = "custom-local"\n',
         encoding="utf-8",
     )
     path = tmp_path / "execution-profiles/local-process/profile.json"
@@ -89,13 +92,17 @@ def test_execution_modes_classify_custom_local_backends_by_kind(tmp_path: Path) 
 
 
 def test_backend_readiness_does_not_promote_inactive_registered_adapters() -> None:
-    modes = {item["mode"]: item for item in ExperimentRepository(ROOT).execution_modes()}
+    modes = {
+        item["mode"]: item for item in ExperimentRepository(ROOT).execution_modes()
+    }
     local = {item["backend_id"]: item for item in modes["local-process"]["backends"]}
     docker = {item["backend_id"]: item for item in modes["docker"]["backends"]}
 
     assert local["fake.local"]["configured"] is True
     assert local["native-process.local.v1"]["configured"] is True
-    assert local["native-process.local.v1"]["standalone_verifier_boundary_closed"] is True
+    assert (
+        local["native-process.local.v1"]["standalone_verifier_boundary_closed"] is True
+    )
     assert local["subprocess.echo"]["configured"] is True
     assert local["harbor.local-shim"]["configured"] is False
     assert docker["harbor.0.20.0"]["configured"] is True
@@ -151,10 +158,7 @@ def test_open_verifier_boundary_requires_a_live_adapter_work_item(
 ) -> None:
     repository = _profile_repository(tmp_path)
     (tmp_path / "registries/backends/e2b-test.toml").write_text(
-        "[backend]\n"
-        'id = "e2b.test"\n'
-        'kind = "remote"\n'
-        'adapter = "e2b"\n',
+        '[backend]\nid = "e2b.test"\nkind = "remote"\nadapter = "e2b"\n',
         encoding="utf-8",
     )
     path = tmp_path / "execution-profiles/e2b/profile.json"
@@ -169,31 +173,36 @@ def test_open_verifier_boundary_requires_a_live_adapter_work_item(
         repository.execution_modes()
 
 
-def test_apptainer_registered_backend_stays_unconfigured_and_exploratory(
+def test_apptainer_registered_backends_preserve_readiness_distinction(
     tmp_path: Path,
 ) -> None:
     repository = _profile_repository(tmp_path)
     (tmp_path / "registries/backends/apptainer-test.toml").write_text(
-        "[backend]\n"
-        'id = "apptainer.test"\n'
-        'kind = "container"\n'
-        'adapter = "apptainer"\n',
+        '[backend]\nid = "apptainer.test"\nkind = "container"\nadapter = "apptainer"\n',
         encoding="utf-8",
     )
     path = tmp_path / "execution-profiles/apptainer/profile.json"
     profile = json.loads(path.read_text(encoding="utf-8"))
-    profile["registered_backend_ids"] = ["apptainer.test"]
+    profile["registered_backend_ids"] = [
+        "apptainer.rootless.exploratory",
+        "apptainer.test",
+    ]
     path.write_text(
         json.dumps(profile, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
 
     modes = {item["mode"]: item for item in repository.execution_modes()}
     apptainer = modes["apptainer"]
-    assert apptainer["configured"] is False
+    assert apptainer["configured"] is True
     assert apptainer["standalone_verifier_boundary_closed"] is False
     assert apptainer["maximum_evidence_label"] == "exploratory"
-    assert apptainer["backends"][0]["configured"] is False
-    assert apptainer["backends"][0]["standalone_verifier_boundary_closed"] is False
+    backends = {item["backend_id"]: item for item in apptainer["backends"]}
+    assert backends["apptainer.rootless.exploratory"]["configured"] is True
+    assert backends["apptainer.test"]["configured"] is True
+    assert all(
+        item["standalone_verifier_boundary_closed"] is False
+        for item in backends.values()
+    )
 
 
 def test_malformed_backend_declaration_fails_strict_parsing(tmp_path: Path) -> None:
@@ -238,9 +247,7 @@ def test_execution_profile_schema_rejects_unrecoverable_or_unsafe_metadata() -> 
     assert list(validator.iter_errors(trailing_newline))
 
     apptainer = json.loads(
-        (ROOT / "execution-profiles/apptainer/profile.json").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "execution-profiles/apptainer/profile.json").read_text(encoding="utf-8")
     )
     missing_probe = dict(apptainer)
     missing_probe.pop("readiness_probe_argv")
@@ -282,9 +289,7 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
 
     commands: list[tuple[str, ...]] = []
 
-    def fake_run(
-        argv: tuple[str, ...], *, timeout: float = 15.0
-    ) -> tuple[int, str]:
+    def fake_run(argv: tuple[str, ...], *, timeout: float = 15.0) -> tuple[int, str]:
         commands.append(tuple(argv))
         if argv[-1] == "--version":
             return 0, "apptainer version 1.5.3"
@@ -307,7 +312,9 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
         lambda name: (
             "/usr/bin/unshare"
             if name == "unshare"
-            else "/usr/bin/findmnt" if name == "findmnt" else None
+            else "/usr/bin/findmnt"
+            if name == "findmnt"
+            else None
         ),
     )
 
@@ -336,9 +343,7 @@ def test_apptainer_readiness_probe_is_host_only_and_fails_closed(
     assert "uidmap_helpers" not in report["required_checks"]
     assert "subordinate_ids" not in report["required_checks"]
     assert "cgroup_v2" not in report["required_checks"]
-    assert all(
-        "exec" not in command and "pull" not in command for command in commands
-    )
+    assert all("exec" not in command and "pull" not in command for command in commands)
 
 
 def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
@@ -358,9 +363,7 @@ def test_apptainer_readiness_only_gates_optional_capabilities_when_requested(
         helper.write_bytes(b"fixture\n")
         helper.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
-    def fake_run(
-        argv: tuple[str, ...], *, timeout: float = 15.0
-    ) -> tuple[int, str]:
+    def fake_run(argv: tuple[str, ...], *, timeout: float = 15.0) -> tuple[int, str]:
         if argv[-1] == "--version":
             return 0, "apptainer version 1.5.3"
         if argv[-1] == "buildcfg":
@@ -454,9 +457,7 @@ def test_apptainer_readiness_rejects_wrong_launcher_and_missing_image(
     for name in ("cache", "tmp", "artifacts"):
         (tmp_path / name).mkdir()
 
-    def fake_run(
-        argv: tuple[str, ...], *, timeout: float = 15.0
-    ) -> tuple[int, str]:
+    def fake_run(argv: tuple[str, ...], *, timeout: float = 15.0) -> tuple[int, str]:
         if argv[-1] == "--version":
             return 0, "not-apptainer 1.5.3"
         if argv[-1] == "buildcfg":

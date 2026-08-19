@@ -1,0 +1,27 @@
+[backend]
+id = "apptainer.rootless.exploratory"
+kind = "container"
+adapter = "apptainer"
+bmp_version = "0.1"
+executable = "/usr/bin/apptainer"
+version = "Apptainer 1.3.4"
+# This declaration is intentionally registered-only until a real host binds
+# these two identities. The factory fails closed when either pin is absent or
+# differs; no host readiness probe promotes this mode.
+digest = "0000000000000000000000000000000000000000000000000000000000000000"
+image = "/var/lib/apptainer/images/magentabench.sif"
+
+[backend.defaults]
+image_kind = "sif"
+image_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+launcher_build_config_sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+network_mode = "none"
+fakeroot = true
+gpu = false
+forwarded_env_names = []
+binds = []
+keep_workspace_on_failure = true
+max_capture_bytes = 16777216
+max_artifact_bytes = 67108864
+max_artifact_entries = 4096
+termination_grace_seconds = 5.0
