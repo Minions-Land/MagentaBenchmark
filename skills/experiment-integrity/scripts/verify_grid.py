@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import math
 from pathlib import Path
 import re
 from typing import TypeAlias
@@ -69,6 +70,21 @@ def _rows(path: Path) -> list[object]:
     raise ValueError("results must be a list or contain a simulations list")
 
 
+def _required_value(value: object, field: str) -> None:
+    """Require a JSON scalar that cannot hide an absent or invalid value."""
+    if value is None or isinstance(value, bool):
+        raise ValueError(f"result field {field} must be a non-empty scalar")
+    if isinstance(value, str):
+        if not value.strip():
+            raise ValueError(f"result field {field} must be a non-empty scalar")
+        return
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"result field {field} must be finite")
+        return
+    raise ValueError(f"result field {field} must be a non-empty scalar")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("results", type=Path)
@@ -77,7 +93,10 @@ def main() -> int:
         "--required-field",
         action="append",
         required=True,
-        help="top-level result field that must exist and be non-null; repeatable",
+        help=(
+            "top-level result field that must be a non-empty scalar; "
+            "numeric values must be finite; repeatable"
+        ),
     )
     args = parser.parse_args()
     if any(
@@ -96,8 +115,9 @@ def main() -> int:
             if not isinstance(item, dict):
                 raise ValueError("every result row must be an object")
             for field in args.required_field:
-                if field not in item or item[field] is None or item[field] == "":
+                if field not in item:
                     raise ValueError(f"result row requires non-empty field {field}")
+                _required_value(item[field], field)
             keys.append(
                 (
                     _row_value(item, "task_id", "task"),

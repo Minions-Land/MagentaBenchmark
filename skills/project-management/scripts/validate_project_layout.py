@@ -102,18 +102,29 @@ def main() -> int:
         _require_file(root, infra_dir / "READY", errors)
 
     wp_root = root / work_packages_dir
-    packages = (
-        sorted(path.parent for path in wp_root.glob("*/CONTRACT.md"))
-        if wp_root.is_dir() and not wp_root.is_symlink()
-        else []
-    )
+    packages: list[Path] = []
+    if wp_root.is_dir() and not wp_root.is_symlink():
+        try:
+            entries = sorted(wp_root.iterdir(), key=lambda path: path.name)
+        except OSError as exc:
+            errors.append(f"cannot inspect work-packages directory: {exc}")
+            entries = []
+        for entry in entries:
+            if entry.is_symlink():
+                errors.append(
+                    f"work package entry {entry.name!r} cannot use a symlink"
+                )
+            elif entry.is_dir():
+                packages.append(entry)
     if not packages:
         errors.append("no work package CONTRACT.md found")
     for package in packages:
         try:
-            relative_package = package.resolve(strict=True).relative_to(root)
-        except (OSError, ValueError):
-            errors.append(f"work package escapes root: {package.name}")
+            # Keep the lexical path until _real_child has rejected aliases.
+            relative_package = package.relative_to(root)
+            _real_child(root, relative_package, f"work package {package.name}")
+        except (OSError, ValueError) as exc:
+            errors.append(str(exc))
             continue
         for name in ("CONTRACT.md", "HANDOFF.md", "STATUS.md"):
             _require_file(root, relative_package / name, errors)
