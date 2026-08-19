@@ -1,0 +1,22 @@
+{
+  "candidate": "public external-materializer contract fixture",
+  "files": [
+    {
+      "destination": "fixture/public-pilot.json",
+      "locator": {
+        "credential_names": [],
+        "locator": "fixture://local/payload.json",
+        "provider": "fixture",
+        "revision": "v1"
+      },
+      "role": "fixture",
+      "sha256": "0c786f47d04ae86eabab0008812b495072f02b936a194fc714f5918d2a735caf",
+      "size_bytes": 284
+    }
+  ],
+  "format": "magentabench-external-evidence-manifest-v1",
+  "license_id": "CC0-1.0",
+  "non_claim": true,
+  "relocation_maps": [],
+  "source_id": "external-evidence-public-pilot-v1"
+}

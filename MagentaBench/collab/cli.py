@@ -6,9 +6,12 @@ import argparse
 import json
 import os
 from pathlib import Path
+from pathlib import PurePosixPath
+import shutil
 import subprocess
 import sys
 from typing import Any, Sequence
+from urllib.parse import urlsplit
 
 from .repository import (
     CollaborationError,
@@ -18,6 +21,12 @@ from .repository import (
 )
 from .ledger import build_experiment_ledger, parse_path_maps, render_csv
 from .imports import HistoricalImportValidation, validate_historical_imports
+from .external_evidence import (
+    ExternalEvidenceError,
+    ExternalLocator,
+    load_external_evidence_spec,
+    materialize_external_evidence,
+)
 
 
 def _json(value: Any) -> str:
@@ -53,6 +62,21 @@ def _parser() -> argparse.ArgumentParser:
         help="historical import root (default: PROJECT_ROOT/imports)",
     )
     validate_imports.add_argument("--format", choices=("text", "json"), default="text")
+
+    materialize = sub.add_parser(
+        "materialize",
+        help="materialize one strict external-evidence manifest from a local source root",
+    )
+    materialize.add_argument("--manifest", required=True, type=Path)
+    materialize.add_argument(
+        "--source-root",
+        required=True,
+        type=Path,
+        help="local provider mirror; URI paths are resolved below this root",
+    )
+    materialize.add_argument("--destination-parent", required=True, type=Path)
+    materialize.add_argument("--root-name", default=None)
+    materialize.add_argument("--format", choices=("text", "json"), default="json")
 
     listing = sub.add_parser(
         "list", help="render the derived bundle queue without a hand-edited board"
@@ -430,6 +454,61 @@ def main(argv: Sequence[str] | None = None) -> int:
                 end="",
             )
             return 0 if report.ok else 1
+        if args.command == "materialize":
+            spec = load_external_evidence_spec(args.manifest)
+            declared_source_root = args.source_root.expanduser()
+            try:
+                if declared_source_root.is_symlink():
+                    raise ExternalEvidenceError("source root must be a real directory")
+                source_root = declared_source_root.resolve(strict=True)
+            except OSError as exc:
+                raise ExternalEvidenceError("source root is unavailable") from exc
+            if not source_root.is_dir() or source_root.is_symlink():
+                raise ExternalEvidenceError("source root must be a real directory")
+
+            def local_fetcher(locator: ExternalLocator, target: Path) -> None:
+                parsed = urlsplit(locator.locator)
+                relative = PurePosixPath(parsed.path.lstrip("/"))
+                if not relative.parts or any(
+                    part in {"", ".", ".."} for part in relative.parts
+                ):
+                    raise ExternalEvidenceError("local provider path is not normalized")
+                declared_source = source_root.joinpath(*relative.parts)
+                try:
+                    source = declared_source.resolve(strict=True)
+                    source.relative_to(source_root)
+                    if declared_source.is_symlink() or not source.is_file():
+                        raise ExternalEvidenceError(
+                            "local provider artifact is unavailable"
+                        )
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(source, target)
+                except (OSError, ValueError) as exc:
+                    raise ExternalEvidenceError(
+                        "local provider artifact is unavailable"
+                    ) from exc
+
+            receipt = materialize_external_evidence(
+                spec,
+                args.destination_parent,
+                local_fetcher,
+                root_name=args.root_name,
+            )
+            output = {
+                "format": "magentabench-external-materialization-cli-v1",
+                "receipt": receipt.as_dict(),
+                "receipt_sha256": receipt.receipt_sha256,
+                # A host path is useful to the invoking process but is not
+                # part of the portable receipt or its public evidence.
+                "root": "<materialization-root>",
+                "root_name": receipt.root.name,
+            }
+            if args.format == "json":
+                print(_json(output), end="")
+            else:
+                print("materialized bytes verified in a fresh root")
+                print(f"receipt sha256: {receipt.receipt_sha256}")
+            return 0
         if args.command == "list":
             report = repository.validate()
             print(
@@ -564,7 +643,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0 if report.ok else 1
         raise CollaborationError(f"unsupported command: {args.command}")
-    except (CollaborationError, OSError) as exc:
+    except (CollaborationError, ExternalEvidenceError, OSError) as exc:
         print(f"bmp-collab: {exc}", file=sys.stderr)
         return 2
 
