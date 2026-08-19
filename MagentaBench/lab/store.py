@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover - unsupported platforms fail closed
 
 from .models import (
     LAB_ID_PATTERN,
+    LAB_FINAL_REVIEWER,
     LabArtifactRef,
     LabEvent,
     LabEventKind,
@@ -542,7 +543,13 @@ class LabStore:
     def _active_at(lease: LabLease | None, at: datetime) -> LabLease | None:
         return lease if lease is not None and lease.expires_at > at else None
 
-    def _apply_event(self, state: LabIssueState, event: LabEvent) -> LabIssueState:
+    def _apply_event(
+        self,
+        state: LabIssueState,
+        event: LabEvent,
+        *,
+        enforce_review_authority: bool = False,
+    ) -> LabIssueState:
         if event.created_at < state.updated_at:
             raise LabConflictError(
                 f"lab event timestamp moves backwards for {event.issue_id}: "
@@ -567,7 +574,21 @@ class LabStore:
             LabEventKind.link_run,
             LabEventKind.review,
         }
-        if event.kind in controlled_kinds:
+        final_reviewer_event = (
+            event.kind == LabEventKind.review
+            and event.actor == LAB_FINAL_REVIEWER
+        )
+        if (
+            enforce_review_authority
+            and event.kind == LabEventKind.review
+            and event.review is not None
+            and event.review.verdict == LabReviewVerdict.approved
+            and event.actor != LAB_FINAL_REVIEWER
+        ):
+            raise LabConflictError(
+                f"approved lab review requires final reviewer {LAB_FINAL_REVIEWER}"
+            )
+        if event.kind in controlled_kinds and not final_reviewer_event:
             authorized = {owner if owner is not None else state.issue.created_by}
             if active_lease is not None:
                 authorized = {active_lease.owner}
@@ -820,6 +841,8 @@ class LabStore:
                     f"lab event previous revision mismatch at {path}: "
                     f"expected {revision}, got {event.previous_revision}"
                 )
+            # Existing immutable records predate the single-reviewer policy.
+            # They remain replayable; new append_event calls enforce it below.
             state = self._apply_event(state, event)
             revision = _next_revision(revision, content)
             state = state.model_copy(
@@ -962,7 +985,7 @@ class LabStore:
                                     f"lab run {event.run.run_id} has conflicting "
                                     "manifest digests"
                                 )
-                self._apply_event(state, event)
+                self._apply_event(state, event, enforce_review_authority=True)
                 _atomic_create(event_path, canonical_json_bytes(event))
                 return LabMutation(
                     state=self._load_unlocked(issue_id),

@@ -171,7 +171,7 @@ def _terminal_review_with_source_snapshot(
         issue_id,
         "review",
         LabEventKind.review,
-        "alice",
+        "PoorOtterBob",
         created_at=T0 + timedelta(seconds=7),
         review=LabReview(
             verdict=LabReviewVerdict.approved,
@@ -309,7 +309,7 @@ def test_complete_workflow_requires_lease_checkpoint_review_and_release(
         "workflow",
         "review",
         "review",
-        "alice",
+        "PoorOtterBob",
         created_at=T0 + timedelta(seconds=8),
         review=LabReview(
             verdict=LabReviewVerdict.approved,
@@ -328,6 +328,104 @@ def test_complete_workflow_requires_lease_checkpoint_review_and_release(
     assert result.state.status == LabStatus.done
     assert result.state.latest_review is not None
     assert store.doctor(at=T0 + timedelta(seconds=10))["ok"] is True
+
+
+def test_only_poor_otter_bob_can_append_a_new_approved_review(tmp_path: Path) -> None:
+    store = LabStore(tmp_path)
+    store.open_issue(_issue("single-reviewer"))
+    store.append_event(
+        "single-reviewer",
+        "ready",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=1),
+        status=LabStatus.ready,
+    )
+    store.append_event(
+        "single-reviewer",
+        "claim",
+        LabEventKind.claim,
+        "alice",
+        created_at=T0 + timedelta(seconds=2),
+        owner="alice",
+        lease_id="lease-single-reviewer",
+        lease_ttl_seconds=3600,
+        lease_base_commit=HEAD,
+        lease_branch="work/single-reviewer",
+    )
+    store.append_event(
+        "single-reviewer",
+        "running",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=3),
+        status=LabStatus.running,
+    )
+    store.append_event(
+        "single-reviewer",
+        "checkpoint",
+        LabEventKind.checkpoint,
+        "alice",
+        created_at=T0 + timedelta(seconds=4),
+        checkpoint=LabCheckpoint(
+            git_head=HEAD,
+            git_branch="work/single-reviewer",
+            worktree_clean=True,
+            resume_argv=("uv", "run", "bmp-lab", "recover", "single-reviewer"),
+            next_action="Review the retained evidence.",
+        ),
+    )
+    store.append_event(
+        "single-reviewer",
+        "verifying",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=5),
+        status=LabStatus.verifying,
+    )
+    store.append_event(
+        "single-reviewer",
+        "release",
+        LabEventKind.release,
+        "alice",
+        created_at=T0 + timedelta(seconds=6),
+        lease_id="lease-single-reviewer",
+    )
+    approved = LabReview(
+        verdict=LabReviewVerdict.approved,
+        summary="All acceptance evidence is present.",
+        accepted_criteria=("verified",),
+    )
+
+    with pytest.raises(LabConflictError, match="final reviewer PoorOtterBob"):
+        store.append_event(
+            "single-reviewer",
+            "approved-by-alice",
+            LabEventKind.review,
+            "alice",
+            created_at=T0 + timedelta(seconds=7),
+            review=approved,
+        )
+    assert not (
+        tmp_path / "lab/issues/single-reviewer/events/approved-by-alice.json"
+    ).exists()
+
+    store.append_event(
+        "single-reviewer",
+        "approved-by-poor-otter-bob",
+        LabEventKind.review,
+        "PoorOtterBob",
+        created_at=T0 + timedelta(seconds=8),
+        review=approved,
+    )
+    assert store.append_event(
+        "single-reviewer",
+        "done",
+        LabEventKind.status,
+        "alice",
+        created_at=T0 + timedelta(seconds=9),
+        status=LabStatus.done,
+    ).state.status == LabStatus.done
 
 
 def test_blocker_and_recovery_plan_preserve_next_action(tmp_path: Path) -> None:
@@ -777,7 +875,7 @@ def test_material_change_invalidates_an_approved_review(tmp_path: Path) -> None:
         "review-boundary",
         "approved",
         "review",
-        "alice",
+        "PoorOtterBob",
         created_at=T0 + timedelta(seconds=7),
         review=approved,
     )
@@ -809,7 +907,7 @@ def test_material_change_invalidates_an_approved_review(tmp_path: Path) -> None:
         "review-boundary",
         "approved-again",
         "review",
-        "alice",
+        "PoorOtterBob",
         created_at=T0 + timedelta(seconds=10),
         review=approved,
     )
@@ -1265,7 +1363,7 @@ def test_doctor_recovers_terminal_checkpoint_source_snapshot_from_git_history(
         issue_id,
         "review",
         LabEventKind.review,
-        "alice",
+        "PoorOtterBob",
         created_at=T0 + timedelta(seconds=7),
         review=LabReview(
             verdict=LabReviewVerdict.approved,
