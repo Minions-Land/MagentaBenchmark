@@ -2,7 +2,16 @@
 
 This file explains the intent behind `CODEOWNERS` and the required repository
 settings. The lab ledger coordinates active work; GitHub review protects the
-protocol surface. They are complementary controls.
+repository surface. They are complementary controls.
+
+## Single Review Owner
+
+`PoorOtterBob` is the single accountable GitHub reviewer for this repository.
+Other collaborators can implement work, run experiments, report findings, and
+leave advisory comments, but their approval is never a required merge
+condition. This deliberately keeps the current lab's decision path short
+while retaining immutable issue, lease, checkpoint, commit, CI, and evidence
+records.
 
 ## Merge classes
 
@@ -21,10 +30,11 @@ Changes under `MagentaBench/adapters/`, `MagentaBench/schemas/`,
 require:
 
 1. the protocol impact item in the PR template checked; and
-2. either a current listed-owner review or an authorized author self-review
-   (the `protocol-review` workflow checks this).
+2. either a current `PoorOtterBob` approval or an authorized `PoorOtterBob`
+   exact-head self-review (the `protocol-review` workflow checks this).
 
-Do not merge a lab-only review as a substitute for protocol-owner approval.
+Do not merge a lab-only review as a substitute for `PoorOtterBob` final
+approval or self-review.
 Shared files such as `pyproject.toml`, `uv.lock`, and `registries/registry.lock.toml`
 should be rebased and revalidated after every concurrent merge.
 
@@ -32,12 +42,14 @@ should be rebased and revalidated after every concurrent merge.
 
 Repository administrators should protect `main` with:
 
-- pull requests and the always-present required status checks. This repository
-  currently requires zero general approvals so the author may merge after the
-  checks pass; an author must not manufacture an independent review;
+- pull requests and the always-present required status checks. The general
+  approval count remains zero: a `PoorOtterBob`-authored PR cannot approve
+  itself through GitHub's review API, so the review workflow provides the
+  attributable self-review gate instead;
 - dismissal of stale approvals after new commits;
 - the always-present required status checks `MagentaBench required gate`,
-  `Protocol review required gate`, and `Execution profile required gate`;
+  `PoorOtterBob review required gate`, `Protocol review required gate`, and
+  `Execution profile required gate`;
   these gates cannot remain pending merely because a path class was not
   selected;
 - no force pushes or branch deletion;
@@ -45,16 +57,14 @@ Repository administrators should protect `main` with:
 
 The general branch rule does not remove the BMP protocol boundary. A pull
 request that changes a protected BMP path must still satisfy the dedicated
-`BMP protocol review gate`. That gate accepts a current approval from one of
-the listed protocol owners, or an exact-head self-review attestation by the
-authorized author `PoorOtterBob`. The latter is deliberately attributable and
-is not reported as an independent review. `CODEOWNERS` continues to route
-review requests and document path ownership; it is not a claim that every
-documentation or lab PR needs another person's approval.
+`BMP protocol review gate`. For a PR authored by someone else, that means a
+current approval from `PoorOtterBob`; for a PR authored by `PoorOtterBob`, it
+means the exact-head self-review attestation in the PR body. The latter is
+deliberately attributable and is not reported as an independent review.
 
-The current CODEOWNERS entries use the repository's active collaborators. Move
-them to dedicated GitHub teams when those teams are created, keeping the path
-split and protocol review requirements unchanged.
+`CODEOWNERS` intentionally routes every path to `PoorOtterBob`, including
+documentation, lab records, and workflows. Review requests to other
+collaborators are optional notifications only.
 
 ## Secret and evidence rule
 

@@ -1,0 +1,79 @@
+name: Repository review gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: repository-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name: PoorOtterBob review required gate
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+      PR_REPOSITORY: ${{ github.repository }}
+      REQUIRED_REVIEWER: PoorOtterBob
+    steps:
+      - name: Require the sole final reviewer
+        shell: bash
+        run: |
+          set -euo pipefail
+          reviews="$(
+            gh api --paginate --slurp \
+              "repos/${PR_REPOSITORY}/pulls/${PR_NUMBER}/reviews"
+          )"
+          approved="$(
+            jq -r \
+              --arg head "$HEAD_SHA" \
+              --arg required "$REQUIRED_REVIEWER" \
+              '
+                add
+                | map(select(
+                    .state == "APPROVED"
+                    or .state == "CHANGES_REQUESTED"
+                    or .state == "DISMISSED"
+                  ))
+                | group_by(.user.login)
+                | map(max_by(.id))
+                | map(select(
+                    .state == "APPROVED"
+                    and .commit_id == $head
+                    and .user.login == $required
+                  ))
+                | map(.user.login)
+                | unique
+                | join(", ")
+              ' <<<"$reviews"
+          )"
+          if [[ -n "$approved" ]]; then
+            echo "Current PoorOtterBob approval: $approved"
+            exit 0
+          fi
+
+          # GitHub does not allow an author to approve their own pull request.
+          # PoorOtterBob-authored PRs therefore use a body attestation bound to
+          # the exact head SHA; this is attributable self-review, not a second
+          # reviewer or a fabricated approval.
+          if [[ "$PR_AUTHOR" == "$REQUIRED_REVIEWER" ]] \
+            && grep -Fqi -- "[x] I completed PoorOtterBob final review/self-review" <<<"${PR_BODY:-}" \
+            && grep -Fq -- "Final review HEAD: \`$HEAD_SHA\`" <<<"${PR_BODY:-}"; then
+            echo "PoorOtterBob self-review attested for $HEAD_SHA"
+            exit 0
+          fi
+
+          echo "A current PoorOtterBob approval or exact-head PoorOtterBob self-review is required." >&2
+          echo "Other collaborator reviews are advisory only." >&2
+          exit 1
