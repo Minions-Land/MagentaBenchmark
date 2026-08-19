@@ -39,15 +39,32 @@ from MagentaBench.runner.evidence import (
     sha256_file,
     source_closure_digest,
 )
-from MagentaBench.runner.network import record_unobservable_network
+from MagentaBench.runner.network import (
+    record_active_network_probe,
+    record_unobservable_network,
+)
 from MagentaBench.schemas import (
     ArtifactRef,
     CaseArtifact,
     CaseSetArtifact,
     NetworkBoundary,
+    NetworkEndpointRecord,
     NetworkPolicySource,
     RunStatus,
     VerifierEvidence,
+)
+from tools.mirror_acquisition.mirror import (
+    AcquisitionError,
+    DockerClient,
+    PinnedExecutable,
+    SubprocessRunner,
+    acquisition_ref,
+    verify_cached_image,
+)
+from tools.mirror_acquisition.models import (
+    ImageSpecError,
+    LoadedImageSpec,
+    load_image_spec,
 )
 
 # Keep the custom Harbor Agent in the statically audited source closure without
@@ -60,6 +77,34 @@ if TYPE_CHECKING:
 _ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 _PYTEST_COMPLETION = re.compile(
     r"^=+\s+(?P<body>.+?)\s+in\s+[0-9]+(?:\.[0-9]+)?s\s+=+$"
+)
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_OCI_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CONTAINER_ID = re.compile(r"^[0-9a-f]{64}$")
+_VERSION = re.compile(r"^[0-9]{1,4}(?:\.[0-9]{1,4}){1,3}$")
+_HOSTNAME = re.compile(
+    r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\."
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+)
+_RUNTIME_IDENTITY_FORMAT = "magentabench-harbor-runtime-identity-v1"
+_CONTAINER_RECEIPT_FORMAT = "magentabench-harbor-container-receipt-v1"
+_RUNTIME_FAILURE_FORMAT = "magentabench-harbor-runtime-identity-failure-v1"
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_RUNTIME_IDENTITY_KEYS = frozenset(
+    {
+        "format",
+        "required",
+        "retain_task_container",
+        "docker_executable",
+        "docker_executable_sha256",
+        "docker_client_version",
+        "docker_server_version",
+        "oci_mirror_registry",
+        "network_probe_host",
+        "network_probe_port",
+        "network_probe_timeout_seconds",
+        "task_image_specs",
+    }
 )
 _MODULE_DIGEST = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
@@ -87,6 +132,445 @@ class TerminalBenchCase:
     case_set_digest: str
     allow_internet: bool
     verifier_completion_artifact: str | None
+
+
+class TerminalBenchRuntimeIdentityError(HarborConfigurationError):
+    """A safe, classified failure at the retained task-container boundary."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class _RuntimeIdentityPolicy:
+    docker_executable: Path
+    docker_executable_sha256: str
+    docker_client_version: str
+    docker_server_version: str
+    oci_mirror_registry: str
+    network_probe_host: str
+    network_probe_port: int
+    network_probe_timeout_seconds: int
+    image_spec_path: Path
+    image_spec_relative_path: str
+    loaded_image_spec: LoadedImageSpec
+
+
+@dataclass(frozen=True)
+class _RuntimePreflight:
+    policy: _RuntimeIdentityPolicy
+    docker_version: Mapping[str, str]
+    docker_executable_size: int
+    cache_verification: Mapping[str, Any]
+
+
+def _runtime_failure(code: str, message: str) -> TerminalBenchRuntimeIdentityError:
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", code) is None:
+        code = "RUNTIME_IDENTITY_FAILED"
+    return TerminalBenchRuntimeIdentityError(code, message)
+
+
+def _registered_spec_path(value: Any) -> tuple[Path, str]:
+    if (
+        not isinstance(value, str)
+        or not value
+        or "\\" in value
+        or Path(value).is_absolute()
+        or any(part in {"", ".", ".."} for part in Path(value).parts)
+    ):
+        raise _runtime_failure(
+            "IMAGE_SPEC_PATH_INVALID",
+            "registered OCI image spec path is invalid",
+        )
+    candidate = _PROJECT_ROOT
+    for part in Path(value).parts:
+        candidate = candidate / part
+        if candidate.is_symlink():
+            raise _runtime_failure(
+                "IMAGE_SPEC_PATH_INVALID",
+                "registered OCI image spec path is invalid",
+            )
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError as exc:
+        raise _runtime_failure(
+            "IMAGE_SPEC_UNAVAILABLE",
+            "registered OCI image spec is unavailable",
+        ) from exc
+    try:
+        resolved.relative_to(_PROJECT_ROOT)
+    except ValueError as exc:
+        raise _runtime_failure(
+            "IMAGE_SPEC_PATH_INVALID",
+            "registered OCI image spec path is invalid",
+        ) from exc
+    if not resolved.is_file():
+        raise _runtime_failure(
+            "IMAGE_SPEC_UNAVAILABLE",
+            "registered OCI image spec is unavailable",
+        )
+    return resolved, value
+
+
+def _task_docker_image(case: TerminalBenchCase) -> str:
+    path = Path(case.task_manifest_ref.path)
+    if (
+        not path.is_file()
+        or path.stat().st_size != case.task_manifest_ref.size_bytes
+        or sha256_file(path) != case.task_manifest_ref.sha256
+    ):
+        raise _runtime_failure(
+            "TASK_MANIFEST_DRIFT",
+            "Terminal-Bench task manifest identity drifted before runtime preflight",
+        )
+    try:
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
+        environment = document["environment"]
+        image = environment["docker_image"]
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, KeyError, TypeError) as exc:
+        raise _runtime_failure(
+            "TASK_IMAGE_MISSING",
+            "Terminal-Bench task image declaration is unavailable",
+        ) from exc
+    if (
+        not isinstance(environment, Mapping)
+        or not isinstance(image, str)
+        or not image
+        or image != image.strip()
+        or not image.isascii()
+        or any(marker in image for marker in ("=", "@", "://", "\\"))
+    ):
+        raise _runtime_failure(
+            "TASK_IMAGE_INVALID",
+            "Terminal-Bench task image declaration is invalid",
+        )
+    return image
+
+
+def _runtime_identity_policy(
+    run: CompiledRun,
+    case: TerminalBenchCase,
+) -> _RuntimeIdentityPolicy:
+    declared = run.manifest.execution.backend.defaults.get("runtime_identity")
+    if not isinstance(declared, Mapping):
+        raise _runtime_failure(
+            "RUNTIME_POLICY_MISSING",
+            "registered Harbor runtime identity policy is missing",
+        )
+    if set(declared) != _RUNTIME_IDENTITY_KEYS:
+        raise _runtime_failure(
+            "RUNTIME_POLICY_KEYS_INVALID",
+            "registered Harbor runtime identity policy has invalid keys",
+        )
+    if declared.get("format") != _RUNTIME_IDENTITY_FORMAT:
+        raise _runtime_failure(
+            "RUNTIME_POLICY_FORMAT_INVALID",
+            "registered Harbor runtime identity policy format is invalid",
+        )
+    if declared.get("required") is not True:
+        raise _runtime_failure(
+            "RUNTIME_POLICY_NOT_REQUIRED",
+            "registered Harbor runtime identity policy must fail closed",
+        )
+    if declared.get("retain_task_container") is not True:
+        raise _runtime_failure(
+            "CONTAINER_RETENTION_DISABLED",
+            "registered Harbor runtime identity policy must retain the task container",
+        )
+
+    executable_value = declared.get("docker_executable")
+    if not isinstance(executable_value, str):
+        raise _runtime_failure(
+            "DOCKER_EXECUTABLE_INVALID",
+            "registered Docker executable path is invalid",
+        )
+    executable = Path(executable_value)
+    executable_digest = declared.get("docker_executable_sha256")
+    if (
+        not executable.is_absolute()
+        or executable.name != "docker"
+        or executable_value != executable.as_posix()
+        or any(part in {"", ".", ".."} for part in executable.parts[1:])
+        or not isinstance(executable_digest, str)
+        or _SHA256.fullmatch(executable_digest) is None
+    ):
+        raise _runtime_failure(
+            "DOCKER_EXECUTABLE_INVALID",
+            "registered Docker executable identity is invalid",
+        )
+
+    client_version = declared.get("docker_client_version")
+    server_version = declared.get("docker_server_version")
+    if (
+        not isinstance(client_version, str)
+        or _VERSION.fullmatch(client_version) is None
+        or not isinstance(server_version, str)
+        or _VERSION.fullmatch(server_version) is None
+    ):
+        raise _runtime_failure(
+            "DOCKER_VERSION_POLICY_INVALID",
+            "registered Docker version policy is invalid",
+        )
+    mirror = declared.get("oci_mirror_registry")
+    if (
+        not isinstance(mirror, str)
+        or not mirror
+        or not mirror.isascii()
+        or any(marker in mirror for marker in ("/", "@", "=", "://", "\\"))
+    ):
+        raise _runtime_failure(
+            "OCI_MIRROR_INVALID",
+            "registered OCI mirror registry is invalid",
+        )
+
+    probe_host = declared.get("network_probe_host")
+    probe_port = declared.get("network_probe_port")
+    probe_timeout = declared.get("network_probe_timeout_seconds")
+    if not isinstance(probe_host, str) or _HOSTNAME.fullmatch(probe_host) is None:
+        raise _runtime_failure(
+            "NETWORK_PROBE_POLICY_INVALID",
+            "registered network probe host is invalid",
+        )
+    if (
+        not isinstance(probe_port, int)
+        or isinstance(probe_port, bool)
+        or not 1 <= probe_port <= 65535
+        or not isinstance(probe_timeout, int)
+        or isinstance(probe_timeout, bool)
+        or not 1 <= probe_timeout <= 30
+    ):
+        raise _runtime_failure(
+            "NETWORK_PROBE_POLICY_INVALID",
+            "registered network probe parameters are invalid",
+        )
+
+    mappings = declared.get("task_image_specs")
+    if not isinstance(mappings, Mapping) or not mappings:
+        raise _runtime_failure(
+            "IMAGE_SPEC_MAP_INVALID",
+            "registered task image spec map is invalid",
+        )
+    normalized_specs: dict[str, tuple[Path, str]] = {}
+    for task_id, relative_path in mappings.items():
+        if not isinstance(task_id, str) or _ID.fullmatch(task_id) is None:
+            raise _runtime_failure(
+                "IMAGE_SPEC_MAP_INVALID",
+                "registered task image spec map is invalid",
+            )
+        normalized_specs[task_id] = _registered_spec_path(relative_path)
+    if case.task_id not in normalized_specs:
+        raise _runtime_failure(
+            "IMAGE_SPEC_NOT_REGISTERED",
+            "Terminal-Bench task has no registered OCI image spec",
+        )
+    image_spec_path, image_spec_relative_path = normalized_specs[case.task_id]
+    try:
+        loaded = load_image_spec(image_spec_path)
+    except ImageSpecError as exc:
+        raise _runtime_failure(
+            "IMAGE_SPEC_INVALID",
+            "registered OCI image spec is invalid",
+        ) from exc
+    task_image = _task_docker_image(case)
+    spec_task_image = loaded.spec.canonical_tag_ref.removeprefix("docker.io/")
+    if task_image != spec_task_image:
+        raise _runtime_failure(
+            "TASK_IMAGE_SPEC_MISMATCH",
+            "Terminal-Bench task image does not match its registered OCI spec",
+        )
+    return _RuntimeIdentityPolicy(
+        docker_executable=executable,
+        docker_executable_sha256=executable_digest,
+        docker_client_version=client_version,
+        docker_server_version=server_version,
+        oci_mirror_registry=mirror,
+        network_probe_host=probe_host,
+        network_probe_port=probe_port,
+        network_probe_timeout_seconds=probe_timeout,
+        image_spec_path=image_spec_path,
+        image_spec_relative_path=image_spec_relative_path,
+        loaded_image_spec=loaded,
+    )
+
+
+def _runtime_preflight(
+    run: CompiledRun,
+    case: TerminalBenchCase,
+) -> _RuntimePreflight:
+    policy = _runtime_identity_policy(run, case)
+    try:
+        with PinnedExecutable.open(policy.docker_executable) as pinned:
+            if pinned.identity.get("sha256") != policy.docker_executable_sha256:
+                raise _runtime_failure(
+                    "DOCKER_EXECUTABLE_DRIFT",
+                    "registered Docker executable identity drifted",
+                )
+            runner = SubprocessRunner(pass_fds=(pinned.descriptor,))
+            docker = DockerClient(
+                runner,
+                pinned.invocation_path,
+                pinned_executable=pinned,
+            )
+            version = docker.version()
+            if (
+                version.get("client_version") != policy.docker_client_version
+                or version.get("server_version") != policy.docker_server_version
+            ):
+                raise _runtime_failure(
+                    "DOCKER_VERSION_DRIFT",
+                    "Docker runtime version drifted from the registered policy",
+                )
+            cache = verify_cached_image(
+                policy.loaded_image_spec,
+                policy.oci_mirror_registry,
+                docker,
+            )
+            pinned.require_unchanged()
+            size = pinned.identity.get("size_bytes")
+            if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+                raise _runtime_failure(
+                    "DOCKER_EXECUTABLE_DRIFT",
+                    "registered Docker executable identity drifted",
+                )
+    except TerminalBenchRuntimeIdentityError:
+        raise
+    except AcquisitionError as exc:
+        raise _runtime_failure(
+            f"DOCKER_{exc.code}",
+            "Docker and OCI runtime preflight failed",
+        ) from exc
+    return _RuntimePreflight(
+        policy=policy,
+        docker_version=version,
+        docker_executable_size=size,
+        cache_verification=cache,
+    )
+
+
+def _compose_project_name(trial_name: str) -> str:
+    name = trial_name.lower()
+    if not re.match(r"^[a-z0-9]", name):
+        name = "0" + name
+    return re.sub(r"[^a-z0-9_-]", "-", name)
+
+
+def _native_trial_name(native: CaseExecution, attempt_id: str) -> str:
+    prefix = f"{attempt_id}__"
+    if not native.case_id.startswith(prefix):
+        raise _runtime_failure(
+            "NATIVE_TRIAL_IDENTITY_MISSING",
+            "native Harbor trial identity is unavailable",
+        )
+    trial_name = native.case_id.removeprefix(prefix)
+    if _ID.fullmatch(trial_name) is None:
+        raise _runtime_failure(
+            "NATIVE_TRIAL_IDENTITY_INVALID",
+            "native Harbor trial identity is invalid",
+        )
+    verifier = native.bundle.verifier_evidence
+    if verifier is not None and "trial_name" in verifier.details:
+        observed = verifier.details.get("trial_name")
+        if observed != trial_name:
+            raise _runtime_failure(
+                "NATIVE_TRIAL_IDENTITY_DRIFT",
+                "native Harbor trial identity drifted",
+            )
+    return trial_name
+
+
+def _network_probe_endpoint(
+    policy: _RuntimeIdentityPolicy,
+    *,
+    allow_internet: bool,
+    succeeded: bool,
+) -> NetworkEndpointRecord:
+    return NetworkEndpointRecord(
+        protocol="tcp",
+        host=policy.network_probe_host,
+        port=policy.network_probe_port,
+        outcome=(
+            "connected"
+            if succeeded and allow_internet
+            else "policy_violation"
+            if succeeded
+            else "blocked"
+        ),
+    )
+
+
+def _container_projection(
+    payload_text: str,
+    *,
+    expected_container_id: str,
+    expected_project: str,
+    expected_task_image: str,
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(payload_text)
+        if not isinstance(payload, list) or len(payload) != 1:
+            raise ValueError
+        container = payload[0]
+        config = container["Config"]
+        labels = config["Labels"]
+        state = container["State"]
+        host = container["HostConfig"]
+        networks = container["NetworkSettings"]["Networks"]
+        container_id = container["Id"]
+        name = container["Name"]
+        image_id = container["Image"]
+        task_image = config["Image"]
+        status = state["Status"]
+        running = state["Running"]
+        exit_code = state["ExitCode"]
+        network_mode = host["NetworkMode"]
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise _runtime_failure(
+            "CONTAINER_INSPECT_INVALID",
+            "retained task container inspection is invalid",
+        ) from exc
+    if (
+        not isinstance(container, Mapping)
+        or not isinstance(config, Mapping)
+        or not isinstance(labels, Mapping)
+        or not isinstance(state, Mapping)
+        or not isinstance(host, Mapping)
+        or not isinstance(networks, Mapping)
+        or container_id != expected_container_id
+        or _CONTAINER_ID.fullmatch(container_id) is None
+        or name != f"/{expected_project}-main-1"
+        or image_id != labels.get("com.docker.compose.image")
+        or _OCI_DIGEST.fullmatch(image_id) is None
+        or task_image != expected_task_image
+        or labels.get("com.docker.compose.project") != expected_project
+        or labels.get("com.docker.compose.service") != "main"
+        or labels.get("com.docker.compose.container-number") != "1"
+        or labels.get("com.docker.compose.oneoff") != "False"
+        or status not in {"created", "running", "exited", "dead"}
+        or not isinstance(running, bool)
+        or not isinstance(exit_code, int)
+        or isinstance(exit_code, bool)
+        or not isinstance(network_mode, str)
+        or network_mode != f"{expected_project}_default"
+        or set(networks) != {f"{expected_project}_default"}
+    ):
+        raise _runtime_failure(
+            "CONTAINER_IDENTITY_MISMATCH",
+            "retained task container identity does not match the Harbor trial",
+        )
+    return {
+        "container_id": container_id,
+        "container_name": name.removeprefix("/"),
+        "image_id": image_id,
+        "task_image": task_image,
+        "compose_project": expected_project,
+        "compose_service": "main",
+        "state": status,
+        "running": running,
+        "exit_code": exit_code,
+        "network_mode": network_mode,
+        "network_names": sorted(networks),
+    }
 
 
 class TerminalBenchLoader:
@@ -474,6 +958,7 @@ class TerminalBenchHarborBackend:
         case: TerminalBenchCase,
         attempt: Any,
     ) -> CaseExecution:
+        preflight = _runtime_preflight(run, case)
         staged_path, staging_receipt = self._stage_task(run, case, attempt.attempt_id)
         execution = self._backend.run(
             run,
@@ -492,7 +977,271 @@ class TerminalBenchHarborBackend:
         # Scheduler identity belongs to BMP's attempt, while the native trial
         # name remains in VerifierEvidence.details and copied artifacts.
         network_receipt_path = native.bundle_path.parent / "network_observation.json"
-        network = record_unobservable_network(
+        try:
+            container, network = self._observe_runtime(
+                case,
+                native,
+                attempt.attempt_id,
+                preflight,
+                network_receipt_path,
+            )
+        except TerminalBenchRuntimeIdentityError as exc:
+            failure_path = native.bundle_path.parent / "runtime_identity_failure.json"
+            atomic_write_json(
+                failure_path,
+                {
+                    "format": _RUNTIME_FAILURE_FORMAT,
+                    "case_id": case.task_id,
+                    "attempt_id": attempt.attempt_id,
+                    "status": "unobservable",
+                    "reason_code": exc.code,
+                },
+            )
+            network = record_unobservable_network(
+                network_receipt_path,
+                resolver_adapter="terminal_bench",
+                execution_adapter="harbor",
+                case_id=case.task_id,
+                boundary=NetworkBoundary.task_container,
+                allow_internet=case.allow_internet,
+                source=NetworkPolicySource.case_set_artifact,
+                source_artifact_digest=case.case_set_digest,
+                reason=f"runtime identity observation failed ({exc.code})",
+            )
+            container = None
+        bundle = bundle.model_copy(
+            update={
+                "run_id": attempt.attempt_id,
+                "log_refs": (
+                    *bundle.log_refs,
+                    artifact_ref(staging_receipt),
+                    artifact_ref(network_receipt_path),
+                    *(
+                        (artifact_ref(failure_path),)
+                        if container is None
+                        else ()
+                    ),
+                ),
+                "network_policy": network.policy,
+                "network_observation": network.observation,
+            }
+        )
+        if container is not None:
+            receipt_path = native.bundle_path.parent / "container_receipt.json"
+            atomic_write_json(receipt_path, container)
+            provenance = bundle.provenance.model_copy(
+                update={
+                    "image_digest": container["image_id"],
+                    "container_receipt_ref": artifact_ref(receipt_path),
+                }
+            )
+            bundle = bundle.model_copy(
+                update={
+                    "log_refs": (*bundle.log_refs, artifact_ref(receipt_path)),
+                    "provenance": provenance,
+                }
+            )
+        atomic_write_json(native.bundle_path, bundle)
+        return CaseExecution(
+            case_id=case.task_id,
+            bundle=bundle,
+            bundle_path=native.bundle_path,
+            bundle_digest=sha256_file(native.bundle_path),
+        )
+
+    @staticmethod
+    def _docker_call(
+        preflight: _RuntimePreflight,
+        argv: tuple[str, ...],
+        *,
+        timeout: float = 30.0,
+    ) -> tuple[int, str, str]:
+        try:
+            with PinnedExecutable.open(preflight.policy.docker_executable) as pinned:
+                if pinned.identity.get("sha256") != preflight.policy.docker_executable_sha256:
+                    raise _runtime_failure(
+                        "DOCKER_EXECUTABLE_DRIFT",
+                        "registered Docker executable identity drifted",
+                    )
+                result = SubprocessRunner(pass_fds=(pinned.descriptor,))(
+                    (pinned.invocation_path, *argv), timeout
+                )
+                pinned.require_unchanged()
+        except TerminalBenchRuntimeIdentityError:
+            raise
+        except (OSError, AcquisitionError) as exc:
+            raise _runtime_failure(
+                "DOCKER_COMMAND_FAILED",
+                "Docker runtime command failed",
+            ) from exc
+        return result.returncode, result.stdout, result.stderr
+
+    def _locate_container(
+        self,
+        preflight: _RuntimePreflight,
+        *,
+        trial_name: str,
+        expected_image: str,
+    ) -> tuple[str, dict[str, Any]]:
+        project = _compose_project_name(f"{trial_name}__env")
+        code, stdout, _ = self._docker_call(
+            preflight,
+            (
+                "ps",
+                "-a",
+                "--filter",
+                f"label=com.docker.compose.project={project}",
+                "--filter",
+                "label=com.docker.compose.service=main",
+                "--no-trunc",
+                "--format",
+                "{{.ID}}",
+            ),
+        )
+        if code != 0:
+            raise _runtime_failure("CONTAINER_DISCOVERY_FAILED", "retained task container discovery failed")
+        identifiers = tuple(item.strip() for item in stdout.splitlines() if item.strip())
+        if len(identifiers) != 1 or _CONTAINER_ID.fullmatch(identifiers[0]) is None:
+            raise _runtime_failure(
+                "CONTAINER_DISCOVERY_AMBIGUOUS",
+                "retained Harbor task container identity is missing or ambiguous",
+            )
+        container_id = identifiers[0]
+        code, inspect, _ = self._docker_call(preflight, ("inspect", container_id))
+        if code != 0:
+            raise _runtime_failure("CONTAINER_INSPECT_FAILED", "retained task container inspection failed")
+        projection = _container_projection(
+            inspect,
+            expected_container_id=container_id,
+            expected_project=project,
+            expected_task_image=expected_image,
+        )
+        return container_id, projection
+
+    def _observe_runtime(
+        self,
+        case: TerminalBenchCase,
+        native: CaseExecution,
+        attempt_id: str,
+        preflight: _RuntimePreflight,
+        network_receipt_path: Path,
+    ) -> tuple[dict[str, Any], Any]:
+        trial_name = _native_trial_name(native, attempt_id)
+        expected_image = preflight.policy.loaded_image_spec.spec.canonical_tag_ref.removeprefix(
+            "docker.io/"
+        )
+        container_id, projection = self._locate_container(
+            preflight,
+            trial_name=trial_name,
+            expected_image=expected_image,
+        )
+        if (
+            native.bundle.provenance.executable_digest
+            != native.bundle.provenance.backend_digest
+            or native.bundle.provenance.executable_digest is None
+        ):
+            raise _runtime_failure(
+                "HARBOR_EXECUTABLE_IDENTITY_MISSING",
+                "native Harbor executable identity is missing",
+            )
+        started = False
+        try:
+            with PinnedExecutable.open(preflight.policy.docker_executable) as pinned:
+                runner = SubprocessRunner(pass_fds=(pinned.descriptor,))
+                docker = DockerClient(
+                    runner,
+                    pinned.invocation_path,
+                    pinned_executable=pinned,
+                )
+                image = docker.inspect_optional(projection["image_id"])
+                if image is None:
+                    raise _runtime_failure(
+                        "CONTAINER_IMAGE_MISSING",
+                        "retained task container image is unavailable",
+                    )
+                try:
+                    verify_cached_image(
+                        preflight.policy.loaded_image_spec,
+                        preflight.policy.oci_mirror_registry,
+                        docker,
+                    )
+                except AcquisitionError as exc:
+                    raise _runtime_failure(
+                        f"DOCKER_{exc.code}",
+                        "retained task container image failed OCI identity verification",
+                    ) from exc
+                spec = preflight.policy.loaded_image_spec.spec
+                expected_ref = acquisition_ref(spec, preflight.policy.oci_mirror_registry)
+                if (
+                    image.image_id != spec.config.digest
+                    or image.os != spec.platform.os
+                    or image.architecture != spec.platform.architecture
+                    or image.rootfs_diff_ids != spec.rootfs_diff_ids
+                    or expected_ref not in image.repo_digests
+                ):
+                    raise _runtime_failure(
+                        "CONTAINER_IMAGE_MISMATCH",
+                        "retained task container image does not match its OCI identity",
+                    )
+                was_running = projection["running"]
+                if was_running:
+                    raise _runtime_failure(
+                        "CONTAINER_STATE_UNEXPECTED",
+                        "retained task container was still running after Harbor completion",
+                    )
+                code, _, _ = self._docker_call(preflight, ("start", container_id))
+                if code != 0:
+                    raise _runtime_failure("CONTAINER_START_FAILED", "retained task container could not be started")
+                started = True
+                probe_argv = (
+                    "exec",
+                    container_id,
+                    "/bin/bash",
+                    "-c",
+                    "exec 3<>/dev/tcp/$1/$2",
+                    "--",
+                    preflight.policy.network_probe_host,
+                    str(preflight.policy.network_probe_port),
+                )
+                code, _, _ = self._docker_call(
+                    preflight,
+                    probe_argv,
+                    timeout=float(preflight.policy.network_probe_timeout_seconds),
+                )
+                egress_succeeded = code == 0
+                endpoint = _network_probe_endpoint(
+                    preflight.policy,
+                    allow_internet=case.allow_internet,
+                    succeeded=egress_succeeded,
+                )
+                pinned.require_unchanged()
+        except TerminalBenchRuntimeIdentityError:
+            raise
+        except AcquisitionError as exc:
+            raise _runtime_failure(
+                f"DOCKER_{exc.code}",
+                "retained task container identity observation failed",
+            ) from exc
+        finally:
+            if started:
+                code, _, _ = self._docker_call(preflight, ("stop", "--time", "10", container_id))
+                if code != 0:
+                    raise _runtime_failure(
+                        "CONTAINER_RESTORE_FAILED",
+                        "retained task container could not be restored to stopped state",
+                    )
+        code, inspect, _ = self._docker_call(preflight, ("inspect", container_id))
+        if code != 0:
+            raise _runtime_failure("CONTAINER_RESTORE_FAILED", "retained task container final state is unavailable")
+        final_projection = _container_projection(
+            inspect,
+            expected_container_id=container_id,
+            expected_project=projection["compose_project"],
+            expected_task_image=expected_image,
+        )
+        if final_projection["running"] or final_projection["state"] not in {"exited", "dead"}:
+            raise _runtime_failure("CONTAINER_RESTORE_FAILED", "retained task container was not stopped after observation")
+        network = record_active_network_probe(
             network_receipt_path,
             resolver_adapter="terminal_bench",
             execution_adapter="harbor",
@@ -501,27 +1250,110 @@ class TerminalBenchHarborBackend:
             allow_internet=case.allow_internet,
             source=NetworkPolicySource.case_set_artifact,
             source_artifact_digest=case.case_set_digest,
-            reason="Harbor task container network boundary was not observed by BMP",
+            egress_succeeded=egress_succeeded,
+            reached_endpoints=(endpoint,),
         )
-        bundle = bundle.model_copy(
-            update={
-                "run_id": attempt.attempt_id,
-                "log_refs": (
-                    *bundle.log_refs,
-                    artifact_ref(staging_receipt),
-                    artifact_ref(network_receipt_path),
+        code, _, _ = self._docker_call(preflight, ("rm", container_id))
+        if code != 0:
+            raise _runtime_failure(
+                "CONTAINER_REMOVE_FAILED",
+                "retained task container could not be removed after observation",
+            )
+        code, stdout, _ = self._docker_call(
+            preflight,
+            (
+                "ps",
+                "-a",
+                "--filter",
+                f"id={container_id}",
+                "--no-trunc",
+                "--format",
+                "{{.ID}}",
+            ),
+        )
+        if code != 0 or stdout.strip():
+            raise _runtime_failure(
+                "CONTAINER_REMOVE_UNCONFIRMED",
+                "retained task container removal could not be confirmed",
+            )
+        network_name = final_projection["network_names"][0]
+        code, _, _ = self._docker_call(
+            preflight,
+            ("network", "rm", network_name),
+        )
+        if code != 0:
+            raise _runtime_failure(
+                "CONTAINER_NETWORK_REMOVE_FAILED",
+                "retained task container network could not be removed",
+            )
+        code, stdout, _ = self._docker_call(
+            preflight,
+            (
+                "network",
+                "ls",
+                "--filter",
+                f"name=^{network_name}$",
+                "--format",
+                "{{.Name}}",
+            ),
+        )
+        if code != 0 or stdout.strip():
+            raise _runtime_failure(
+                "CONTAINER_NETWORK_REMOVE_UNCONFIRMED",
+                "retained task container network removal could not be confirmed",
+            )
+        receipt = {
+            "format": _CONTAINER_RECEIPT_FORMAT,
+            "protocol_version": 1,
+            "case_id": case.task_id,
+            "attempt_id": attempt_id,
+            "native_trial_name": trial_name,
+            "image_id": final_projection["image_id"],
+            "agent_executable_sha256": native.bundle.provenance.executable_digest,
+            "harbor": {
+                "executable_sha256": native.bundle.provenance.executable_digest,
+                "version": native.bundle.provenance.version,
+            },
+            "docker": {
+                "executable_sha256": preflight.policy.docker_executable_sha256,
+                "executable_size_bytes": preflight.docker_executable_size,
+                "client_version": preflight.docker_version["client_version"],
+                "server_version": preflight.docker_version["server_version"],
+                "cache_verification_format": preflight.cache_verification["format"],
+            },
+            "image": {
+                "spec_id": preflight.policy.loaded_image_spec.spec.spec_id,
+                "spec_path": preflight.policy.image_spec_relative_path,
+                "spec_file_sha256": preflight.policy.loaded_image_spec.file_sha256,
+                "canonical_digest_ref": preflight.policy.loaded_image_spec.spec.canonical_digest_ref,
+                "canonical_tag_ref": preflight.policy.loaded_image_spec.spec.canonical_tag_ref,
+                "acquisition_ref": acquisition_ref(
+                    preflight.policy.loaded_image_spec.spec,
+                    preflight.policy.oci_mirror_registry,
                 ),
-                "network_policy": network.policy,
-                "network_observation": network.observation,
-            }
-        )
-        atomic_write_json(native.bundle_path, bundle)
-        return CaseExecution(
-            case_id=case.task_id,
-            bundle=bundle,
-            bundle_path=native.bundle_path,
-            bundle_digest=sha256_file(native.bundle_path),
-        )
+                "config_digest": preflight.policy.loaded_image_spec.spec.config.digest,
+                "manifest_digest": preflight.policy.loaded_image_spec.spec.manifest.digest,
+                "image_id": final_projection["image_id"],
+                "repo_digests": sorted(image.repo_digests),
+            },
+            "container": final_projection,
+            "harbor_completion_container": projection,
+            "lifecycle": {
+                "observed_stopped": True,
+                "probe_start_stop": True,
+                "removed": True,
+                "network_removed": True,
+            },
+            "network": {
+                "allow_internet": case.allow_internet,
+                "probe_host": preflight.policy.network_probe_host,
+                "probe_port": preflight.policy.network_probe_port,
+                "probe_timeout_seconds": preflight.policy.network_probe_timeout_seconds,
+                "observation_sha256": sha256_file(network_receipt_path),
+                "observation_size_bytes": network_receipt_path.stat().st_size,
+            },
+        }
+        return receipt, network
 
     @staticmethod
     def _validate_ctrf(path: Path) -> tuple[bool, dict[str, Any]]:

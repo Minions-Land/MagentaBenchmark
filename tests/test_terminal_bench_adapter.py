@@ -5,6 +5,7 @@ from functools import partial
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -296,6 +297,350 @@ def test_terminal_bench_network_fields_are_strict(
     )
     with pytest.raises(AdapterRegistryError, match="unsupported.*network_mode"):
         TerminalBenchLoader._tasks(run)
+
+
+def _runtime_case(tmp_path: Path, *, image: str = "alexgshaw/regex-log:20251031") -> TerminalBenchCase:
+    manifest = tmp_path / "task.toml"
+    manifest.write_text(
+        "[task]\n"
+        "name = 'terminal-bench/regex-log'\n"
+        "[environment]\n"
+        f"docker_image = '{image}'\n"
+        "allow_internet = true\n",
+        encoding="utf-8",
+    )
+    return TerminalBenchCase(
+        task_id="regex-log",
+        task_name="terminal-bench/regex-log",
+        task_path=str(tmp_path),
+        task_manifest_ref=artifact_ref(manifest),
+        task_contract_refs=(artifact_ref(manifest),),
+        verifier_contract_refs=(),
+        case_set_digest="a" * 64,
+        allow_internet=True,
+        verifier_completion_artifact="verifier/ctrf.json",
+    )
+
+
+def test_terminal_bench_runtime_policy_binds_task_to_tracked_oci_spec(
+    tmp_path: Path,
+    terminal_bench_source: Path,
+    bind_registry_source,
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
+    policy = terminal_bench_adapter._runtime_identity_policy(
+        run,
+        _runtime_case(tmp_path),
+    )
+    assert policy.loaded_image_spec.spec.spec_id == "terminal-bench-regex-log-20251031"
+    assert (
+        policy.loaded_image_spec.spec.config.digest
+        == "sha256:0a15c19cc78685f8d322945e882ba702ef3d0265d1f621ee00991b8e64ddb750"
+    )
+    assert policy.image_spec_relative_path == (
+        "acquisition/oci/terminal-bench-regex-log-20251031.json"
+    )
+
+
+def test_terminal_bench_runtime_policy_rejects_task_image_drift(
+    tmp_path: Path,
+    terminal_bench_source: Path,
+    bind_registry_source,
+) -> None:
+    run = _compiled(terminal_bench_source, bind_registry_source)
+    with pytest.raises(
+        terminal_bench_adapter.TerminalBenchRuntimeIdentityError
+    ) as captured:
+        terminal_bench_adapter._runtime_identity_policy(
+            run,
+            _runtime_case(tmp_path, image="alexgshaw/regex-log:floating"),
+        )
+    assert captured.value.code == "TASK_IMAGE_SPEC_MISMATCH"
+
+
+def _container_inspect_payload(
+    *,
+    container_id: str,
+    project: str,
+    image_id: str,
+    task_image: str = "alexgshaw/regex-log:20251031",
+) -> str:
+    return json.dumps(
+        [
+            {
+                "Id": container_id,
+                "Name": f"/{project}-main-1",
+                "Image": image_id,
+                "Config": {
+                    "Image": task_image,
+                    "Labels": {
+                        "com.docker.compose.project": project,
+                        "com.docker.compose.service": "main",
+                        "com.docker.compose.container-number": "1",
+                        "com.docker.compose.oneoff": "False",
+                        "com.docker.compose.image": image_id,
+                    },
+                },
+                "State": {
+                    "Status": "exited",
+                    "Running": False,
+                    "ExitCode": 0,
+                },
+                "HostConfig": {"NetworkMode": f"{project}_default"},
+                "NetworkSettings": {
+                    "Networks": {f"{project}_default": {}},
+                },
+            }
+        ]
+    )
+
+
+def test_terminal_bench_container_projection_requires_exact_harbor_identity() -> None:
+    container_id = "1" * 64
+    image_id = "sha256:" + "2" * 64
+    project = "regex-log__abcdefg__env"
+    projection = terminal_bench_adapter._container_projection(
+        _container_inspect_payload(
+            container_id=container_id,
+            project=project,
+            image_id=image_id,
+        ),
+        expected_container_id=container_id,
+        expected_project=project,
+        expected_task_image="alexgshaw/regex-log:20251031",
+    )
+    assert projection["container_id"] == container_id
+    assert projection["image_id"] == image_id
+    assert projection["compose_service"] == "main"
+
+    ambiguous = json.loads(
+        _container_inspect_payload(
+            container_id=container_id,
+            project=project,
+            image_id=image_id,
+        )
+    )
+    ambiguous.append(dict(ambiguous[0]))
+    with pytest.raises(
+        terminal_bench_adapter.TerminalBenchRuntimeIdentityError
+    ) as captured:
+        terminal_bench_adapter._container_projection(
+            json.dumps(ambiguous),
+            expected_container_id=container_id,
+            expected_project=project,
+            expected_task_image="alexgshaw/regex-log:20251031",
+        )
+    assert captured.value.code == "CONTAINER_INSPECT_INVALID"
+
+
+def test_terminal_bench_container_discovery_rejects_multiple_writers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = object.__new__(terminal_bench_adapter.TerminalBenchHarborBackend)
+
+    def docker_call(*_args, **_kwargs):
+        return 0, f"{'1' * 64}\n{'2' * 64}\n", ""
+
+    monkeypatch.setattr(backend, "_docker_call", docker_call)
+    with pytest.raises(
+        terminal_bench_adapter.TerminalBenchRuntimeIdentityError
+    ) as captured:
+        backend._locate_container(
+            object(),
+            trial_name="regex-log__abcdefg",
+            expected_image="alexgshaw/regex-log:20251031",
+        )
+    assert captured.value.code == "CONTAINER_DISCOVERY_AMBIGUOUS"
+
+
+def test_terminal_bench_network_probe_records_denied_egress_as_violation() -> None:
+    loaded = terminal_bench_adapter.load_image_spec(
+        ROOT / "acquisition/oci/terminal-bench-regex-log-20251031.json"
+    )
+    policy = terminal_bench_adapter._RuntimeIdentityPolicy(
+        docker_executable=Path("/usr/bin/docker"),
+        docker_executable_sha256="a" * 64,
+        docker_client_version="26.1.3",
+        docker_server_version="26.1.3",
+        oci_mirror_registry="docker.1ms.run",
+        network_probe_host="mirrors.aliyun.com",
+        network_probe_port=443,
+        network_probe_timeout_seconds=10,
+        image_spec_path=ROOT / "acquisition/oci/terminal-bench-regex-log-20251031.json",
+        image_spec_relative_path=(
+            "acquisition/oci/terminal-bench-regex-log-20251031.json"
+        ),
+        loaded_image_spec=loaded,
+    )
+    denied = terminal_bench_adapter._network_probe_endpoint(
+        policy,
+        allow_internet=False,
+        succeeded=True,
+    )
+    allowed = terminal_bench_adapter._network_probe_endpoint(
+        policy,
+        allow_internet=True,
+        succeeded=True,
+    )
+    assert denied.outcome == "policy_violation"
+    assert allowed.outcome == "connected"
+
+
+def test_terminal_bench_runtime_observation_cross_links_and_cleans_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loaded = terminal_bench_adapter.load_image_spec(
+        ROOT / "acquisition/oci/terminal-bench-regex-log-20251031.json"
+    )
+    policy = terminal_bench_adapter._RuntimeIdentityPolicy(
+        docker_executable=Path("/usr/bin/docker"),
+        docker_executable_sha256="a" * 64,
+        docker_client_version="26.1.3",
+        docker_server_version="26.1.3",
+        oci_mirror_registry="docker.1ms.run",
+        network_probe_host="mirrors.aliyun.com",
+        network_probe_port=443,
+        network_probe_timeout_seconds=10,
+        image_spec_path=ROOT / "acquisition/oci/terminal-bench-regex-log-20251031.json",
+        image_spec_relative_path=(
+            "acquisition/oci/terminal-bench-regex-log-20251031.json"
+        ),
+        loaded_image_spec=loaded,
+    )
+    preflight = terminal_bench_adapter._RuntimePreflight(
+        policy=policy,
+        docker_version={"client_version": "26.1.3", "server_version": "26.1.3"},
+        docker_executable_size=123,
+        cache_verification={
+            "format": "magentabench-oci-cache-verification-v1",
+        },
+    )
+    native = _terminal_native_case(
+        tmp_path,
+        status=RunStatus.verified_fail,
+        include_ctrf=True,
+    )
+    provenance = native.bundle.provenance.model_copy(
+        update={
+            "backend_digest": "e" * 64,
+            "executable_digest": "e" * 64,
+            "version": "0.20.0",
+        }
+    )
+    native = replace(
+        native,
+        case_id="attempt-0000__regex-log__abcdefg",
+        bundle=native.bundle.model_copy(update={"provenance": provenance}),
+    )
+    case = _terminal_case(tmp_path, native)
+    container_id = "1" * 64
+    project = "regex-log__abcdefg__env"
+    projection = terminal_bench_adapter._container_projection(
+        _container_inspect_payload(
+            container_id=container_id,
+            project=project,
+            image_id=loaded.spec.config.digest,
+        ),
+        expected_container_id=container_id,
+        expected_project=project,
+        expected_task_image="alexgshaw/regex-log:20251031",
+    )
+    image = SimpleNamespace(
+        image_id=loaded.spec.config.digest,
+        os=loaded.spec.platform.os,
+        architecture=loaded.spec.platform.architecture,
+        rootfs_diff_ids=loaded.spec.rootfs_diff_ids,
+        repo_digests=(
+            terminal_bench_adapter.acquisition_ref(
+                loaded.spec,
+                policy.oci_mirror_registry,
+            ),
+        ),
+    )
+
+    class FakePinned:
+        descriptor = 7
+        invocation_path = "/proc/self/fd/7"
+        identity = {"sha256": "a" * 64, "size_bytes": 123}
+
+        @classmethod
+        def open(cls, _path):
+            return cls()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def require_unchanged(self):
+            return None
+
+    class FakeDocker:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def inspect_optional(self, _reference):
+            return image
+
+    backend = object.__new__(terminal_bench_adapter.TerminalBenchHarborBackend)
+    monkeypatch.setattr(
+        backend,
+        "_locate_container",
+        lambda *_args, **_kwargs: (container_id, projection),
+    )
+    calls: list[tuple[str, ...]] = []
+
+    def docker_call(_preflight, argv, *, timeout=30.0):
+        calls.append(argv)
+        if argv[0] == "inspect":
+            return (
+                0,
+                _container_inspect_payload(
+                    container_id=container_id,
+                    project=project,
+                    image_id=loaded.spec.config.digest,
+                ),
+                "",
+            )
+        return 0, "", ""
+
+    monkeypatch.setattr(backend, "_docker_call", docker_call)
+    monkeypatch.setattr(terminal_bench_adapter, "PinnedExecutable", FakePinned)
+    monkeypatch.setattr(terminal_bench_adapter, "DockerClient", FakeDocker)
+    monkeypatch.setattr(
+        terminal_bench_adapter,
+        "verify_cached_image",
+        lambda *_args, **_kwargs: preflight.cache_verification,
+    )
+    network_path = native.bundle_path.parent / "network_observation.json"
+    receipt, network = backend._observe_runtime(
+        case,
+        native,
+        "attempt-0000",
+        preflight,
+        network_path,
+    )
+    assert receipt["image_id"] == loaded.spec.config.digest
+    assert receipt["agent_executable_sha256"] == "e" * 64
+    assert receipt["lifecycle"] == {
+        "observed_stopped": True,
+        "probe_start_stop": True,
+        "removed": True,
+        "network_removed": True,
+    }
+    assert network.observation.egress_succeeded is True
+    assert [call[0] for call in calls] == [
+        "start",
+        "exec",
+        "stop",
+        "inspect",
+        "rm",
+        "ps",
+        "network",
+        "network",
+    ]
 
 
 def _terminal_native_case(

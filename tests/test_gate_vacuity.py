@@ -33,6 +33,7 @@ from MagentaBench.schemas import (
     TrajectoryCaptureState,
     canonical_digest,
 )
+from MagentaBench.schemas.verification import _verify_bundle_provenance
 
 ROOT = Path(__file__).parents[1]
 EXPERIMENT = ROOT / "MagentaBench" / "conformance" / "experiments" / "fake-sweep.toml"
@@ -247,6 +248,51 @@ def test_gate_rechecks_runtime_manifest_receipt_artifacts(tmp_path: Path) -> Non
     sidecar_path.write_bytes(b'{"schemaVersion":2}\n')
     errors = _evidence_integrity_errors(activated)
     assert any("artifact reference digest drift" in error for error in errors)
+
+
+def test_registered_harbor_runtime_identity_requires_container_receipt(
+    tmp_path: Path,
+) -> None:
+    item = _completed(tmp_path)[0]
+    backend = item.plan.manifest.execution.backend.model_copy(
+        update={
+            "adapter": "harbor",
+            "executable": "/opt/harbor/bin/harbor",
+            "defaults": {
+                "runtime_identity": {
+                    "format": "magentabench-harbor-runtime-identity-v1",
+                    "required": True,
+                }
+            },
+        }
+    )
+    manifest = item.plan.manifest.model_copy(
+        update={
+            "execution": item.plan.manifest.execution.model_copy(
+                update={"backend": backend}
+            )
+        }
+    )
+    mutated = dataclasses.replace(
+        item,
+        plan=dataclasses.replace(item.plan, manifest=manifest),
+    )
+    errors = _evidence_integrity_errors(mutated)
+    assert "Harbor executable digest missing or drifted" in errors
+    assert "Harbor task image digest missing" in errors
+    assert "container receipt reference missing" in errors
+
+    mismatches: list[str] = []
+    _verify_bundle_provenance(
+        item.case.bundle,
+        manifest,
+        label="case",
+        path_map={},
+        mismatches=mismatches,
+    )
+    assert "case: Harbor executable digest missing or drifted" in mismatches
+    assert "case: Harbor task image digest is missing" in mismatches
+    assert "case: Harbor container receipt is missing" in mismatches
 
 
 def test_complete_plan_scores_every_run(tmp_path: Path) -> None:

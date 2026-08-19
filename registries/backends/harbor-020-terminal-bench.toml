@@ -36,6 +36,23 @@ agent_env = [
   "DASHSCOPE_API_KEY",
 ]
 
+[backend.defaults.runtime_identity]
+format = "magentabench-harbor-runtime-identity-v1"
+required = true
+retain_task_container = true
+docker_executable = "/usr/bin/docker"
+docker_executable_sha256 = "99d23b43792eaafe4baa171ef18a9d0244b0517c2b2271dab5900fb0fef3b428"
+docker_client_version = "26.1.3"
+docker_server_version = "26.1.3"
+oci_mirror_registry = "docker.1ms.run"
+network_probe_host = "mirrors.aliyun.com"
+network_probe_port = 443
+network_probe_timeout_seconds = 10
+
+[backend.defaults.runtime_identity.task_image_specs]
+regex-log = "acquisition/oci/terminal-bench-regex-log-20251031.json"
+headless-terminal = "acquisition/oci/terminal-bench-headless-terminal-20251031.json"
+
 [backend.defaults.verifier_env]
 UV_DEFAULT_INDEX = "https://mirrors.aliyun.com/pypi/simple/"
 UV_HTTP_RETRIES = "3"

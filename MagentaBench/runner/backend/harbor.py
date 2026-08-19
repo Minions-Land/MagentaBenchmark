@@ -54,6 +54,7 @@ _VERIFIER_HTTPS_ENV = frozenset(
         "UV_PYTHON_INSTALL_MIRROR",
     }
 )
+_RUNTIME_IDENTITY_FORMAT = "magentabench-harbor-runtime-identity-v1"
 
 
 class HarborConfigurationError(ValueError):
@@ -202,6 +203,41 @@ def _verifier_environment(declared: Any) -> dict[str, str]:
     return environment
 
 
+def _runtime_docker_executable(defaults: Mapping[str, Any]) -> str | None:
+    """Return the registered Docker executable for receipt-enabled Harbor runs."""
+
+    declared = defaults.get("runtime_identity")
+    if declared is None:
+        return None
+    if not isinstance(declared, Mapping):
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity must be a table"
+        )
+    if declared.get("format") != _RUNTIME_IDENTITY_FORMAT:
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity.format is unsupported"
+        )
+    if declared.get("required") is not True:
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity.required must be true"
+        )
+    if declared.get("retain_task_container") is not True:
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity.retain_task_container must be true"
+        )
+    executable = declared.get("docker_executable")
+    if not isinstance(executable, str) or not executable:
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity.docker_executable must be an absolute path"
+        )
+    path = Path(executable)
+    if not path.is_absolute() or path.name != "docker":
+        raise HarborConfigurationError(
+            "backend.defaults.runtime_identity.docker_executable must be an absolute Docker path"
+        )
+    return executable
+
+
 def build_job_config(
     run: CompiledRun,
     *,
@@ -312,7 +348,18 @@ def build_job_config(
     resolved_environment_type = environment_type or str(
         defaults.get("environment_type", "docker")
     )
-    if resolved_environment_type != "docker":
+    runtime_docker = _runtime_docker_executable(defaults)
+    if runtime_docker is not None:
+        if resolved_environment_type != "docker":
+            raise HarborConfigurationError(
+                "runtime identity retention requires the Docker environment"
+            )
+        config["environment"] = {
+            "type": "docker",
+            "delete": False,
+            "kwargs": {"keep_containers": True},
+        }
+    elif resolved_environment_type != "docker":
         config["environment"] = {"type": resolved_environment_type}
     if max_retries:
         config["retry"] = {"max_retries": max_retries}
@@ -796,6 +843,16 @@ def parse_harbor_results(
                 subject_digest=run.manifest.subject.artifact_digest,
                 backend_digest=observed_backend_digest or backend.digest,
                 executable=executable,
+                # Test shims and legacy parser fixtures use symbolic backend
+                # identifiers.  Only an observed SHA-256 is an executable
+                # identity; real Harbor runs pass this digest explicitly and
+                # are still rejected by the runtime-identity gate when absent.
+                executable_digest=(
+                    observed_backend_digest
+                    if isinstance(observed_backend_digest, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", observed_backend_digest)
+                    else None
+                ),
                 distribution="harbor",
                 version=observed_version,
                 backend_kind="harbor",
@@ -892,7 +949,9 @@ class HarborBackend:
         self.runner_digest = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
     @staticmethod
-    def _runtime_environment() -> dict[str, str]:
+    def _runtime_environment(
+        docker_executable: str | None = None,
+    ) -> dict[str, str]:
         """Expose the checked-out project to Harbor's import-path loader."""
 
         environment = os.environ.copy()
@@ -903,6 +962,15 @@ class HarborBackend:
             if not existing
             else os.pathsep.join((str(project_root), existing))
         )
+        if docker_executable is not None:
+            docker_dir = str(Path(docker_executable).parent)
+            search_path = environment.get("PATH", os.defpath).split(os.pathsep)
+            environment["PATH"] = os.pathsep.join(
+                (docker_dir, *(item for item in search_path if item != docker_dir))
+            )
+            for name in tuple(environment):
+                if name.startswith(("DOCKER_", "COMPOSE_")):
+                    environment.pop(name)
         return environment
 
     def run_directory(self, run: CompiledRun) -> Path:
@@ -979,7 +1047,12 @@ class HarborBackend:
             reused=True,
         )
 
-    def _validate_generated_config(self, config_path: Path) -> None:
+    def _validate_generated_config(
+        self,
+        config_path: Path,
+        *,
+        docker_executable: str | None = None,
+    ) -> None:
         """Use Harbor's own parser while enforcing a stricter no-extra projection."""
 
         try:
@@ -1008,7 +1081,7 @@ class HarborBackend:
                 errors="replace",
                 timeout=60,
                 check=False,
-                env=self._runtime_environment(),
+                env=self._runtime_environment(docker_executable),
             )
         except OSError as exc:
             raise HarborConfigurationError(f"cannot validate Harbor JobConfig: {exc}") from exc
@@ -1138,6 +1211,7 @@ class HarborBackend:
                 subject_digest=run.manifest.subject.artifact_digest,
                 backend_digest=digest,
                 executable=executable,
+                executable_digest=digest,
                 distribution="harbor",
                 version=version,
                 backend_kind="harbor",
@@ -1199,6 +1273,24 @@ class HarborBackend:
             raise HarborConfigurationError(
                 f"Harbor executable digest drift: manifest {backend.digest}, observed {observed_digest}"
             )
+        runtime_docker = _runtime_docker_executable(backend.defaults)
+        if runtime_docker is not None:
+            try:
+                resolved_docker = Path(runtime_docker).resolve(strict=True)
+            except OSError as exc:
+                raise HarborConfigurationError(
+                    "registered Docker executable is unavailable"
+                ) from exc
+            if (
+                resolved_docker != Path(runtime_docker)
+                or not resolved_docker.is_file()
+                or not os.access(resolved_docker, os.X_OK)
+                or shutil.which("docker", path=str(resolved_docker.parent))
+                != str(resolved_docker)
+            ):
+                raise HarborConfigurationError(
+                    "registered Docker executable identity is invalid"
+                )
         evidence_root = self.run_directory(run)
         if execution_id is not None:
             evidence_root = evidence_root / "harbor_runs" / execution_id
@@ -1218,7 +1310,10 @@ class HarborBackend:
         )
         config_path = evidence_root / "job.yaml"
         atomic_write_bytes(config_path, render_job_yaml(config).encode("utf-8"))
-        self._validate_generated_config(config_path)
+        self._validate_generated_config(
+            config_path,
+            docker_executable=runtime_docker,
+        )
         stdout_path = evidence_root / "harbor.stdout.log"
         stderr_path = evidence_root / "harbor.stderr.log"
         command = [self.harbor_executable, "run"]
@@ -1239,7 +1334,7 @@ class HarborBackend:
                     else max(0.001, min(self.timeout_seconds, float(timeout_seconds)))
                 ),
                 check=False,
-                env=self._runtime_environment(),
+                env=self._runtime_environment(runtime_docker),
             )
             atomic_write_bytes(stdout_path, completed.stdout.encode("utf-8"))
             atomic_write_bytes(stderr_path, completed.stderr.encode("utf-8"))

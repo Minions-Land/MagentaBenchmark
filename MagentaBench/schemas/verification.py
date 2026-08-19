@@ -1958,8 +1958,27 @@ def _verify_bundle_provenance(
             mismatches.append(f"{label}: environment receipt is missing")
         elif receipt.spec_digest != environment.canonical_digest():
             mismatches.append(f"{label}: environment spec_digest drift")
+    backend = manifest.execution.backend
+    runtime_identity = backend.defaults.get("runtime_identity")
+    harbor_identity_required = (
+        backend.adapter == "harbor"
+        and isinstance(runtime_identity, Mapping)
+        and runtime_identity.get("required") is True
+    )
+    if harbor_identity_required:
+        if (
+            backend.executable is None
+            or provenance.executable != backend.executable
+            or provenance.executable_digest is None
+            or provenance.executable_digest != backend.digest
+        ):
+            mismatches.append(f"{label}: Harbor executable digest missing or drifted")
+        if provenance.image_digest is None:
+            mismatches.append(f"{label}: Harbor task image digest is missing")
     container_ref = provenance.container_receipt_ref
     if container_ref is None:
+        if harbor_identity_required:
+            mismatches.append(f"{label}: Harbor container receipt is missing")
         return
     _, container_bytes = _verify_ref(
         container_ref,
@@ -1981,6 +2000,28 @@ def _verify_bundle_provenance(
         mismatches.append(f"{label}: container image digest cross-link drift")
     if container.get("agent_executable_sha256") != provenance.executable_digest:
         mismatches.append(f"{label}: container executable digest cross-link drift")
+    if harbor_identity_required:
+        lifecycle = container.get("lifecycle")
+        image = container.get("image")
+        harbor = container.get("harbor")
+        if container.get("format") != "magentabench-harbor-container-receipt-v1":
+            mismatches.append(f"{label}: Harbor container receipt format drift")
+        if (
+            not isinstance(lifecycle, dict)
+            or lifecycle.get("removed") is not True
+            or lifecycle.get("network_removed") is not True
+        ):
+            mismatches.append(f"{label}: Harbor container cleanup receipt is missing")
+        if (
+            not isinstance(image, dict)
+            or image.get("config_digest") != provenance.image_digest
+        ):
+            mismatches.append(f"{label}: Harbor OCI config digest cross-link drift")
+        if (
+            not isinstance(harbor, dict)
+            or harbor.get("executable_sha256") != provenance.executable_digest
+        ):
+            mismatches.append(f"{label}: Harbor executable receipt cross-link drift")
 
 
 def _schedule_attempt_allocation_mismatches(
