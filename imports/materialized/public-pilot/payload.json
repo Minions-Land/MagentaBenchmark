@@ -1,0 +1,7 @@
+{
+  "claim_eligible": false,
+  "fixture": "magentabench-external-evidence-public-pilot-v1",
+  "purpose": "Exercises provider-neutral byte materialization only.",
+  "source": "project-authored public fixture",
+  "warning": "This is not a benchmark result or raw benchmark artifact."
+}

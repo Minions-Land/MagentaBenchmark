@@ -145,6 +145,54 @@ the job until a separately reviewed materialization step is installed. That
 materializer is a follow-up to the source-only GitHub integration and must bind
 each downloaded byte to its recorded digest before invoking the ledger.
 
+## External Evidence Materialization
+
+Use `MagentaBench.collab.external_evidence` as the narrow boundary between a
+provider adapter and the ledger. A caller supplies a provider-specific fetcher;
+the shared module only accepts a typed locator with a provider name, public
+immutable locator, optional revision, and credential *names*. Credential
+values, signed/authenticated URLs, query parameters, local `file:` locators,
+and secret-like text are rejected before a provider is called.
+
+The built-in CLI adapter consumes a pre-populated local provider mirror; it
+does not receive network credentials or guess a remote artifact service:
+
+```bash
+uv run --frozen bmp-collab materialize \
+  --manifest imports/materialized/public-pilot/manifest.json \
+  --source-root imports/materialized/public-pilot \
+  --destination-parent /fresh/durable/evidence \
+  --root-name public-pilot
+```
+
+Every declared report, record index, manifest, evidence file, and referenced
+artifact is assigned a relative destination, exact byte size, and SHA-256. The
+materializer creates one fresh non-overwriting root, rejects traversal,
+duplicates, symlink escapes, partial output, and digest/size drift, then writes
+a canonical receipt. The receipt remains `non_claim=true`, records only
+redacted relocation-prefix hashes, and says `standalone_verification=not-run`.
+Call `verify_materialized_evidence` immediately before the applicable
+standalone verifier; only a later, independently reviewed verified report can
+be linked through `bmp-lab` and projected by this ledger.
+
+Relocation is explicit rather than inferred. `RelocationMap` accepts normalized
+absolute POSIX old/new prefixes, `apply_relocation` selects the longest matching
+prefix, and `relocation_path_map` supplies the same map to the standalone
+verifier. Do not publish live host prefixes: the receipt redacts them and binds
+their SHA-256 values instead.
+
+`imports/materialized/public-pilot/` is a CC0 project-authored local fixture
+that tests this contract without a network download. It is not a result from
+NatureBench, Terminal-Bench, BiomniBench, or CMTBench and never enters the
+ledger; `validate-imports` explicitly reserves that directory from historical
+source discovery. The current NatureBench `NatureBranch@4b51202` historical
+projection is private with `license_status=not-detected`; its exact blocker is
+recorded under `imports/materialized/naturebench-4b51202/` and must remain
+discovery-only until redistributable byte-level provenance is authorized. Its
+existing eight typed declaration/evaluated-summary records remain visible as
+`claim_eligible=false`; a future NatureBench provider adapter can feed the
+generic manifest and original evaluator without changing NatureBench source.
+
 Generated files are caches only; the sources above remain the recoverable
 truth. Paths outside the checkout are represented by content digests (or an
 `<external>` marker for a non-artifact root), so two materialization hosts
