@@ -1,6 +1,6 @@
 {
   "format": "magentabench-task-matrix-v1",
-  "generated_from": "Feishu Base task-level records; raw answers and gold omitted",
+  "generated_from": "Pinned GitHub source snapshots and an authorized safe-field projection; mutable workspaces are not a source of truth",
   "generated_at": "2026-08-19",
   "benchmarks": [
     {
@@ -1590,14 +1590,34 @@
           }
         }
       ],
-      "source": "MinionsOS2-Bench@150fa10 / CML-Bench/evaluation/regrade_reports/20260708-162616/per_answer_regrade.csv",
+      "source": {
+        "kind": "fixed-github-snapshot",
+        "repository": "Minions-Land/MinionsOS2-Bench",
+        "visibility": "private",
+        "commit_sha": "150fa100ead4ab51acdfc24ed246a8c5b2141466",
+        "root_tree_sha1": "3deaec22a778564ae37cbea396765268f959fee5",
+        "paths": [
+          {
+            "path": "experiment_logs/cmt_bench/evaluation/regrade_reports/20260708-162616/per_answer_regrade.csv",
+            "git_blob_sha1": "88fc2f305f97ef1fcaab247602eb20c948c17945",
+            "size_bytes": 221376,
+            "sha256": "cde0aa20311f255fcc4892d69ec0b58702d16f8e27473481276c2cdad4cdcbad"
+          }
+        ],
+        "normalizer_id": "cmtbench-150fa10.v1",
+        "normalizer_sha256": "13ac001d94837f863b8f16afaadf5b5f21b7c08bb772837ee22ccc24af3b5687",
+        "projection": "task-verdict-safe-fields-v1",
+        "publication_decision": "Minions-Land/MagentaBenchmark#135"
+      },
       "result_route": "cmt-official-eval+deterministic-format-repair/v1 adopted verdict",
       "claim_eligible": false,
       "limitations": [
         "legacy-not-bmp-verified",
         "raw-answers-and-gold-omitted",
-        "source-private-approved-projection"
-      ]
+        "source-private-approved-projection",
+        "task-level-safe-field-projection-authorized-by-#135"
+      ],
+      "record_origin": "derived-non-claim-view"
     },
     {
       "benchmark_id": "biomnibench-da",
@@ -4065,14 +4085,40 @@
           }
         }
       ],
-      "source": "AOSEBench@def4dae7 / results/{default,xhigh}/_summary/llm_judge_summary.tsv",
+      "source": {
+        "kind": "fixed-github-snapshot",
+        "repository": "Minions-Land/AOSEBench",
+        "visibility": "private",
+        "commit_sha": "def4dae7520807d254612b3590eb32b9aa977924",
+        "root_tree_sha1": "50e8fe57a14d8f4c89b8357ab91827fe8bfe60ee",
+        "paths": [
+          {
+            "path": "results/default/_summary/llm_judge_summary.tsv",
+            "git_blob_sha1": "0e5d4e04c830b60d1a54b5f4f0171e1c96382c5f",
+            "size_bytes": 35972,
+            "sha256": "af5b16706bf758b79c090ecab73df46d3a23cc1defe6917839a5871b7dd54f5d"
+          },
+          {
+            "path": "results/xhigh/_summary/llm_judge_summary.tsv",
+            "git_blob_sha1": "68e7f39dd8692c904a3a8cc775b5bef2f50b0648",
+            "size_bytes": 37959,
+            "sha256": "1d587f28659a5fc026f8d0b6c14e6ef361991484d24d22cf59725afeee117373"
+          }
+        ],
+        "normalizer_id": "biomnibench-da-def4dae7.v1",
+        "normalizer_sha256": "1cebf6adf74cea2d612852f280bab4d2c5481263a0040a0bd009a18494317ce2",
+        "projection": "task-verdict-score-safe-fields-v1",
+        "publication_decision": "Minions-Land/MagentaBenchmark#135"
+      },
       "result_route": "BiomniBench DA rubric judge score; no-output remains zero and in the denominator",
       "claim_eligible": false,
       "limitations": [
         "legacy-not-bmp-verified",
         "judge-score-not-gold-verdict",
-        "source-private-approved-projection"
-      ]
+        "source-private-approved-projection",
+        "task-level-safe-field-projection-authorized-by-#135"
+      ],
+      "record_origin": "derived-non-claim-view"
     },
     {
       "benchmark_id": "naturebench",
@@ -4085,23 +4131,9 @@
         {
           "method": "Magenta · Claude Opus 4.7 · medium",
           "verdict_counts": {
-            "失败": 5,
-            "成功": 26
+            "not-observed": 31
           },
-          "numeric_summaries": {
-            "g": {
-              "observed_count": 31,
-              "mean": -0.11114193548387094,
-              "min": -0.8962,
-              "max": 0.6693
-            },
-            "upstream_g": {
-              "observed_count": 27,
-              "mean": 0.06654444444444449,
-              "min": -1.0,
-              "max": 2.2198
-            }
-          }
+          "numeric_summaries": {}
         }
       ],
       "rows": [
@@ -4110,9 +4142,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.0106,
-              "upstream_g": 0.0048
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4121,9 +4153,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.1521,
-              "upstream_g": 0.1767
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4132,9 +4164,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.004,
-              "upstream_g": 0.0075
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4143,9 +4175,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0496,
-              "upstream_g": -0.0582
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4154,9 +4186,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.2851,
-              "upstream_g": 1.6145
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4165,9 +4197,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0812,
-              "upstream_g": -0.1352
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4176,9 +4208,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.5238,
-              "upstream_g": -0.9339
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4187,9 +4219,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.1485,
-              "upstream_g": 2.2198
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4198,9 +4230,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0729,
-              "upstream_g": -0.0111
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4209,9 +4241,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.092,
-              "upstream_g": 0.0996
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4220,9 +4252,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "失败",
-              "g": -0.778,
-              "upstream_g": 0.2625
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4231,9 +4263,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.6189,
-              "upstream_g": 0.0346
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4242,9 +4274,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.3421,
-              "upstream_g": -0.288
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4253,9 +4285,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0014,
-              "upstream_g": 0.0309
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4264,9 +4296,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "失败",
-              "g": 0.6693,
-              "upstream_g": -1.0
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4275,9 +4307,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0321,
-              "upstream_g": -0.0669
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4286,9 +4318,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "失败",
-              "g": -0.8962,
-              "upstream_g": "n/a"
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4297,9 +4329,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.0467,
-              "upstream_g": -0.0021
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4308,9 +4340,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0866,
-              "upstream_g": -0.0986
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4319,9 +4351,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.5125,
-              "upstream_g": -0.4278
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4330,9 +4362,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.2007,
-              "upstream_g": -0.0272
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4341,9 +4373,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.1446,
-              "upstream_g": "n/a"
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4352,9 +4384,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "失败",
-              "g": 0.0004,
-              "upstream_g": "n/a"
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4363,9 +4395,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.0411,
-              "upstream_g": 0.4616
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4374,9 +4406,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0924,
-              "upstream_g": -0.089
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4385,9 +4417,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.4579,
-              "upstream_g": -0.356
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4396,9 +4428,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "失败",
-              "g": 0.2414,
-              "upstream_g": 0.0759
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4407,9 +4439,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.125,
-              "upstream_g": 0.218
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4418,9 +4450,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": -0.0047,
-              "upstream_g": 0.006
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4429,9 +4461,9 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.0993,
-              "upstream_g": 0.0783
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         },
@@ -4440,21 +4472,38 @@
           "category": "Cellular Omics",
           "methods": {
             "Magenta · Claude Opus 4.7 · medium": {
-              "verdict": "成功",
-              "g": 0.1129,
-              "upstream_g": "n/a"
+              "status": "not-observed",
+              "verdict": null,
+              "reason": "no completed opus4.7_medium.csv at pinned NatureBranch snapshot"
             }
           }
         }
       ],
-      "source": "AOSEBench-NatureBench@4b51202 / opus4.7_medium.csv",
-      "result_route": "NatureBench score evaluator with GPT-5.5 validity judge",
+      "source": {
+        "kind": "fixed-github-snapshot",
+        "repository": "Minions-Land/AOSEBench-NatureBench",
+        "visibility": "private",
+        "branch": "NatureBranch",
+        "commit_sha": "4b512029f3ad37746502ce377e4fcc2027fd46db",
+        "root_tree_sha1": "e11636f88a5d74e9cb4dcaa06518b9a3a71c87ea",
+        "result_paths": [],
+        "result_available": false,
+        "normalizer_id": "naturebench-4b51202.v1",
+        "normalizer_sha256": "8c90dffea900ff9b0730f2862bee261f91b1014bdcee545562ebe64a3b182e00",
+        "projection": "declaration-only-v1",
+        "publication_decision": "Minions-Land/MagentaBenchmark#135"
+      },
+      "result_route": "NatureBranch declaration inventory; no completed result file at fixed snapshot",
       "claim_eligible": false,
       "limitations": [
         "legacy-not-bmp-verified",
         "medium-cohort-only",
-        "cellular-omics-31-case-domain-only"
-      ]
+        "cellular-omics-31-case-domain-only",
+        "no-completed-result-at-pinned-source",
+        "task-level-numeric-results-withheld"
+      ],
+      "record_origin": "declaration-only",
+      "observation_status": "declaration-only"
     },
     {
       "benchmark_id": "bioml-bench",
@@ -4467,8 +4516,7 @@
         {
           "method": "MinionsOS2（8-agent team）",
           "verdict_counts": {
-            "优于基线": 3,
-            "未击败基线": 5
+            "external-unavailable": 8
           },
           "numeric_summaries": {}
         }
@@ -4479,8 +4527,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "未击败基线",
-              "metric_summary": "MinionsOS2=0.8535 Pearson r；AutoScientists=0.8729；leaderboard percentile=50；medal=-；beats AutoScientists=no"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4489,8 +4538,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "未击败基线",
-              "metric_summary": "MinionsOS2=0.6434 Pearson r；AutoScientists=0.6578；leaderboard percentile=0；medal=-；beats AutoScientists=no"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4499,8 +4549,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "未击败基线",
-              "metric_summary": "MinionsOS2=0.2823 MAE(lower)；AutoScientists=0.2766；leaderboard percentile=25；medal=-；beats AutoScientists=no"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4509,8 +4560,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "优于基线",
-              "metric_summary": "MinionsOS2=0.8418 PR-AUC；AutoScientists=0.7662；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4519,8 +4571,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "优于基线",
-              "metric_summary": "MinionsOS2=0.6954 AUPRC；AutoScientists=0.6187；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4529,8 +4582,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "未击败基线",
-              "metric_summary": "MinionsOS2=0.9163 AUROC；AutoScientists=0.9203；leaderboard percentile=40；medal=Bronze；beats AutoScientists=no"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4539,8 +4593,9 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "未击败基线",
-              "metric_summary": "MinionsOS2=0.5418 MAE(lower)；AutoScientists=0.4219；leaderboard percentile=25；medal=-；beats AutoScientists=no"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         },
@@ -4549,20 +4604,33 @@
           "category": "drug-discovery",
           "methods": {
             "MinionsOS2（8-agent team）": {
-              "verdict": "优于基线",
-              "metric_summary": "MinionsOS2=0.8672 AUROC；AutoScientists=0.8667；leaderboard percentile=75；medal=Gold；beats AutoScientists=yes"
+              "status": "external-unavailable",
+              "verdict": null,
+              "reason": "no immutable GitHub source or publication decision"
             }
           }
         }
       ],
-      "source": "MinionsOS_Paper@48173d1 / bioml_bench_drug_results.json",
-      "result_route": "per-task AUROC and AutoScientists baseline comparison",
+      "source": {
+        "kind": "unavailable-external-source",
+        "repository_hint": "Minions-Land/MinionsOS_Paper",
+        "revision_hint": "48173d1",
+        "path_hint": "bioml_bench_drug_results.json",
+        "fixed_snapshot": false,
+        "projection": "declaration-only-v1",
+        "publication_decision": null
+      },
+      "result_route": "external source unavailable; declaration inventory only",
       "claim_eligible": false,
       "limitations": [
         "legacy-not-bmp-verified",
         "eight-completed-drug-discovery-tasks-only",
-        "single-local-method"
-      ]
+        "single-local-method",
+        "immutable-github-source-unavailable",
+        "task-level-numeric-results-withheld"
+      ],
+      "record_origin": "external-unavailable",
+      "observation_status": "external-unavailable"
     },
     {
       "benchmark_id": "swe-bench-lite-(not-verified)",
@@ -4592,14 +4660,72 @@
           }
         }
       ],
-      "source": "MagentaBenchmark@a913967 / records/swebench-astropy-6938-probe/probe.json",
+      "source": {
+        "kind": "repository-local-fixed-snapshot",
+        "repository": "Minions-Land/MagentaBenchmark",
+        "commit_sha": "a913967a05fba7277f64a72694df5f868f36a3c4",
+        "root_tree_sha1": "d50088a88dd1b0782b8aeb615dcaadb84b4047a9",
+        "paths": [
+          {
+            "path": "records/swebench-astropy-6938-probe/probe.json",
+            "git_blob_sha1": "69dbc3985f077b0b4c07a4d854769b8c73f96e2e",
+            "size_bytes": 1975,
+            "sha256": "c63ba92a89ac2139c22f5de68dc245e26b098f81dd0c27f9362a82b37d4c90eb"
+          }
+        ],
+        "projection": "exploratory-safe-summary-v1",
+        "publication_decision": "repository-local"
+      },
       "result_route": "focused verifier for one SWE-bench Lite instance",
       "claim_eligible": false,
       "limitations": [
         "exploratory-single-instance",
         "not-swe-bench-verified",
         "not-statistically-claim-ready"
-      ]
+      ],
+      "record_origin": "exploratory-probe",
+      "observation_status": "exploratory-only"
     }
-  ]
+  ],
+  "projection_contract": {
+    "id": "task-matrix-safe-fields-v1",
+    "publication_decision": "Minions-Land/MagentaBenchmark#135",
+    "claim_eligible": false,
+    "source_of_truth": "fixed GitHub source snapshots and repository-local immutable probe metadata",
+    "allowed_fields": [
+      "benchmark_id",
+      "task_id",
+      "case_id",
+      "category",
+      "method",
+      "model",
+      "configuration",
+      "evaluator_verdict",
+      "status",
+      "metric_value",
+      "metric_summary",
+      "denominator",
+      "missing_count",
+      "invalid_count",
+      "source_identity",
+      "result_route",
+      "limitations"
+    ],
+    "excluded_fields": [
+      "answers",
+      "prompts",
+      "gold",
+      "private_test_data",
+      "model_outputs",
+      "traces",
+      "stdout",
+      "stderr",
+      "commands",
+      "provider_logs",
+      "credentials",
+      "authenticated_urls",
+      "machine_private_paths",
+      "raw_source_bytes"
+    ]
+  }
 }
