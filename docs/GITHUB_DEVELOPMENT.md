@@ -103,8 +103,11 @@ scope. Do not create an empty commit only to open a PR. The PR must state:
 
 Use `Refs #N` by default. Use `Closes #N` only when closure through merge is
 authorized. Verify each review finding against code and evidence; classify it
-as accept, rebut, partial, or clarification before acting. An Agent review must
-not be represented as human approval.
+as accept, rebut, partial, or clarification before acting. `PoorOtterBob` is
+the sole accountable final reviewer. Other collaborators may leave advisory
+comments or requested reviews, but they are not required for merge and must
+not be represented as final approval. A PR authored by `PoorOtterBob` uses the
+exact-head self-review attestation required by the repository review workflow.
 
 ### Finish
 
@@ -123,7 +126,7 @@ not benchmark evidence.
 
 | Role | Default responsibility | Not implied |
 | --- | --- | --- |
-| Reviewer | Inspect diff and evidence; report findings | Editing the author's branch, posting for another person, or inventing human approval |
+| Reviewer | `PoorOtterBob` inspects diff and evidence; other contributors may report advisory findings | Editing the author's branch, posting for another person, or inventing approval |
 | Implementer | Change the leased branch and run verification | Merge, closure, release, policy change, or independent approval |
 | Coordinator | Divide work, verify receipts, reconcile integration, maintain durable status | Rewriting another owner's work or granting authority |
 
@@ -132,9 +135,11 @@ Before a GitHub write, confirm repository, authenticated identity, target,
 current state, and authorization. Follow current branch protection. When the
 required approval count is zero, the author may merge after required checks if
 the request authorizes merge. For protected BMP paths, the dedicated gate
-additionally accepts the exact-head self-review attestation from the
-authorized protocol owner documented in `.github/OWNERS.md`; that attestation
-must never be described as an independent review.
+additionally requires a current `PoorOtterBob` approval, or the exact-head
+self-review attestation when `PoorOtterBob` is the PR author; that attestation
+must never be described as an independent review. The repository-wide review
+gate applies the same rule to documentation, lab, workflow, and experiment
+PRs.
 
 ## 5. Collaboration Across Contributors And Machines
 
