@@ -9,24 +9,34 @@ Treat a result as a claim only after its evidence chain passes the required
 sentinels. Keep progress, validity, completeness, and quality as separate
 states.
 
-## Five Sentinels
+## Ordered Sentinels
 
 Run these checks in order:
 
-1. **Identity**: source, branch/commit, dataset/input revision, model, effective
+1. **Boundary/privacy**: writes, secrets, artifact paths, process ownership,
+   and shared resources stayed within authorization.
+2. **Identity**: source, branch/commit, dataset/input revision, model, effective
    configuration, seed, and harness match the frozen contract.
-2. **Boundary**: writes, secrets, artifact paths, process ownership, and shared
-   resources stayed within authorization; unrelated work was not touched.
-3. **Smoke**: a representative operation succeeded and emitted expected
+3. **Resource**: CPU/GPU/API/storage/concurrency and job ownership match the
+   frozen allocation.
+4. **Schema/interface**: the adapter, command, input, output, and verifier
+   contracts validate before execution.
+5. **Smoke**: a representative operation succeeded and emitted expected
    structured fields, tool calls, and terminal state.
-4. **Completeness**: expected slots, unique IDs, task-trial coverage, missing
+6. **Completeness**: expected slots, unique IDs, task-trial coverage, missing
    values, duplicates, errors, and terminal states are accounted for.
-5. **Mechanism/evidence**: required fingerprints, parity receipts, event logs,
+7. **Mechanism/evidence**: required fingerprints, parity receipts, event logs,
    hashes, and provenance exist and prove the intended treatment was active.
+8. **Accountable review/claim**: repository-authorized review confirms the
+   evidence class, negative boundary, limitations, and claim eligibility. In
+   MagentaBenchmark, only `PoorOtterBob` supplies final approval; other review
+   is advisory.
 
-Fail closed at the first required sentinel. Use `not_run`, `incomplete`,
-`invalid_setup`, `infrastructure_failure`, `verifier_failure`, and
-`algorithmic_failure` distinctly.
+Fail closed at the first required sentinel. Keep operational outcome separate
+from evidence class: distinguish `not-run`, `infrastructure-failure`,
+`verifier-failure`, and `algorithmic-failure`. A verifier failure cannot become
+a reproduced score. An algorithmic failure may be a complete reproduced result
+only when execution and verifier evidence are valid.
 
 ## Parity And Completeness
 
@@ -61,19 +71,23 @@ no-op, fingerprint, or verifier receipt) before interpreting a score.
 
 Label every result as one of:
 
-- `reproduced`: current harness and evidence passed all required gates;
+- `reproduced`: current harness, evidence, and accountable review passed all
+  required gates;
 - `external-declaration`: supplied by another source and not replayed here;
 - `incomplete`: work remains or cells are missing;
 - `invalid`: protocol/configuration drift or failed required sentinel;
 - `infrastructure-failure`: execution blocked by environment or service.
 
 External numeric facts may be retained with source, denominator, conditions,
-and limitations, but use `claim_eligible=false` until independently replayed.
+and limitations, but require `claim_eligible=false` until independently
+replayed and reviewed.
 Do not copy another project's private paths, prompts, source code, raw traces,
 or credentials into a reusable report.
 
 See [references/audit-template.md](references/audit-template.md).
 [scripts/verify_grid.py](scripts/verify_grid.py) is an optional reference
-adapter for a simple grid. Adapt or replace it when the active contract uses a
+adapter for a simple grid. It requires a frozen expected-grid JSON file and one
+or more explicit required result fields; observed rows never define the
+expected identities. Adapt or replace it when the active contract uses a
 different result schema, unique key, state model, or artifact layout; the
 contract's evidence semantics, not this script, define acceptance.

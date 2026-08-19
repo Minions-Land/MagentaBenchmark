@@ -27,8 +27,9 @@
 # <RECEIPT_NAME>
 
 ## Conclusion
-- State: complete | incomplete | invalid | infrastructure-failed
+- State: complete | incomplete | not-run | invalid | infrastructure-failed
 - Evidence class: reproduced | external-declaration | incomplete | invalid | infrastructure-failure
+- Claim eligible: true | false
 - One-sentence conclusion:
 
 ## Frozen protocol
@@ -36,9 +37,11 @@
 - Agent and simulator/evaluator model:
 - Temperature/timeout/retry/concurrency:
 - Seeds/repetitions/budget/threshold:
-- No-resume/no-rerun policy:
+- Resume/retry/no-rerun policy:
 
 ## Results and denominator
+- Expected cells:
+- Unique cells:
 | Domain/method | Passed | Expected | Rate |
 | --- | ---: | ---: | ---: |
 
@@ -51,9 +54,11 @@
 - Parity/mechanism:
 - Completeness (expected/actual/unique/missing/duplicate/error):
 - Provenance:
-- Independent review:
+- Accountable review (or advisory finding plus pending final review):
 
 ## Fidelity and instrumentation
+- Source commit:
+- Artifact SHA256:
 - Official repository/commit:
 - Parameters and source:
 - Adaptation changes and reasons:
@@ -67,6 +72,10 @@
 - Unrun checks and limitations:
 
 ## Evidence and next action
+- Owner:
+- Final reviewer:
+- Review state: approved | pending | changes-requested
+- Final review HEAD:
 - Results:
 - Logs:
 - Command/provenance:
@@ -74,4 +83,13 @@
 - Owner and one next action:
 ```
 
-没有 denominator、unique-cell 对账、commit、原始路径或 claim class 的 receipt 不得标 `complete/reproduced`。
+`complete/reproduced` 必须填写非 N/A 的 expected/unique、40-hex source
+commit、artifact SHA-256、owner 和仓库 accountable final review；
+`external-declaration` 必须写 `Claim eligible: false`。所有 receipt 都必须
+有内容匹配的 `<RECEIPT_NAME>.sha256` sidecar。没有这些证据不得标成
+`complete/reproduced`。
+
+本仓库的 reference validator 只做结构和摘要检查，不自行授予 GitHub
+approval。校验 `complete/reproduced` 时，调用者还必须把受信任的当前 head
+作为 `--expected-review-head <40-HEX>` 传入；脚本核对 receipt 中的 exact
+head，而 GitHub required gate 继续负责认证 `PoorOtterBob` 的最终审核。

@@ -11,7 +11,7 @@
 | Mechanism | required events, injections, fingerprints, or verifier receipts | method not active |
 | Qualification | small fixed sample and stable termination | readiness failure |
 | Full run | all planned cells and retained raw artifacts | incomplete run |
-| Review | independent completeness and metric calculation | verifier failure |
+| Review | repository-accountable completeness and metric calculation | verifier failure |
 
 Do not silently downgrade a failed hard gate to a warning. If a policy allows
 continuation, record the exception, approver, and effect on claim eligibility.
@@ -37,7 +37,7 @@ continuation, record the exception, approver, and effect on claim eligibility.
 - Parity:
 - Mechanism/fingerprint:
 - Completeness:
-- Independent metric review:
+- Accountable metric review (with advisory findings separated from final approval):
 
 ## Evidence
 - Results:

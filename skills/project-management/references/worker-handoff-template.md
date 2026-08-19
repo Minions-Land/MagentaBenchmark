@@ -40,7 +40,7 @@ RUN_ROOT=<PROJECT_ROOT>/runs/$RUN_ID/<WORK_PACKAGE_ID>
 <EXACT_COMMAND>
 ```
 
-先写 command/provenance，再运行。输出使用新的、此前不存在的路径；禁止 `--resume` 和覆盖。
+先写 command/provenance，再运行。输出使用新的、此前不存在的路径；默认禁止 resume 和覆盖。只有 handoff 明确给出 frozen resume policy、同一 durable Run ID 与 query-before-resume 命令时才能恢复。
 
 ## 验收与交付
 

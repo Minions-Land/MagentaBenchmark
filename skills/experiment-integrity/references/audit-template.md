@@ -5,11 +5,14 @@
 - Evidence class: reproduced | external-declaration | incomplete | invalid | infrastructure-failure
 
 ## Sentinel results
-1. Identity:
-2. Boundary:
-3. Smoke:
-4. Completeness:
-5. Mechanism/evidence:
+1. Boundary/privacy:
+2. Identity:
+3. Resource:
+4. Schema/interface:
+5. Smoke:
+6. Completeness:
+7. Mechanism/evidence:
+8. Accountable review/claim:
 
 ## Coverage
 - Expected cells:

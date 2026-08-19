@@ -9,6 +9,18 @@ Treat infrastructure as a capability with an owner, contract, health check,
 capacity limit, and change boundary. Read values from the environment without
 printing them.
 
+## Inherit Repository Authority
+
+Infrastructure readiness is evidence, not permission to launch. Read the
+repository's `AGENTS.md` and native runbook before using this skill; their
+authority, lease, backend, and evidence rules override generic steps. In
+MagentaBenchmark, run `bmp-agent validate`, `bmp-collab modes`, and `bmp-lab
+doctor`, recover or claim the relevant `bmp-lab` work item, select a registered
+digest-bound backend, and allocate a fresh durable record root before a smoke
+or benchmark run. A planning-only, verifier-open, name-only, or host-unready
+target remains blocked even when the executable is installed. This is
+especially binding for Apptainer, AppContainer, E2B, and NatureBench.
+
 ## Build A Capability Catalog
 
 For each capability record only identifiers and rules:
@@ -34,7 +46,8 @@ restarting a service, replacing a model, or raising its concurrency.
 4. Check environment variable presence without printing values.
 5. Verify internal endpoints bypass proxies and external fetches use the
    approved proxy only when needed.
-6. Run the smallest health check and smoke.
+6. After repository authorization and target readiness pass, run the smallest
+   health check and smoke into a fresh durable root.
 7. Record effective command, job ID, limits, and monitoring locations.
 
 Use `<PROJECT_ROOT>` and `<RUN_ROOT>` in reusable instructions. Never create

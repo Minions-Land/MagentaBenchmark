@@ -45,7 +45,7 @@ Run the cheapest checks first and stop at the first required failure:
 5. parity and mechanism checks;
 6. representative qualification;
 7. full run;
-8. completeness and independent metric review;
+8. completeness and repository-accountable metric review;
 9. receipt and handoff.
 
 Do not call an incomplete run a score. Distinguish infrastructure failure,
@@ -116,6 +116,10 @@ numerator/denominator table, integrity/parity/mechanism results, artifact
 locators or hashes, deviations/retries, unrun checks, limitations, and the next
 decision. Link to raw logs instead of pasting them.
 
-For multi-operator work, use [team-collaboration](../team-collaboration/SKILL.md)
-for ownership and handoff, and [experiment-integrity](../experiment-integrity/SKILL.md)
-for sentinel verification.
+For multi-operator work, use
+[project-management](../project-management/SKILL.md) for work packages and
+handoffs, and [experiment-integrity](../experiment-integrity/SKILL.md) for
+sentinel verification. In MagentaBenchmark, the repository's
+[GitHub development workflow](../../docs/GITHUB_DEVELOPMENT.md) and `bmp-lab`
+lease/event chain are authoritative; do not create a parallel progress or
+approval ledger.

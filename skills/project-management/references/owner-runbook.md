@@ -35,4 +35,4 @@ owner 使用固定间隔的只读检查。下面的 `ps`/`df` 是 Unix-like 环�
 
 ## D. 收集与 review
 
-worker `DELIVERED` 后，owner 先运行 layout/receipt/bundle verifier，再分配独立 reviewer。review 的必改项必须有 ID、owner、due date 和 acceptance check。只有 `ACCEPTED` 包可以进入集成报告。
+worker `DELIVERED` 后，owner 先运行 layout/receipt/bundle verifier，再按仓库政策请求 review。review 的必改项必须有 ID、owner、due date 和 acceptance check。advisory review 不等于最终批准；只有仓库指定的 accountable reviewer 接受后，包才可以进入集成报告。在 MagentaBenchmark 中该最终 reviewer 仅为 `PoorOtterBob`。
