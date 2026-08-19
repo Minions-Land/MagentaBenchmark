@@ -1,0 +1,270 @@
+{
+  "claim_eligible": false,
+  "conditions": {
+    "agent_model": "openai/doubao-seed-2-0-pro-260215",
+    "llm_args": {
+      "num_retries": 2,
+      "temperature": 0.0,
+      "timeout_seconds": 360
+    },
+    "pass_definition": "reward >= 0.999",
+    "user_simulator_model": "openai/doubao-seed-2-0-pro-260215"
+  },
+  "evidence_class": "external-declaration",
+  "excluded": [
+    {
+      "id": "dynamic-cheatsheet-a6",
+      "reason": "The run was incomplete at the declaration snapshot and therefore has no baseline value here."
+    },
+    {
+      "id": "private-method-design",
+      "reason": "Method internals, prompts, implementation, trajectories, and private source artifacts are intentionally excluded."
+    }
+  ],
+  "existing_repository_numeric_sources": [
+    {
+      "locator": "imports/aosebench-biomnibench-da-def4dae7",
+      "rule": "Use generated ledger observations; do not duplicate or reinterpret method design."
+    },
+    {
+      "locator": "imports/aosebench-naturebench-4b51202",
+      "rule": "Use generated ledger observations; preserve their existing limitations."
+    },
+    {
+      "locator": "imports/minionsos2-cmtbench-150fa10",
+      "rule": "Use generated ledger observations; preserve their existing denominators and evidence tier."
+    }
+  ],
+  "format": "magentabench-external-baseline-declaration-v1",
+  "generated_at": "2026-08-18",
+  "limitations": [
+    "The source workspace did not provide a Git repository identity for these distilled receipts.",
+    "No raw result, log, trace, prompt, source code, credential, provider URL, or machine path was copied.",
+    "The aggregate values were reported by external handoff receipts and were not replayed through MagentaBench.",
+    "Per-task paired uncertainty is not available in this declaration.",
+    "Rows remain external declarations and cannot enter MagentaBench claim metrics."
+  ],
+  "numeric_comparators": [
+    {
+      "benchmark": "tau2-retail",
+      "category": "open-model-transfer",
+      "method_label": "full",
+      "model": "openai/gpt-oss-20b",
+      "pass_at_1": 0.432,
+      "pass_at_k": 0.0614,
+      "planned_simulations": 912,
+      "repetitions_per_task": 8,
+      "source_receipt": "RESULTS_A1.md",
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-airline",
+      "category": "open-model-transfer",
+      "method_label": "full",
+      "model": "openai/qwen36-27b",
+      "pass_at_1": 0.8,
+      "pass_at_k": 0.5,
+      "planned_simulations": 400,
+      "repetitions_per_task": 8,
+      "source_receipt": "RESULTS_A1.md",
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-retail-frozen86",
+      "category": "frozen-set-base",
+      "method_label": "base",
+      "pass_rate": 0.5407,
+      "planned_simulations": 344,
+      "repetitions_per_task": 4,
+      "source_receipt": "RESULTS_A4.md",
+      "status": "reported-complete",
+      "task_count": 86
+    }
+  ],
+  "results": [
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "base",
+      "pass_count": 257,
+      "pass_rate": 0.5635964912280702,
+      "planned_simulations": 456,
+      "reported_percent": 56.4,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "membl",
+      "pass_count": 243,
+      "pass_rate": 0.5328947368421053,
+      "planned_simulations": 456,
+      "reported_percent": 53.3,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "em-only",
+      "pass_count": 267,
+      "pass_rate": 0.5855263157894737,
+      "planned_simulations": 456,
+      "reported_percent": 58.6,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "modelctrl",
+      "pass_count": 299,
+      "pass_rate": 0.6557017543859649,
+      "planned_simulations": 456,
+      "reported_percent": 65.6,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "wm-only",
+      "pass_count": 304,
+      "pass_rate": 0.6666666666666666,
+      "planned_simulations": 456,
+      "reported_percent": 66.7,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-retail",
+      "method_label": "full",
+      "pass_count": 316,
+      "pass_rate": 0.6929824561403509,
+      "planned_simulations": 456,
+      "reported_percent": 69.3,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 114
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "base",
+      "pass_count": 151,
+      "pass_rate": 0.755,
+      "planned_simulations": 200,
+      "reported_percent": 75.5,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "membl",
+      "pass_count": 153,
+      "pass_rate": 0.765,
+      "planned_simulations": 200,
+      "reported_percent": 76.5,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "em-only",
+      "pass_count": 154,
+      "pass_rate": 0.77,
+      "planned_simulations": 200,
+      "reported_percent": 77.0,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "modelctrl",
+      "pass_count": 156,
+      "pass_rate": 0.78,
+      "planned_simulations": 200,
+      "reported_percent": 78.0,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "wm-only",
+      "pass_count": 159,
+      "pass_rate": 0.795,
+      "planned_simulations": 200,
+      "reported_percent": 79.5,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    },
+    {
+      "benchmark": "tau2-airline",
+      "method_label": "full",
+      "pass_count": 168,
+      "pass_rate": 0.84,
+      "planned_simulations": 200,
+      "reported_percent": 84.0,
+      "repetitions_per_task": 4,
+      "source_receipts": [
+        "RESULTS_A2.md",
+        "RESULTS_A5.md"
+      ],
+      "status": "reported-complete",
+      "task_count": 50
+    }
+  ],
+  "source": {
+    "label": "external Skiller tau2 handoff receipts",
+    "repository": null,
+    "revision": null,
+    "source_kind": "private-workspace-without-git-provenance"
+  }
+}
