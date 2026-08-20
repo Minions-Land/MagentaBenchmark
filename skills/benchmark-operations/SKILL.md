@@ -120,6 +120,6 @@ For multi-operator work, use
 [project-management](../project-management/SKILL.md) for work packages and
 handoffs, and [experiment-integrity](../experiment-integrity/SKILL.md) for
 sentinel verification. In MagentaBenchmark, the repository's
-[GitHub development workflow](../../docs/GITHUB_DEVELOPMENT.md) and `bmp-lab`
+[operating guide](../../docs/OPERATING_GUIDE.md) and `bmp-lab`
 lease/event chain are authoritative; do not create a parallel progress or
 approval ledger.

@@ -9,13 +9,13 @@ lab/issues/<issue-id>/events/<event-id>.json
 lab/.lab.lock                         # local, ignored mutex
 ~~~
 
-Create and mutate records only with `uv run bmp-lab ...`. Do not hand-edit,
+Create and mutate records only with `uv run --frozen bmp-lab ...`. Do not hand-edit,
 delete, rename, move, or resequence issue/event JSON. The live board is derived
-with `uv run bmp-lab status`; no checked-in global status file should duplicate
+with `uv run --frozen bmp-lab status`; no checked-in global status file should duplicate
 it. Commit immutable issue/event records to Git, but never store credentials,
 tokens, private authenticated URLs, or other secret values here.
 
-Start with [`docs/LAB_OPERATIONS.md`](../docs/LAB_OPERATIONS.md) for leases,
+Follow docs/OPERATING_GUIDE.md for leases,
 checkpoints, recovery, multi-host Git coordination, and the exact boundary
 between collaboration state and benchmark evidence.
 
@@ -36,5 +36,6 @@ successful real benchmark run:
 - `magenta-repeated-sampling`: sampling awaits a reproducible,
   standalone-verified pilot before its denominator or repetitions are chosen.
 
-This list is only the bootstrap inventory. Use `uv run bmp-lab status` and
-`uv run bmp-lab show <issue-id>` for current reduced state.
+This list is only the bootstrap inventory. Use
+`uv run --frozen bmp-lab status` and
+`uv run --frozen bmp-lab show <issue-id>` for current reduced state.
