@@ -17,9 +17,8 @@ uv run bmp-collab scaffold <id> --bmp-spec <path> --lab-issue <id> \
 
 The bundle overlay does not replace or silently edit BMP protocol declarations.
 An experiment-only PR should normally touch only its own directory, its
-immutable lab issue/event records, and focused tests. See
-[`docs/EXPERIMENT_COLLABORATION.md`](../docs/EXPERIMENT_COLLABORATION.md) for
-execution modes, adapter extension rules, and recovery boundaries.
+immutable lab issue/event records, and focused tests. Follow the
+docs/OPERATING_GUIDE.md workflow for execution modes, adapters, and recovery.
 
 Use the generated [experiment ledger](../docs/EXPERIMENT_LEDGER.md) to compare
 all designs, methods, data settings, runs, and verified metrics. Do not commit a

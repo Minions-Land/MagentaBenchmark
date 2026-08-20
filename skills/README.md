@@ -22,7 +22,8 @@ These skills provide structured workflows for:
 - Collecting receipts and verifying evidence
 - Coordinating multi-operator work with proper handoffs
 
-See individual SKILL.md files in each subdirectory for detailed instructions.
+See individual SKILL.md files in each subdirectory for skill-specific details.
+The repository-wide workflow is only in docs/OPERATING_GUIDE.md.
 
 ## Integration with MagentaBenchmark
 
@@ -34,7 +35,7 @@ These skills complement MagentaBenchmark's existing experiment collaboration and
 4. **Evidence-based validation** - sentinel gates for experiment integrity
 5. **Reproducible experiment contracts** - frozen protocols and provenance tracking
 
-For MagentaBenchmark-specific workflows, start with `AGENTS.md`, `TOAGENT.md`,
-and `TOHUMAN.md`. `PoorOtterBob` remains the sole accountable final reviewer;
+For MagentaBenchmark-specific workflows, start with `AGENTS.md` and
+docs/OPERATING_GUIDE.md. `PoorOtterBob` remains the sole accountable final reviewer;
 other review output is advisory. Use these skills only when their additional
 project structure helps a complex multi-stage experiment.

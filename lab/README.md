@@ -15,7 +15,7 @@ with `uv run bmp-lab status`; no checked-in global status file should duplicate
 it. Commit immutable issue/event records to Git, but never store credentials,
 tokens, private authenticated URLs, or other secret values here.
 
-Start with [`docs/LAB_OPERATIONS.md`](../docs/LAB_OPERATIONS.md) for leases,
+Follow docs/OPERATING_GUIDE.md for leases,
 checkpoints, recovery, multi-host Git coordination, and the exact boundary
 between collaboration state and benchmark evidence.
 

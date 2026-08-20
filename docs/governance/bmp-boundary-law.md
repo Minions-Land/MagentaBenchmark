@@ -8,6 +8,11 @@ HCP belongs to the Magenta agent. The HCP documents cited
 below are authoritative for HCP. BMP code, schemas, adapters, tests, and
 configuration MUST comply with this law.
 
+The links below are navigation references only. Every experiment must bind the
+actual Magenta/HCP source repository, commit, tree digest, and exported
+sidecar bytes in its manifest; a mutable branch URL is never execution
+evidence.
+
 ## A. HCP Invariants BMP Must Never Violate
 
 Each row is a testable assertion. A failed assertion is a boundary violation,
@@ -15,24 +20,24 @@ not an implementation preference.
 
 | ID | Testable assertion | Authoritative evidence |
 |---|---|---|
-| HCP-01 | Any assembled HCP path has exactly three role kinds: Client, Server, and Magnet. BMP MUST NOT define, simulate, wrap, or name a fourth role. | [`hcp-architecture.md:170`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:170): "Client, Server, and Magnet are the only HCP roles." |
-| HCP-02 | One HCP session has exactly one `HcpClient`; BMP MUST NOT instantiate an additional, alternate, benchmark, package, or per-module Client. | [`hcp-architecture.md:168`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:168): "Each session owns exactly one `HcpClient`." |
-| HCP-03 | Every assembled real Module is owned by its real `HcpServer` in `HcpServer.ts`; BMP MUST NOT create a substitute, facade, anonymous, or generated Server. | [`README.md:14`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/README.md:14): "Every real Module owns a bare `HcpServer` class in `HcpServer.ts`." |
-| HCP-04 | Every selected declared Source is owned by its Source-local `HcpMagnet` in `HcpMagnet.ts`; BMP MUST NOT create a substitute Magnet or select a Source by importing an implementation. | [`README.md:15`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/README.md:15): "Every declared Source owns a bare `HcpMagnet` class in `HcpMagnet.ts`." |
-| HCP-05 | Every returned Magnet exposes exactly one product in the disjoint union Tool, Capability, or Resource. | [`hcp-architecture.md:172`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:172): "Every returned Magnet exposes exactly one Tool, Capability, or Resource." |
-| HCP-06 | Fan-out, when explicitly allowed, is represented by sibling single-product Magnets with distinct selectors; a multi-product Magnet is invalid. | [`contract.md:18`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md:18): "Explicit fan-out returns sibling single-product Magnets with distinct selectors." |
-| HCP-07 | A Magnet never creates or returns a Server, and assembly never creates an anonymous Server. | [`hcp-architecture.md:171`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:171): "No Magnet exposes `toHcpServer()` and assembly creates no anonymous Server." |
-| HCP-08 | Selection, routing, replacement, and lifecycle remain Client-owned; BMP MUST NOT implement a parallel selector, router, lifecycle manager, or lookup service for HCP components. | [`contract.md:17`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md:17): "Common selection, routing, replacement, and lifecycle behavior belongs to the Client." |
-| HCP-09 | HCP ends after assembly and resolution. BMP MUST NOT put an HCP wrapper or middleware on individual Tool, Capability, or Resource calls. | [`contract.md:19`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md:19): "HCP ends after assembly and resolution. Runtime consumers call products directly." |
-| HCP-10 | Runtime consumers are Source-agnostic; BMP MUST identify a resolved product through sidecar evidence rather than a Source-specific runtime import or call path. | [`hcp-architecture.md:173`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:173): "Consumers are Source-agnostic and HCP stays off the execution hot path." |
-| HCP-11 | Repository TOML declarations and real role imports are authoritative for repository components; `sources.generated.ts` is only a disposable projection. BMP MUST NOT treat the projection as an extensibility API. | [`README.md:35`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/README.md:35): "That file is a disposable projection, not a registry." |
-| HCP-12 | BMP MUST NOT maintain a second Server map, Magnet list, default-Source map, product-builder table, central Source switch, or HCP Module/Source registry. | [`contract.md:69`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md:69): consumers "must not maintain product-specific Source lists, builder maps, default-Source maps, or central Source switches." |
-| HCP-13 | Generic HCP assembly MUST remain free of BMP, Package-acquisition, MCP-discovery, CLI-policy, and other host-specific branches. | [`contract.md:36`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/contract.md:36): generic assembly "must not parse Package manifests, acquire GitHub releases, discover user MCP configuration, read CLI policy, or branch on Magenta host concepts." |
-| HCP-14 | Infrastructure and transport code owns no Server and creates no alternate route or fourth management layer. BMP MUST NOT turn its adapter, evaluator, runner, backend, or transport into an HCP role. | [`hcp-architecture.md:177`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:177): "Infrastructure and transports own no Server and create no alternate route." |
-| HCP-15 | Dynamic schema-v2 Packages carry and load their own real roles and remain runtime inputs outside the repository-generated projection; BMP MUST NOT register their Modules or Sources itself. | [`hcp-architecture.md:144`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:144): "Dynamic Package roles do not appear in `sources.generated.ts`; that file projects only this repository's TOML declarations." |
-| HCP-16 | BMP and application code consume only stable package-level/public outputs and MUST NOT deep-import HCP implementation classes. | [`hcp-architecture.md:179`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:179): "Application code consumes package-level public APIs, not deep implementation imports." |
-| HCP-17 | Rejected, replaced, and unroutable live products are disposed by HCP ownership; BMP MUST NOT retain or revive such product instances. | [`hcp-architecture.md:178`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-architecture.md:178): "Rejected, replaced, or unroutable live products are disposed." |
-| HCP-18 | HCP names obey the entity tree: level 1 is `Hcp`, level 2 is exactly `Client`, `Server`, or `Magnet`, later capitalized levels require real parent entities, and role identity comes from the path while role files export bare role names. BMP MUST NOT invent HCP-specific type names outside that tree. | [`hcp-naming.md:10`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-naming.md:10), [`hcp-naming.md:11`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-naming.md:11), and [`hcp-naming.md:24`](/mnt/aliyunsb/aralacai/Magenta/HarnessComponentProtocol/docs/governance/hcp-naming.md:24). |
+| HCP-01 | Any assembled HCP path has exactly three role kinds: Client, Server, and Magnet. BMP MUST NOT define, simulate, wrap, or name a fourth role. | [`hcp-architecture.md:170`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:170): "Client, Server, and Magnet are the only HCP roles." |
+| HCP-02 | One HCP session has exactly one `HcpClient`; BMP MUST NOT instantiate an additional, alternate, benchmark, package, or per-module Client. | [`hcp-architecture.md:168`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:168): "Each session owns exactly one `HcpClient`." |
+| HCP-03 | Every assembled real Module is owned by its real `HcpServer` in `HcpServer.ts`; BMP MUST NOT create a substitute, facade, anonymous, or generated Server. | [`README.md:14`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/README.md:14): "Every real Module owns a bare `HcpServer` class in `HcpServer.ts`." |
+| HCP-04 | Every selected declared Source is owned by its Source-local `HcpMagnet` in `HcpMagnet.ts`; BMP MUST NOT create a substitute Magnet or select a Source by importing an implementation. | [`README.md:15`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/README.md:15): "Every declared Source owns a bare `HcpMagnet` class in `HcpMagnet.ts`." |
+| HCP-05 | Every returned Magnet exposes exactly one product in the disjoint union Tool, Capability, or Resource. | [`hcp-architecture.md:172`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:172): "Every returned Magnet exposes exactly one Tool, Capability, or Resource." |
+| HCP-06 | Fan-out, when explicitly allowed, is represented by sibling single-product Magnets with distinct selectors; a multi-product Magnet is invalid. | [`contract.md:18`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/contract.md:18): "Explicit fan-out returns sibling single-product Magnets with distinct selectors." |
+| HCP-07 | A Magnet never creates or returns a Server, and assembly never creates an anonymous Server. | [`hcp-architecture.md:171`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:171): "No Magnet exposes `toHcpServer()` and assembly creates no anonymous Server." |
+| HCP-08 | Selection, routing, replacement, and lifecycle remain Client-owned; BMP MUST NOT implement a parallel selector, router, lifecycle manager, or lookup service for HCP components. | [`contract.md:17`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/contract.md:17): "Common selection, routing, replacement, and lifecycle behavior belongs to the Client." |
+| HCP-09 | HCP ends after assembly and resolution. BMP MUST NOT put an HCP wrapper or middleware on individual Tool, Capability, or Resource calls. | [`contract.md:19`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/contract.md:19): "HCP ends after assembly and resolution. Runtime consumers call products directly." |
+| HCP-10 | Runtime consumers are Source-agnostic; BMP MUST identify a resolved product through sidecar evidence rather than a Source-specific runtime import or call path. | [`hcp-architecture.md:173`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:173): "Consumers are Source-agnostic and HCP stays off the execution hot path." |
+| HCP-11 | Repository TOML declarations and real role imports are authoritative for repository components; `sources.generated.ts` is only a disposable projection. BMP MUST NOT treat the projection as an extensibility API. | [`README.md:35`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/README.md:35): "That file is a disposable projection, not a registry." |
+| HCP-12 | BMP MUST NOT maintain a second Server map, Magnet list, default-Source map, product-builder table, central Source switch, or HCP Module/Source registry. | [`contract.md:69`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/contract.md:69): consumers "must not maintain product-specific Source lists, builder maps, default-Source maps, or central Source switches." |
+| HCP-13 | Generic HCP assembly MUST remain free of BMP, Package-acquisition, MCP-discovery, CLI-policy, and other host-specific branches. | [`contract.md:36`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/contract.md:36): generic assembly "must not parse Package manifests, acquire GitHub releases, discover user MCP configuration, read CLI policy, or branch on Magenta host concepts." |
+| HCP-14 | Infrastructure and transport code owns no Server and creates no alternate route or fourth management layer. BMP MUST NOT turn its adapter, evaluator, runner, backend, or transport into an HCP role. | [`hcp-architecture.md:177`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:177): "Infrastructure and transports own no Server and create no alternate route." |
+| HCP-15 | Dynamic schema-v2 Packages carry and load their own real roles and remain runtime inputs outside the repository-generated projection; BMP MUST NOT register their Modules or Sources itself. | [`hcp-architecture.md:144`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:144): "Dynamic Package roles do not appear in `sources.generated.ts`; that file projects only this repository's TOML declarations." |
+| HCP-16 | BMP and application code consume only stable package-level/public outputs and MUST NOT deep-import HCP implementation classes. | [`hcp-architecture.md:179`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:179): "Application code consumes package-level public APIs, not deep implementation imports." |
+| HCP-17 | Rejected, replaced, and unroutable live products are disposed by HCP ownership; BMP MUST NOT retain or revive such product instances. | [`hcp-architecture.md:178`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-architecture.md:178): "Rejected, replaced, or unroutable live products are disposed." |
+| HCP-18 | HCP names obey the entity tree: level 1 is `Hcp`, level 2 is exactly `Client`, `Server`, or `Magnet`, later capitalized levels require real parent entities, and role identity comes from the path while role files export bare role names. BMP MUST NOT invent HCP-specific type names outside that tree. | [`hcp-naming.md:10`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-naming.md:10), [`hcp-naming.md:11`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-naming.md:11), and [`hcp-naming.md:24`](https://github.com/Minions-Land/Magenta/blob/main/HarnessComponentProtocol/docs/governance/hcp-naming.md:24). |
 
 ## B. Forbidden Constructs
 
@@ -84,7 +89,7 @@ not a BMP declaration and is never an input registry for resolving a future HCP
 assembly.
 
 The handoff says the stable sidecar contains "at least" the fields below
-([`MAGENTABENCH_HANDOFF.md:422`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:422)). Consequently, every listed field is **required at the Phase 0 schema-shape level**. A field may carry an explicit empty or null value only where the table permits it. None of the handoff's minimum fields is silently optional.
+(external handoff snapshot, line 422). Consequently, every listed field is **required at the Phase 0 schema-shape level**. A field may carry an explicit empty or null value only where the table permits it. None of the handoff's minimum fields is silently optional.
 
 | Handoff field | Phase 0 representation and requirement |
 |---|---|
@@ -103,7 +108,7 @@ The handoff says the stable sidecar contains "at least" the fields below
 Phase 0 may permit forward-compatible extension fields. Two known extensions are
 `canonical_assembly_digest` and `dependency_file_closure`: the handoff records
 that current HCP output does not yet provide them
-([`MAGENTABENCH_HANDOFF.md:438`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:438)). BMP MUST NOT synthesize either value by deep-reading Magenta internals. Until Magenta exports them, claims that require proof of complete assembly/file identity MUST fail the isolation gate rather than treating absence as equality.
+(external handoff snapshot, line 438). BMP MUST NOT synthesize either value by deep-reading Magenta internals. Until Magenta exports them, claims that require proof of complete assembly/file identity MUST fail the isolation gate rather than treating absence as equality.
 
 ## D. Claim Gate Correctness Rules
 
@@ -116,7 +121,7 @@ is false, not "not applicable" and not success.
 **Precondition:** input and output contracts are satisfied; the task,
 container, and Agent terminate in an accepted state; and Trace, Checkpoint,
 usage, status, and required output structures validate. These requirements come
-from [`MAGENTABENCH_HANDOFF.md:376`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:376)-379.
+from external handoff snapshot, line 376-379.
 
 **False blocks:** admission of the run to effect estimation or paired
 comparison, any claim based on its output, and substitution of a numeric zero
@@ -129,7 +134,7 @@ bundle.
 case order and seed, serial/parallel schedule, rollout/candidate count,
 memory/state reset, candidate aggregation/selection, timeout/token/cost/wall
 clock budgets, and checkpoint save/resume policy. Those protocol dimensions are
-required by [`MAGENTABENCH_HANDOFF.md:228`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:228)-234. The executed manifest digest must match the planned resolved manifest digest.
+required by external handoff snapshot, line 228-234. The executed manifest digest must match the planned resolved manifest digest.
 
 **False blocks:** aggregation under the named protocol, comparison with a run
 that used that protocol, and every causal or protocol-level claim. The run may
@@ -142,7 +147,7 @@ intervention; activation receipts prove the target component was active;
 workspace, cache, memory, state, and environment are isolated; task, verifier,
 image, and runner digests match; and resume did not cross an unrecorded backend
 or Harbor version change. These are the requirements at
-[`MAGENTABENCH_HANDOFF.md:383`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:383)-387.
+external handoff snapshot, line 383-387.
 
 **False blocks:** attribution to the intervention, Module/Source/Capability
 claims, paired causal comparison, and promotion of the result as controlled
@@ -155,8 +160,8 @@ scoring semantics; the verifier/metric digest is the pinned one; it executes
 successfully on a contract-valid output; it emits structurally valid evidence;
 and no verifier/metric/infrastructure error is relabeled as subject failure.
 The handoff makes native semantics authoritative
-([`MAGENTABENCH_HANDOFF.md:166`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:166)-167) and requires the verifier or metric to be executable
-([`MAGENTABENCH_HANDOFF.md:378`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:378)).
+(external handoff snapshot, line 166-167) and requires the verifier or metric to be executable
+(external handoff snapshot, line 378).
 
 **False blocks:** publication or aggregation of a numeric score, effect-size or
 ranking computation, pass/fail claims, and any downstream claim. It produces a
@@ -169,7 +174,7 @@ counterbalanced order; valid train/validation/test/holdout separation; effect
 sizes, intervals, cost, and variance; complete-process comparison for Evolver
 and MetaEvolver subjects; and lineage for every candidate including rejected
 and invalid candidates. These requirements are enumerated at
-[`MAGENTABENCH_HANDOFF.md:391`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:391)-396.
+external handoff snapshot, line 391-396.
 
 **False blocks:** inferential, generalization, superiority, equivalence, and
 causal claims. Descriptive statistics may be reported only with an explicit
@@ -197,7 +202,7 @@ booleans. It MUST NOT be set independently, overridden manually, inferred from
 a positive score, or made true by dropping failed runs. This implements the
 handoff rule that all three gate classes must pass before a causally meaningful
 claim is generated
-([`MAGENTABENCH_HANDOFF.md:398`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:398)).
+(external handoff snapshot, line 398).
 
 **False blocks:** causal wording, benchmark winner/superiority declarations,
 release or adoption decisions presented as evidence-backed, and any report
@@ -211,7 +216,7 @@ Failures MUST retain their distinct raw states (`verified_fail`, `no_output`,
 `infra_error`, `unsupported`, and any schema-approved extension). They MUST NOT
 be collapsed into one zero score, one generic failure, or a filtered successful
 subset. This is explicit in
-[`MAGENTABENCH_HANDOFF.md:357`](/mnt/aliyunsb/aralacai/.benchmark/MAGENTABENCH_HANDOFF.md:357).
+external handoff snapshot, line 357.
 
 ## E. Runnable Audit Script Specification
 
