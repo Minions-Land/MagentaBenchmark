@@ -21,7 +21,7 @@
 | [`08-process-lessons.md`](08-process-lessons.md) | 过程教训，含一次严重的伪造事件 | 想知道为什么纪律要求这么严 |
 | [`09-metric-and-regime-protocol.md`](09-metric-and-regime-protocol.md) | Metric identity、计划分母、完整轨迹与 IID/泛化/持续学习/演化/Meta-evolution 协议 | 设计或审计任何 Agent/RSI 实验 |
 
-配置与外部 benchmark 接入的约束见 [`../docs/governance/bmp-configuration.md`](../docs/governance/bmp-configuration.md)。
+配置与外部 benchmark 接入的约束见 [`docs/governance/bmp-configuration.md`](../../../governance/bmp-configuration.md)。
 
 ## 三十秒摘要
 

@@ -128,7 +128,7 @@ worker 上线后的固定顺序：
 
 | 需要 | 读取 |
 | --- | --- |
-| MagentaBenchmark 权限、Issue/PR、lease、handoff | [`../../docs/GITHUB_DEVELOPMENT.md`](../../docs/GITHUB_DEVELOPMENT.md) |
+| MagentaBenchmark 权限、Issue/PR、branch/worktree、lease、handoff | [`../../docs/OPERATING_GUIDE.md`](../../docs/OPERATING_GUIDE.md) |
 | 项目边界、生命周期、work package | 本 skill 与 `references/owner-runbook.md` |
 | owner infra、资源和秘密 | `../experiment-infrastructure/SKILL.md` |
 | 长跑、监控、receipt | `../benchmark-operations/SKILL.md` |
