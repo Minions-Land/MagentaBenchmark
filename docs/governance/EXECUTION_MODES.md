@@ -8,7 +8,7 @@ code and evidence semantics by digest.
 
 ## Current Matrix
 
-Run `uv run bmp-collab modes` for the derived registry view. The checked-in
+Run `uv run --frozen bmp-collab modes` for the derived registry view. The checked-in
 target requirements live in `execution-profiles/<mode>/profile.json`.
 
 | Mode | Registry state | Isolation | Current ceiling | Work item |
@@ -109,10 +109,10 @@ identity. It must not silently reuse a previous backend id or result lineage.
 ## Agent Workflow
 
 ```bash
-uv run bmp-agent
-uv run bmp-collab modes
-uv run bmp-lab show <execution-work-item>
-uv run bmp-lab recover <execution-work-item>
+uv run --frozen bmp-agent
+uv run --frozen bmp-collab modes
+uv run --frozen bmp-lab show <execution-work-item>
+uv run --frozen bmp-lab recover <execution-work-item>
 ```
 
 Claim only the adapter issue's declared paths. Adapter implementation,
