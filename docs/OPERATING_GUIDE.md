@@ -100,13 +100,17 @@ Branch ownership is represented by the lab lease, not by a branch name alone.
 Claim the declared path scope before editing:
 
 ~~~bash
-uv run bmp-lab claim <issue-id> --lease-id <lease-id> \
-  --event-id <stable-event-id> --branch <branch> \
-  --base-commit <base-sha>
-git push origin HEAD:<branch>
-uv run bmp-lab show <issue-id>
+uv run --frozen bmp-lab claim <issue-id> \
+  --event-id <stable-event-id> --actor <actor> \
+  --holder <holder> --lease-id <lease-id>
+git add lab/issues/<issue-id>/events/<stable-event-id>.json
+git commit -m "lab: claim <issue-id> scope"
+git push --set-upstream origin <branch>
+uv run --frozen bmp-lab show <issue-id>
 ~~~
 
+`bmp-lab claim` captures the current worktree HEAD and branch itself. Commit
+and publish that event before editing any leased path or launching a run.
 Renew a long task before the lease expires and release it after handoff or
 merge. A mention is notification, not ownership; the incoming operator must
 recover the checkpoint and acquire a new lease.
@@ -131,17 +135,19 @@ git fetch origin main <branch>
 git diff --check
 git log --oneline origin/main..<branch>
 git diff --stat origin/main...<branch>
-git checkout main
-git pull --ff-only origin main
-git merge --no-ff <branch>
-git push origin main
-git show --stat --oneline HEAD
+gh pr merge <pr-number> --merge
+git fetch origin main
+git show --stat --oneline origin/main
 ~~~
 
-Do not merge from an unreviewed local commit, and do not close the Issue until
-the exact merge commit is verified on origin/main. If two branches touch the
-same scope, stop and choose an integration order; resolve conflicts in a new
-coordinator worktree with both owners' evidence, never by deleting one side.
+Use the GitHub PR merge path so branch protection and the exact-head review are
+enforced. A local no-ff merge is allowed only when repository policy explicitly
+authorizes it and the resulting merge is then published and verified on
+`origin/main`. Do not merge from an unreviewed local commit, and do not
+close the Issue until the exact merge commit is verified on `origin/main`.
+If two branches touch the same scope, stop and choose an integration order;
+resolve conflicts in a new coordinator worktree with both owners' evidence,
+never by deleting one side.
 Protocol/schema/runner/registry changes are separate PRs from experiment-only
 changes. Results imports are separate from code changes.
 
@@ -310,20 +316,26 @@ For a declared experiment, the minimum operator sequence is:
 uv run --frozen bmp-collab preflight <experiment-id> \
   --actor <lease-holder> --dry-run
 uv run --frozen bmp-compile path/to/experiment.toml \
-  --manifest-out <record-root>/manifest.json
+  | tee <existing-durable-evidence-dir>/compile.json
 uv run --frozen bmp-run path/to/experiment.toml \
   --record-root <fresh-record-root>
 uv run --frozen bmp-verify-report \
   <fresh-record-root>/<experiment-id>/observation_report.json
 uv run --frozen bmp-lab link-run <issue-id> \
-  --run-id <run-id> --record-root <fresh-record-root>
+  --event-id <stable-event-id> --actor <actor> \
+  --run-id <run-id> --state finished \
+  --record-root <fresh-record-root>
 uv run --frozen bmp-collab ledger --format json
 ~~~
 
+The compile command prints canonical resolved plans; retain that output in an
+already-created durable evidence directory as a content-addressed artifact.
+There is no `--manifest-out` option.
 Replace placeholders only after the bundle, lease, manifest, and fresh-root
-checks pass. Save command output and return codes in the checkpoint; do not
-paste secrets. A claim report follows the same path but requires every BMP
-claim gate and standalone verification to pass.
+checks pass. Use a new stable event id for the run link. Save command output
+and return codes in the checkpoint; do not paste secrets. A claim report
+follows the same path but requires every BMP claim gate and standalone
+verification to pass.
 
 The verifier must check report path, digest, size, schema, denominator,
 terminal states, evaluator identity, and all claim gates. Logs are diagnostics,
