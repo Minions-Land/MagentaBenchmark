@@ -6,10 +6,6 @@ one task or case on each row and one method or configuration in each method
 column. It is a scan-friendly table, not a hand-maintained progress board and
 not a replacement for the typed ledger records.
 
-The H20/NAS authority and handoff contract, including dirty-source quarantine
-and the required per-case/per-run binding, is in
-[`docs/H20_RESULT_AUTHORITY.md`](H20_RESULT_AUTHORITY.md).
-
 The projection is governed by
 [`Minions-Land/MagentaBenchmark#135`](https://github.com/Minions-Land/MagentaBenchmark/issues/135).
 Only the safe fields named there are retained. Every benchmark entry and every

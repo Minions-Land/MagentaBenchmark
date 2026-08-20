@@ -14,12 +14,12 @@ projection. Every historical row remains `claim_eligible=false`.
 
 | Benchmark | H20/source identity | Structured records | Current evidence | Binding gaps | Safe next action |
 | --- | --- | --- | --- | --- | --- |
-| CMTBench | `Minions-Land/MinionsOS2-Bench@150fa100ead4ab51acdfc24ed246a8c5b2141466`, tree `3deaec22a778564ae37cbea396765268f959fee5` | [`imports/minionsos2-cmtbench-150fa10`](../imports/minionsos2-cmtbench-150fa10): 8 run records, `test` split, 50 planned cases per run | Adopted accuracy is retained with correct, unresolved/parser-invalid and denominator fields; the primary regrade CSV is pinned as blob `88fc2f...`, 221376 bytes, SHA-256 `cde0aa20311f255fcc4892d69ec0b58702d16f8e27473481276c2cdad4cdcbad` | No published raw per-case outputs, model/source revision, runtime/image identity, durable BMP record root, or standalone BMP replay; no raw MinionsOS2 checkout is present on H20 | Keep the legacy projection. If promotion is needed, materialize the exact source bytes into a fresh root and create a new snapshot/run with official evaluator replay. |
+| CMTBench | `Minions-Land/MinionsOS2-Bench@150fa100ead4ab51acdfc24ed246a8c5b2141466`, tree `3deaec22a778564ae37cbea396765268f959fee5` | [`imports/minionsos2-cmtbench-150fa10`](../imports/minionsos2-cmtbench-150fa10): 8 run records, `test` split, 50 planned cases per run | Adopted accuracy is retained with correct, unresolved/parser-invalid and denominator fields; the primary regrade CSV is pinned as blob `88fc2f...`, 221376 bytes, SHA-256 `cde0aa20311f255fcc4892d69ec0b58702d16f8e27473481276c2cdad4cdcbad` | No published raw per-case outputs, model/source revision, runtime/image identity, durable BMP record root, or standalone BMP replay; no complete, authorized raw MinionsOS2 checkout is present on H20. A deleted/dirty forensic candidate exists only as a quarantine lead | Keep the legacy projection. If promotion is needed, materialize the exact source bytes into a fresh root and create a new snapshot/run with official evaluator replay. |
 | BiomniBench DA | `Minions-Land/AOSEBench@def4dae7520807d254612b3590eb32b9aa977924`, tree `50e8fe57a14d8f4c89b8357ab91827fe8bfe60ee` | [`imports/aosebench-biomnibench-da-def4dae7`](../imports/aosebench-biomnibench-da-def4dae7) (source descriptor SHA-256 `7cfd1cf9...`): 14 typed runs (12 `legacy-evaluated`, 2 Magenta `candidate` partial runs) | 50-task DA denominator, judge verdict/score, missing and invalid counts, and negative/no-output states are retained; candidate Magenta medium/xhigh runs retain terminal counts and config digests but intentionally no metrics | Historical records are not BMP runs; model/source commit, runtime/image, durable record root and standalone report replay are not bound. H20's raw judge summary is therefore not a ledger metric | Treat legacy rows as comparison evidence and Magenta rows as candidate-only. Re-run through a preregistered BMP bundle before any claim. |
 | NatureBench | `Minions-Land/AOSEBench-NatureBench@4b512029f3ad37746502ce377e4fcc2027fd46db`, `NatureBranch`, tree `e11636f88a5d74e9cb4dcaa06518b9a3a71c87ea` | [`imports/aosebench-naturebench-4b51202`](../imports/aosebench-naturebench-4b51202): 31-case declarations and aggregate reference records | Pinned NatureBranch contains no completed result CSV; declarations expose `not-observed`, null metrics, and `claim_eligible=false`; source descriptor SHA-256 is `8e054ded30897f7ef7a44bf26f8535db24773040c40c7dd0a45386716756377e` | H20 dirty CSV is outside the pinned tree and lacks run ID, source/model commit, config/manifest/evaluator digests, record root and per-case evidence; the materialized namespace records a private/license blocker | Do not import or overwrite the CSV. Freeze it externally as a candidate only after owner review, then materialize and verify a new immutable snapshot. |
 | BioML-Bench | `Minions-Land/MinionsOS_Paper` revision hint `48173d1` (not a fixed local snapshot) | Matrix declaration only (`bioml-bench` rows) | `external-unavailable`, no score or denominator claim | No immutable source, evaluator, run, or artifact bytes | Keep declaration-only. Locate an authorized public/fixed source before creating records. |
 | BiomeBench | No authoritative H20/NAS source located in this audit | No typed records | No result is asserted | Benchmark identity, dataset/split, evaluator, and source revision are all unresolved | Open a separate source-discovery issue; do not infer that “BiomeBench” means BiomniBench DA or BioML-Bench. |
-| SWE-bench Verified | No Verified source or run located | [`reports/benchmark_task_matrices.json`](../reports/benchmark_task_matrices.json) contains one local SWE-bench **Lite (not Verified)** probe row from repository snapshot `a913967a05fba7277f64a72694f5f868f36a3c4` | The Astropy probe is exploratory and repository-local; it is not a SWE-bench Verified result | No Verified dataset revision, official Verified evaluator, model/source binding, or claim report | Keep the row explicitly Lite/exploratory. A Verified run needs its own frozen bundle, official verifier and fresh record root. |
+| SWE-bench Verified | Fixed H20 input lead: HF revision `03e151cf5560b1af6a4363c6a9d766deaaea6b56`, `test`, 500 unique cases; no bound run | [`reports/benchmark_task_matrices.json`](../reports/benchmark_task_matrices.json) contains one local SWE-bench **Lite (not Verified)** probe row from repository snapshot `a913967a05fba7277f64a72694df5f868f36a3c4` | The Verified parquet is an input-only snapshot (2,480,309 bytes, SHA-256 `bb5b123d29ce70107cc0951cf444894241c570a11d76aec452332c65b01e06d8`). A third-party 500-task parity summary is quarantined; it has no per-case predictions or official report. The Astropy probe is exploratory and is not a Verified result | No Verified model/source binding, official evaluator output/version, run ID, durable record root, or claim report; aggregate percentages cannot be reconstructed into a valid denominator/numerator record | Keep both leads non-claim. A Verified result needs a frozen bundle, official verifier, per-case outcomes, and a fresh durable record root. |
 
 The CMTBench, BiomniBench DA, and NatureBench source snapshots are private or
 license-undetected upstream material represented here only by the approved
@@ -74,6 +74,30 @@ results:
   `claim_eligible=false`); an external judge summary exists for both 50-task
   cohorts, but its values are deliberately not emitted as imported metrics
   because source/model/runtime/record-root binding is open.
+
+- `<H20-NAS>/.Trash-0/files/biomni-audit-RbQqlw/MinionsOS2-Bench`, a forensic
+  candidate whose observed HEAD matches `150fa100...` but whose working tree
+  is heavily deleted. It is not a complete checkout, is not an authorized
+  source snapshot, and must not be restored or used as CMTBench authority.
+
+## SWE-bench Verified Quarantine
+
+The H20/NAS has a fixed Verified **input** lead under a local
+`SWE-bench_Verified` directory: HF revision
+`03e151cf5560b1af6a4363c6a9d766deaaea6b56`, `test`, 500 rows and 500 unique
+`instance_id` values. The parquet is 2,480,309 bytes with SHA-256
+`bb5b123d29ce70107cc0951cf444894241c570a11d76aec452332c65b01e06d8`. It has
+no predictions, model identity, evaluator output, or record root, so it is
+an input candidate only.
+
+An external `parity_experiment.json` lead (2,937 bytes, SHA-256
+`68339c5b8f43b7f71f7ec89693344b27ce4857b83800c14ae3b60b76e1fa0d17`) reports
+aggregate 500-task percentages, but has no exact terminal-bench commit,
+per-case predictions, numerator/invalid counts, verifier bytes/version,
+configuration digest, run ID, or durable root. It remains a historical
+summary lead and cannot enter the ledger as a metric. In particular, a
+reported percentage is not evidence that all 500 denominator slots were
+observed.
 
 Generated Nature regeneration directories under
 `<H20-NAS>/aralacai/naturebench-regeneration-*/` and
