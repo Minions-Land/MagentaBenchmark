@@ -18,6 +18,8 @@ try:
         PROJECTOR_ID,
         REPORT_FORMAT,
         _parse_root,
+        canonical_json_bytes,
+        project_report,
         projector_sha256,
         read_pinned,
     )
@@ -27,6 +29,8 @@ except ModuleNotFoundError:  # Direct ``python scripts/...`` invocation.
         PROJECTOR_ID,
         REPORT_FORMAT,
         _parse_root,
+        canonical_json_bytes,
+        project_report,
         projector_sha256,
         read_pinned,
     )
@@ -46,7 +50,10 @@ FORBIDDEN_KEY_PARTS = (
     "trace",
 )
 FORBIDDEN_TEXT = re.compile(
-    r"(?:^|/)(?:mnt|tmp|home|root)/|[A-Za-z]:\\|https?://[^ ]+[?&](?:token|key|sig)=",
+    r"(?:^|/)(?:mnt|tmp|home|root)/"
+    r"|[A-Za-z]:\\"
+    r"|https?://[^/\s:@]+:[^/@\s]+@"
+    r"|(?:^|[?#&])(?:access[_-]?token|api[_-]?key|auth[_-]?token|key|password|secret|sig|token)=[^\s&#]+",
     re.I,
 )
 DECLARATION_BENCHMARKS = {"naturebench", "bioml-bench"}
@@ -58,9 +65,97 @@ EXPECTED_COUNTS = {
     "swe-bench-lite-(not-verified)": 1,
 }
 
+TOP_LEVEL_FIELDS = {
+    "benchmarks",
+    "format",
+    "generated_at",
+    "generated_from",
+    "projection_contract",
+    "projector",
+}
+CONTRACT_FIELDS = {
+    "allowed_fields",
+    "claim_eligible",
+    "excluded_fields",
+    "id",
+    "publication_decision",
+    "source_of_truth",
+}
+BENCHMARK_FIELDS = {
+    "benchmark_id",
+    "claim_eligible",
+    "limitations",
+    "method_columns",
+    "method_summaries",
+    "name",
+    "observation_status",
+    "record_origin",
+    "result_route",
+    "row_count",
+    "rows",
+    "source",
+}
+ROW_FIELDS = {"category", "claim_eligible", "methods", "task_id"}
+CELL_FIELDS = {"claim_eligible", "reason", "score", "status", "verdict"}
+SUMMARY_FIELDS = {"method", "numeric_summaries", "verdict_counts"}
+NUMERIC_SUMMARY_FIELDS = {"score"}
+SOURCE_PATH_FIELDS = {"git_blob_sha1", "path", "sha256", "size_bytes"}
+SOURCE_FIELDS = {
+    "branch",
+    "commit_sha",
+    "fixed_snapshot",
+    "git_blob_sha1",
+    "kind",
+    "normalizer_id",
+    "normalizer_role",
+    "normalizer_sha256",
+    "path_hint",
+    "paths",
+    "publication_decision",
+    "projection",
+    "projector_id",
+    "projector_sha256",
+    "repository",
+    "repository_hint",
+    "result_available",
+    "result_paths",
+    "revision_hint",
+    "root_tree_sha1",
+    "sha256",
+    "size_bytes",
+    "visibility",
+}
+
 
 def _fail(errors: list[str], message: str) -> None:
     errors.append(message)
+
+
+def _unknown_fields(
+    value: Mapping[str, Any], allowed: set[str], path: str, errors: list[str]
+) -> None:
+    for key in value:
+        if str(key) not in allowed:
+            _fail(errors, f"unknown field at {path}.{key}")
+
+
+def _contains_numeric(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return True
+    if isinstance(value, str):
+        return bool(
+            re.fullmatch(
+                r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?",
+                value.strip(),
+            )
+        )
+    if isinstance(value, Mapping):
+        return any(_contains_numeric(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_contains_numeric(child) for child in value)
+    return False
 
 
 def _walk(value: Any, path: str, errors: list[str]) -> None:
@@ -83,8 +178,12 @@ def _counts(cells: list[Mapping[str, Any]]) -> dict[str, int]:
     return dict(sorted(Counter(str(cell.get("verdict")) for cell in cells).items()))
 
 
-def _summary_map(items: list[Mapping[str, Any]]) -> dict[str, Mapping[str, Any]]:
-    return {str(item.get("method")): item for item in items}
+def _summary_map(items: Any) -> dict[str, Mapping[str, Any]]:
+    if not isinstance(items, list):
+        return {}
+    return {
+        str(item.get("method")): item for item in items if isinstance(item, Mapping)
+    }
 
 
 def _decimal(value: Any) -> Decimal:
@@ -97,7 +196,11 @@ def _decimal(value: Any) -> Decimal:
 def _validate_sources(
     report: Mapping[str, Any], roots: Mapping[str, Path], errors: list[str]
 ) -> None:
-    source_names = {item["benchmark_id"] for item in report.get("benchmarks", [])}
+    source_names = {
+        item.get("benchmark_id")
+        for item in report.get("benchmarks", [])
+        if isinstance(item, Mapping)
+    }
     for name in ("cmtbench", "biomnibench-da", "naturebench"):
         if name not in source_names:
             continue
@@ -137,6 +240,7 @@ def validate_report(
     require_sources: bool = False,
 ) -> list[str]:
     errors: list[str] = []
+    _unknown_fields(report, TOP_LEVEL_FIELDS, "$", errors)
     if report.get("format") != REPORT_FORMAT:
         _fail(errors, "unexpected report format")
     projector = report.get("projector")
@@ -165,6 +269,8 @@ def validate_report(
     )
     if "claim_eligible" not in allowed:
         _fail(errors, "projection contract omits claim_eligible")
+    if isinstance(contract, Mapping):
+        _unknown_fields(contract, CONTRACT_FIELDS, "$.projection_contract", errors)
 
     benchmarks = report.get("benchmarks")
     if not isinstance(benchmarks, list):
@@ -175,6 +281,9 @@ def validate_report(
             _fail(errors, "benchmark entry is not an object")
             continue
         benchmark_id = str(benchmark.get("benchmark_id"))
+        _unknown_fields(
+            benchmark, BENCHMARK_FIELDS, f"$.benchmarks[{benchmark_id}]", errors
+        )
         if benchmark_id in seen_benchmarks:
             _fail(errors, f"duplicate benchmark: {benchmark_id}")
         seen_benchmarks.add(benchmark_id)
@@ -185,11 +294,15 @@ def validate_report(
         if not isinstance(rows, list) or not isinstance(columns, list):
             _fail(errors, f"benchmark {benchmark_id} rows/columns malformed")
             continue
+        columns_valid = all(isinstance(column, str) for column in columns)
+        column_names = set(columns) if columns_valid else set()
         if benchmark.get("row_count") != len(rows) or benchmark.get(
             "row_count"
         ) != EXPECTED_COUNTS.get(benchmark_id):
             _fail(errors, f"benchmark {benchmark_id} row count mismatch")
-        if len(columns) != len(set(columns)):
+        if not columns_valid:
+            _fail(errors, f"benchmark {benchmark_id} method columns must be strings")
+        elif len(columns) != len(column_names):
             _fail(errors, f"benchmark {benchmark_id} has duplicate method columns")
         task_ids: set[str] = set()
         for row in rows:
@@ -197,6 +310,9 @@ def validate_report(
                 _fail(errors, f"benchmark {benchmark_id} row is not an object")
                 continue
             task_id = str(row.get("task_id"))
+            _unknown_fields(
+                row, ROW_FIELDS, f"$.benchmarks[{benchmark_id}].rows[{task_id}]", errors
+            )
             if task_id in task_ids:
                 _fail(errors, f"benchmark {benchmark_id} duplicate task id {task_id}")
             task_ids.add(task_id)
@@ -206,7 +322,9 @@ def validate_report(
                     f"benchmark {benchmark_id}/{task_id} missing false claim_eligible",
                 )
             methods = row.get("methods")
-            if not isinstance(methods, Mapping) or set(methods) != set(columns):
+            if not isinstance(methods, Mapping) or (
+                columns_valid and set(methods) != column_names
+            ):
                 _fail(
                     errors,
                     f"benchmark {benchmark_id}/{task_id} method coverage mismatch",
@@ -219,16 +337,19 @@ def validate_report(
                         f"benchmark {benchmark_id}/{task_id}/{method} cell is not an object",
                     )
                     continue
+                _unknown_fields(
+                    cell,
+                    CELL_FIELDS,
+                    f"$.benchmarks[{benchmark_id}].rows[{task_id}].methods[{method}]",
+                    errors,
+                )
                 if cell.get("claim_eligible") is not False:
                     _fail(
                         errors,
                         f"benchmark {benchmark_id}/{task_id}/{method} missing false claim_eligible",
                     )
                 if benchmark_id in DECLARATION_BENCHMARKS:
-                    if any(
-                        isinstance(value, (int, float)) and not isinstance(value, bool)
-                        for value in cell.values()
-                    ):
+                    if _contains_numeric(cell):
                         _fail(
                             errors,
                             f"declaration benchmark has numeric value: {benchmark_id}/{task_id}/{method}",
@@ -238,16 +359,43 @@ def validate_report(
                             errors,
                             f"declaration benchmark has a verdict: {benchmark_id}/{task_id}/{method}",
                         )
-        summary = _summary_map(benchmark.get("method_summaries", []))
-        if set(summary) != set(columns):
+        summary_items = benchmark.get("method_summaries", [])
+        if not isinstance(summary_items, list):
+            _fail(errors, f"benchmark {benchmark_id} method summaries malformed")
+        for index, item in enumerate(
+            summary_items if isinstance(summary_items, list) else []
+        ):
+            if isinstance(item, Mapping):
+                _unknown_fields(
+                    item,
+                    SUMMARY_FIELDS,
+                    f"$.benchmarks[{benchmark_id}].method_summaries[{index}]",
+                    errors,
+                )
+                numeric_summaries = item.get("numeric_summaries", {})
+                if not isinstance(numeric_summaries, Mapping):
+                    _fail(
+                        errors,
+                        f"benchmark {benchmark_id} method summary numeric_summaries malformed",
+                    )
+                else:
+                    _unknown_fields(
+                        numeric_summaries,
+                        NUMERIC_SUMMARY_FIELDS,
+                        f"$.benchmarks[{benchmark_id}].method_summaries[{index}].numeric_summaries",
+                        errors,
+                    )
+        summary = _summary_map(summary_items)
+        if columns_valid and set(summary) != column_names:
             _fail(errors, f"benchmark {benchmark_id} method summaries mismatch")
-        if benchmark_id in {"cmtbench", "biomnibench-da"}:
+        if benchmark_id in {"cmtbench", "biomnibench-da"} and columns_valid:
             for method in columns:
-                cells = [
-                    row["methods"][method]
-                    for row in rows
-                    if isinstance(row.get("methods"), Mapping)
-                ]
+                cells = []
+                for row in rows:
+                    methods = row.get("methods") if isinstance(row, Mapping) else None
+                    cell = methods.get(method) if isinstance(methods, Mapping) else None
+                    if isinstance(cell, Mapping):
+                        cells.append(cell)
                 actual_counts = _counts(cells)
                 expected = dict(summary.get(method, {}).get("verdict_counts", {}))
                 if actual_counts != expected:
@@ -256,22 +404,49 @@ def validate_report(
                         f"benchmark {benchmark_id}/{method} verdict aggregate drift",
                     )
                 if benchmark_id == "biomnibench-da" and method in summary:
-                    scores = [_decimal(cell["score"]) for cell in cells]
-                    numeric = (
-                        summary[method].get("numeric_summaries", {}).get("score", {})
-                    )
+                    try:
+                        scores = [_decimal(cell["score"]) for cell in cells]
+                    except (KeyError, TypeError, ValueError) as exc:
+                        _fail(
+                            errors,
+                            f"benchmark {benchmark_id}/{method} score malformed: {exc}",
+                        )
+                        continue
+                    numeric_summaries = summary[method].get("numeric_summaries", {})
+                    if not isinstance(numeric_summaries, Mapping):
+                        _fail(
+                            errors,
+                            f"benchmark {benchmark_id}/{method} numeric_summaries malformed",
+                        )
+                        continue
+                    numeric = numeric_summaries.get("score", {})
+                    if not isinstance(numeric, Mapping):
+                        _fail(
+                            errors,
+                            f"benchmark {benchmark_id}/{method} score summary malformed",
+                        )
+                        continue
                     if numeric.get("observed_count") != len(scores):
                         _fail(
                             errors,
                             f"benchmark {benchmark_id}/{method} observed count drift",
                         )
-                    if _decimal(numeric.get("mean")) != _decimal(
-                        round(float(sum(scores) / len(scores)), 2)
-                    ):
+                    try:
+                        mean_drift = _decimal(numeric.get("mean")) != _decimal(
+                            round(float(sum(scores) / len(scores)), 2)
+                        )
+                        range_drift = _decimal(numeric.get("min")) != min(
+                            scores
+                        ) or _decimal(numeric.get("max")) != max(scores)
+                    except (TypeError, ValueError, ZeroDivisionError) as exc:
+                        _fail(
+                            errors,
+                            f"benchmark {benchmark_id}/{method} numeric summary malformed: {exc}",
+                        )
+                        continue
+                    if mean_drift:
                         _fail(errors, f"benchmark {benchmark_id}/{method} mean drift")
-                    if _decimal(numeric.get("min")) != min(scores) or _decimal(
-                        numeric.get("max")
-                    ) != max(scores):
+                    if range_drift:
                         _fail(errors, f"benchmark {benchmark_id}/{method} range drift")
 
         source = benchmark.get("source")
@@ -287,6 +462,9 @@ def validate_report(
                     f"benchmark {benchmark_id} source projector identity mismatch",
                 )
             expected_source = EXPECTED_SOURCES[benchmark_id]
+            _unknown_fields(
+                source, SOURCE_FIELDS, f"$.benchmarks[{benchmark_id}].source", errors
+            )
             for field, expected_value in (
                 ("repository", expected_source["repository"]),
                 ("commit_sha", expected_source["commit_sha"]),
@@ -297,9 +475,13 @@ def validate_report(
                     source_value = source_value.get("digest")
                 if source_value != expected_value:
                     _fail(errors, f"benchmark {benchmark_id} source {field} mismatch")
+            source_paths = source.get("paths", [])
+            if not isinstance(source_paths, list):
+                _fail(errors, f"benchmark {benchmark_id} source paths malformed")
+                source_paths = []
             paths = {
                 item.get("path"): item
-                for item in source.get("paths", [])
+                for item in source_paths
                 if isinstance(item, Mapping)
             }
             for relative, expected_path in expected_source["paths"].items():
@@ -316,11 +498,32 @@ def validate_report(
                             errors,
                             f"benchmark {benchmark_id} source {relative} {field} mismatch",
                         )
+            for index, item in enumerate(source_paths):
+                if isinstance(item, Mapping):
+                    _unknown_fields(
+                        item,
+                        SOURCE_PATH_FIELDS,
+                        f"$.benchmarks[{benchmark_id}].source.paths[{index}]",
+                        errors,
+                    )
     if seen_benchmarks != set(EXPECTED_COUNTS):
         _fail(errors, "benchmark set mismatch")
     if require_sources:
         _validate_sources(report, roots or {}, errors)
+        if not errors:
+            _validate_canonical_projection(report, roots or {}, errors)
     return errors
+
+
+def _validate_canonical_projection(
+    report: Mapping[str, Any], roots: Mapping[str, Path], errors: list[str]
+) -> None:
+    try:
+        projected = project_report(report, roots, require_sources=True)
+        if canonical_json_bytes(projected) != canonical_json_bytes(report):
+            _fail(errors, "report does not match canonical source projection")
+    except (OSError, ValueError, TypeError, KeyError, RecursionError) as exc:
+        _fail(errors, f"canonical source projection failed: {exc}")
 
 
 def main() -> int:
@@ -334,7 +537,15 @@ def main() -> int:
         errors = validate_report(
             report, roots=dict(args.source_root), require_sources=args.require_sources
         )
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        RecursionError,
+        json.JSONDecodeError,
+    ) as exc:
         errors = [str(exc)]
     if errors:
         print(

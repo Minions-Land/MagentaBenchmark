@@ -30,6 +30,13 @@ projector is distinct from the historical import normalizers: those normalizers
 remain bound to their typed aggregate records and are never presented as task
 matrix generators.
 
+`--require-sources` adds a canonical equality gate after the source-byte checks:
+the projector rebuilds the view and compares canonical JSON bytes with the
+report. Task IDs, cells, aggregates, and safe-field drift therefore fail
+closed. The validator also rejects unknown fields, numeric values in
+declaration-only rows, authenticated locators, malformed structures, and true
+claim eligibility.
+
 To regenerate from authorized fixed source roots (kept outside Git), run:
 
 ```bash
@@ -49,13 +56,15 @@ python scripts/historical_imports/validate_benchmark_task_matrices.py \
 ```
 
 The source roots must resolve the exact pinned bytes recorded in the report;
-the tools verify each input's repository-relative path, byte size, SHA-256,
-and Git blob SHA-1. When a root is a Git checkout, its `HEAD` and root tree
-must also match the recorded commit/tree. A portable byte-only evidence export
-is accepted only after every pinned blob matches; it is not treated as a live
-checkout. Mutable workspaces and scratch copies with any drift fail closed.
-Raw source bytes, answers, prompts, gold data, traces, logs, credentials, and
-machine-private paths are never emitted into the report.
+the tools verify each expected source mapping, byte size, SHA-256, and Git blob
+SHA-1. When a root is a Git checkout, the expected repository-relative path,
+`HEAD`, and root tree must also match the recorded commit/tree. A portable
+byte-only evidence export may use the approved one-file mapping because it has
+no Git tree; it proves the bytes/blob identity, not a live checkout. Mutable
+workspaces and scratch copies with any drift fail closed. The projector writes
+the report through a fsync-and-replace temporary sibling. Raw source bytes,
+answers, prompts, gold data, traces, logs, credentials, and machine-private
+paths are never emitted into the report.
 
 ## Fixed Sources
 

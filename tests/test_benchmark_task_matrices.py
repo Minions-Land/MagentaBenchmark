@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from scripts.historical_imports import benchmark_task_matrices_v1 as projector
+from scripts.historical_imports import validate_benchmark_task_matrices as validator
 from scripts.historical_imports.benchmark_task_matrices_v1 import project_report
 from scripts.historical_imports.validate_benchmark_task_matrices import validate_report
 
@@ -68,6 +70,31 @@ def test_source_commit_drift_fails_closed(report: dict[str, Any]) -> None:
     assert any("source commit_sha mismatch" in error for error in _errors(report))
 
 
+def test_required_source_projection_drift_fails_closed(
+    report: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canonical = deepcopy(report)
+    report["benchmarks"][0]["rows"][0]["task_id"] = "tampered-task"
+    monkeypatch.setattr(validator, "_validate_sources", lambda *args: None)
+    monkeypatch.setattr(
+        validator,
+        "project_report",
+        lambda *_args, **_kwargs: canonical,
+    )
+    errors = validate_report(report, roots={}, require_sources=True)
+    assert "report does not match canonical source projection" in errors
+
+
+def test_malformed_report_fails_closed_without_traceback(
+    report: dict[str, Any],
+) -> None:
+    report["benchmarks"][0]["method_summaries"] = None
+    assert any("method summaries malformed" in error for error in _errors(report))
+
+    report["benchmarks"][0]["source"]["paths"] = None
+    assert any("source paths malformed" in error for error in _errors(report))
+
+
 def test_declaration_numeric_injection_fails_closed(report: dict[str, Any]) -> None:
     cell = report["benchmarks"][2]["rows"][0]["methods"][
         "Magenta · Claude Opus 4.7 · medium"
@@ -76,6 +103,27 @@ def test_declaration_numeric_injection_fails_closed(report: dict[str, Any]) -> N
     assert any(
         "declaration benchmark has numeric value" in error for error in _errors(report)
     )
+
+    cell["score"] = "0.5"
+    assert any(
+        "declaration benchmark has numeric value" in error for error in _errors(report)
+    )
+
+
+def test_forbidden_authenticated_locator_fails_closed(report: dict[str, Any]) -> None:
+    cell = report["benchmarks"][2]["rows"][0]["methods"][
+        "Magenta · Claude Opus 4.7 · medium"
+    ]
+    cell["reason"] = "https://user:password@example.test/x?access_token=secret#token=x"
+    assert any(
+        "machine-private or authenticated locator" in error for error in _errors(report)
+    )
+
+
+def test_unknown_safe_field_fails_closed(report: dict[str, Any]) -> None:
+    cell = report["benchmarks"][0]["rows"][0]["methods"]["purellm_gpt54 · gpt-5.4"]
+    cell["evaluator_output"] = "not allowed"
+    assert any("unknown field" in error for error in _errors(report))
 
 
 def test_aggregate_drift_fails_closed(report: dict[str, Any]) -> None:
@@ -93,3 +141,16 @@ def test_unbound_projection_is_deterministic(report: dict[str, Any]) -> None:
     first = project_report(report, {}, require_sources=False)
     second = project_report(deepcopy(report), {}, require_sources=False)
     assert first == second
+
+
+def test_git_checkout_does_not_use_basename_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "per_answer_regrade.csv").write_bytes(b"pinned bytes")
+    monkeypatch.setattr(
+        projector,
+        "_git_checkout_identity",
+        lambda _root: ("head", "tree"),
+    )
+    with pytest.raises(ValueError, match="repository path"):
+        projector._candidate(tmp_path, projector.CMT_PATH, git_checkout=True)

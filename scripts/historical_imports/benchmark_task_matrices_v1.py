@@ -14,8 +14,11 @@ import csv
 from copy import deepcopy
 import hashlib
 import json
+import math
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 from typing import Any, Mapping
 
 PROJECTOR_ID = "task-matrix-projector-v1"
@@ -91,7 +94,14 @@ DA_METHODS = ("Biomni", "PantheonOS", "CellVoyager", "CodexCLI", "BaseLLM")
 
 def canonical_json_bytes(value: Any) -> bytes:
     return (
-        json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        json.dumps(
+            value,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n"
     ).encode()
 
 
@@ -106,10 +116,12 @@ def _root_for(roots: Mapping[str, Path], name: str) -> Path:
         raise ValueError(f"source root is required for {name}") from exc
 
 
-def _candidate(root: Path, relative: str) -> Path:
+def _candidate(root: Path, relative: str, *, git_checkout: bool = False) -> Path:
     direct = root / relative
     if direct.is_file():
         return direct
+    if git_checkout:
+        raise ValueError(f"source file is missing at repository path: {relative}")
     basename = root / Path(relative).name
     if basename.is_file():
         return basename
@@ -176,8 +188,10 @@ def _validate_git_source_identity(root: Path, source_name: str) -> None:
 def read_pinned(root: Path, source_name: str, relative: str) -> bytes:
     source = EXPECTED_SOURCES[source_name]
     expected = source["paths"][relative]
-    _validate_git_source_identity(root, source_name)
-    path = _candidate(root, relative)
+    identity = _git_checkout_identity(root)
+    if identity is not None:
+        _validate_git_source_identity(root, source_name)
+    path = _candidate(root, relative, git_checkout=identity is not None)
     content = path.read_bytes()
     if len(content) != expected["size_bytes"]:
         raise ValueError(f"size mismatch for {relative}")
@@ -272,8 +286,10 @@ def project_da(default_root: Path, xhigh_root: Path) -> dict[str, Any]:
             raise ValueError(f"duplicate DA cell: {task}/{key}")
         try:
             score = float(record["score"])
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError(f"invalid DA score for {task}/{key}") from exc
+        if not math.isfinite(score):
+            raise ValueError(f"non-finite DA score for {task}/{key}")
         row["methods"][key] = {
             "verdict": "成功" if record["judge_status"] == "evaluated" else "失败",
             "score": score,
@@ -332,6 +348,8 @@ def project_nature(root: Path) -> dict[str, Any]:
         if line.strip()
     }
     ids = [task["case_id"] for task in tasks]
+    if len(ids) != len(set(ids)):
+        raise ValueError("NatureBench manifest contains duplicate case IDs")
     if set(ids) != cellomics:
         raise ValueError("NatureBench task-set and manifest disagree")
     method = "Magenta · Claude Opus 4.7 · medium"
@@ -456,13 +474,30 @@ def main() -> int:
     roots = dict(args.source_root)
     projected = project_report(report, roots, require_sources=not args.allow_unbound)
     destination = args.output or args.report
-    destination.write_bytes(canonical_json_bytes(projected))
+    output_bytes = canonical_json_bytes(projected)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            handle.write(output_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
     print(
         json.dumps(
             {
                 "projector": PROJECTOR_ID,
                 "output": str(destination),
-                "sha256": hashlib.sha256(destination.read_bytes()).hexdigest(),
+                "sha256": hashlib.sha256(output_bytes).hexdigest(),
             },
             sort_keys=True,
         )
