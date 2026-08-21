@@ -691,21 +691,22 @@ class MagentaExperimentWireClient:
         experiment_id: str,
         *,
         after_sequence: int,
-        timeout_ms: int = MAX_EXPERIMENT_WATCH_MS,
+        timeout_ms: int | None = None,
     ) -> ExperimentOperationResult:
         _identifier(experiment_id, "experiment-id-invalid")
         if type(after_sequence) is not int or after_sequence < 0:
             _fail("watch-sequence-invalid")
-        if (
-            type(timeout_ms) is not int
-            or not 0 <= timeout_ms <= MAX_EXPERIMENT_WATCH_MS
-        ):
-            _fail("watch-timeout-invalid")
         params = {
             "after_sequence": after_sequence,
             "experiment_id": experiment_id,
-            "timeout_seconds": timeout_ms / 1000,
         }
+        if timeout_ms is not None:
+            if (
+                type(timeout_ms) is not int
+                or not 0 <= timeout_ms <= MAX_EXPERIMENT_WATCH_MS
+            ):
+                _fail("watch-timeout-invalid")
+            params["timeout_seconds"] = timeout_ms / 1000
         result = self._call("experiment_watch", params, experiment_id=experiment_id)
         _validate_optional_result_identity(result, experiment_id, "experiment_watch")
         return ExperimentOperationResult("experiment_watch", experiment_id, result)

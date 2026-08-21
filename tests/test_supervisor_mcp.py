@@ -189,6 +189,19 @@ def test_magenta_wire_preserves_multiline_commands() -> None:
     assert transport.calls[0][1]["command"] == request.command
 
 
+def test_magenta_wire_omits_optional_watch_timeout() -> None:
+    transport = FakeMagentaTransport({"experiment_watch": {"events": []}})
+
+    MagentaExperimentWireClient(transport).watch("exp-wire-001", after_sequence=0)
+
+    assert transport.calls == [
+        (
+            "experiment_watch",
+            {"experiment_id": "exp-wire-001", "after_sequence": 0},
+        )
+    ]
+
+
 def test_magenta_wire_submit_keeps_identity_local_and_rejects_response_drift() -> None:
     request = _execution_request()
     transport = FakeMagentaTransport(

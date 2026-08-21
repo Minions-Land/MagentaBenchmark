@@ -98,10 +98,11 @@ another experiment or source snapshot fails with `receipt-identity-mismatch`.
 
 The receipt-only Python client is intentionally an identity-aware sidecar
 boundary, not a drop-in implementation of Magenta's TypeScript
-`ExperimentService`.  The pinned Magenta service's wire request requires `experiment_id`,
-`command`, `cwd`, and `gpu_count` (with optional `name` and
-`timeout_seconds`), and translates the watch timeout to Supervisor's
-`timeout_seconds`.  A future runtime adapter must therefore:
+`ExperimentService`.  The pinned Magenta service's wire request requires
+`experiment_id`, `command`, `cwd`, and `gpu_count` (with optional `name` and
+`timeout_seconds`), and translates an explicitly supplied watch timeout to
+Supervisor's `timeout_seconds`; an omitted timeout remains omitted. A future
+runtime adapter must therefore:
 
 1. submit those execution fields through Magenta's service;
 2. retain the BMP/source identities in the same immutable request context;
