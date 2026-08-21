@@ -12,7 +12,47 @@ MagentaBench owns only the thin boundary in
 `MagentaBench.collab.supervisor_mcp`.  It does not copy Magenta or ATPS code,
 discover GPUs, start or stop Supervisor, write the lab ledger, or turn logs
 into metrics.  The transport is injected so a fake transport can test the
-contract without a service:
+contract without a service.  The versioned `MagentaExperimentWireClient`
+matches the pinned Magenta `ExperimentService` request contract; the older
+`SupervisorMcpClient` remains the receipt-only boundary for callers that
+already have an exported terminal handoff.
+
+```python
+from MagentaBench.collab.supervisor_mcp import (
+    ExperimentExecutionRequest,
+    MagentaExperimentWireClient,
+)
+
+wire = MagentaExperimentWireClient(transport)
+ack = wire.submit(
+    ExperimentExecutionRequest(
+        experiment_id="exp-001",
+        command="python train.py",
+        cwd="/workspace",
+        gpu_count=2,
+        timeout_seconds=3600,
+    )
+)
+status = wire.status(ack.experiment_id)
+events = wire.watch(ack.experiment_id, after_sequence=0)
+```
+
+`submit` returns an opaque acceptance object, never a `SupervisorReceipt`.
+The Magenta service contract does not promise a terminal report in the submit
+response.  A later, explicitly versioned status projection may provide a
+terminal receipt; only then may the existing receipt validator read the
+trusted artifact tree.  BMP identity fields are retained in the immutable
+experiment bundle/request context and are deliberately not sent as unknown
+Supervisor parameters.
+
+After a separately reviewed status projection has selected an exported
+terminal receipt, call `validate_terminal_receipt(...,
+identity_context=frozen_request)` before `bmp-verify-report`.  This helper
+checks the receipt against the immutable BMP identity and report tree; it does
+not parse arbitrary status objects or write the ledger.
+
+The transport is injected so a fake transport can test the contract without a
+service:
 
 ```python
 from MagentaBench.collab.supervisor_mcp import (
@@ -29,9 +69,10 @@ events = client.watch(receipt.experiment_id, after_sequence=status.sequence)
 receipt_json = serialize_supervisor_receipt(receipt)
 ```
 
-## Receipt Contract
+## Terminal Receipt Contract
 
-The submit response must bind all of the following:
+Only an exported terminal receipt, obtained after submit through a separately
+versioned status/watch projection, must bind all of the following:
 
 | Group | Required identity |
 | --- | --- |
@@ -50,13 +91,14 @@ submit-time assertions; freshness cannot be proven by a later validator, so
 the caller must run `check_run_root --require-new` before submission.
 Byte-level report checks run when the caller supplies the resolved record root;
 the receipt-only `submit` call does not read or mutate artifact bytes.
-The submit response is also checked against every immutable identity in the
-request; a response for another experiment or source snapshot fails with
-`receipt-identity-mismatch`.
+The wire submit response is only checked for a bounded object and, when it
+includes `experiment_id`, an exact match.  A terminal receipt is checked
+against every immutable identity in the local request context; a response for
+another experiment or source snapshot fails with `receipt-identity-mismatch`.
 
-The Python transport is intentionally an identity-aware sidecar boundary, not
-a drop-in implementation of Magenta's TypeScript `ExperimentService`.  The
-pinned Magenta service's wire request still requires `experiment_id`,
+The receipt-only Python client is intentionally an identity-aware sidecar
+boundary, not a drop-in implementation of Magenta's TypeScript
+`ExperimentService`.  The pinned Magenta service's wire request requires `experiment_id`,
 `command`, `cwd`, and `gpu_count` (with optional `name` and
 `timeout_seconds`), and translates the watch timeout to Supervisor's
 `timeout_seconds`.  A future runtime adapter must therefore:
@@ -69,7 +111,20 @@ pinned Magenta service's wire request still requires `experiment_id`,
    the already-resolved record root as `artifact_root`).
 
 This repository does not implement that live sidecar, does not infer command
-or GPU allocation, and does not claim that a Supervisor socket is available.
+or GPU allocation for the receipt-only client, and does not claim that a
+Supervisor socket is available.  The wire client validates command, cwd, GPU,
+and timeout bounds before sending the exact Magenta fields, but it never
+allocates a GPU or starts a service.  `service_status`, `experiment_submit`,
+`experiment_status`, `experiment_watch`, `experiment_cancel`, and
+`experiment_retry` are all transport calls; the bridge does not assume
+method-specific response fields beyond bounded JSON and an optional matching
+`experiment_id`.
+
+For submit/cancel/retry, a transport failure after dispatch is
+`outcome_unknown` and non-retryable until a fresh `status` call establishes
+the authoritative state.  It is never silently retried.  A pre-dispatch
+unavailable error is retryable.  Read-only transport failures remain
+retryable when their dispatch boundary is known.
 `artifact_base` resolves the receipt's relative `record_root` and prevents an
 unrelated tree from being silently substituted; `artifact_root` is the
 already-resolved equivalent.  Callers must establish this mapping at the

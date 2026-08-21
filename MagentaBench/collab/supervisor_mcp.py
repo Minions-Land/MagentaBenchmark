@@ -21,6 +21,9 @@ from typing import Any, Mapping, NoReturn, Protocol, cast
 SUPERVISOR_RECEIPT_FORMAT = "magentabench-magenta-supervisor-receipt-v1"
 MAX_RESPONSE_BYTES = 1 * 1024 * 1024
 MAX_REPORT_BYTES = 256 * 1024 * 1024
+MAX_EXPERIMENT_GPUS = 8
+MAX_EXPERIMENT_TIMEOUT_SECONDS = 604_800
+MAX_EXPERIMENT_WATCH_MS = 25_000
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$")
@@ -52,6 +55,60 @@ class SupervisorMcpError(ValueError):
     def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
+
+
+class MagentaExperimentTransportError(RuntimeError):
+    """Transport failure with an explicit dispatch boundary.
+
+    A transport must set ``request_dispatched`` when it cannot determine
+    whether the Supervisor received a mutation.  This keeps retry decisions
+    out of the bridge and prevents duplicate submit/cancel/retry operations.
+    """
+
+    def __init__(self, code: str, *, request_dispatched: bool = False) -> None:
+        super().__init__(code)
+        self.code = code
+        self.request_dispatched = request_dispatched
+
+
+class MagentaExperimentServiceError(RuntimeError):
+    """Supervisor rejected a request after parsing it."""
+
+
+class MagentaExperimentWireError(RuntimeError):
+    """Stable, non-secret error for the Magenta Experiment wire boundary."""
+
+    def __init__(
+        self,
+        code: str,
+        *,
+        method: str,
+        experiment_id: str | None = None,
+        retryable: bool,
+        outcome_unknown: bool = False,
+    ) -> None:
+        detail = f"{code}:{method}"
+        if experiment_id is not None:
+            detail += f":{experiment_id}"
+        if outcome_unknown:
+            detail += ":outcome-unknown"
+        super().__init__(detail)
+        self.code = code
+        self.method = method
+        self.experiment_id = experiment_id
+        self.retryable = retryable
+        self.outcome_unknown = outcome_unknown
+
+
+class MagentaExperimentTransport(Protocol):
+    """Injected transport returning the already-unwrapped JSON result.
+
+    Socket framing, request IDs, envelope validation, and connection secrets
+    belong to the transport implementation.  The bridge only sees one bounded
+    JSON object per call and never opens a socket itself.
+    """
+
+    def request(self, method: str, params: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
 class SupervisorMcpTransport(Protocol):
@@ -458,6 +515,225 @@ class SupervisorStatus:
     receipt: SupervisorReceipt | None = None
 
 
+@dataclass(frozen=True)
+class ExperimentExecutionRequest:
+    """The exact execution fields accepted by Magenta's ExperimentService."""
+
+    experiment_id: str
+    command: str
+    cwd: str
+    gpu_count: int
+    name: str | None = None
+    timeout_seconds: int | None = None
+
+    def as_wire_params(self) -> dict[str, Any]:
+        _validate_execution_request(self)
+        params: dict[str, Any] = {
+            "command": self.command,
+            "cwd": self.cwd,
+            "experiment_id": self.experiment_id,
+            "gpu_count": self.gpu_count,
+        }
+        if self.name is not None:
+            params["name"] = self.name
+        if self.timeout_seconds is not None:
+            params["timeout_seconds"] = self.timeout_seconds
+        return params
+
+
+@dataclass(frozen=True)
+class ExperimentSubmitAcceptance:
+    """Opaque submit acknowledgement; it is never a BMP receipt."""
+
+    experiment_id: str
+    result: Mapping[str, Any]
+    identity_context: SupervisorExperimentRequest | None = None
+
+
+@dataclass(frozen=True)
+class ExperimentOperationResult:
+    """Bounded opaque result for service status, mutation, or read calls."""
+
+    method: str
+    experiment_id: str | None
+    result: Mapping[str, Any]
+
+
+class MagentaExperimentWireClient:
+    """Map the pinned Magenta ExperimentService contract to an injected wire.
+
+    This version intentionally does not parse Supervisor-specific projections.
+    The Magenta source declares result objects as opaque records.  A later
+    reviewed adapter may parse a separately versioned status fixture and then
+    call :func:`validate_supervisor_receipt` for a terminal artifact receipt.
+    """
+
+    def __init__(self, transport: MagentaExperimentTransport) -> None:
+        self._transport = transport
+
+    def _call(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        experiment_id: str | None = None,
+        mutation: bool = False,
+    ) -> Mapping[str, Any]:
+        try:
+            result = self._transport.request(method, params)
+        except MagentaExperimentTransportError as exc:
+            if mutation and exc.request_dispatched:
+                raise MagentaExperimentWireError(
+                    "transport",
+                    method=method,
+                    experiment_id=experiment_id,
+                    retryable=False,
+                    outcome_unknown=True,
+                ) from exc
+            raise MagentaExperimentWireError(
+                "unavailable" if not exc.request_dispatched else "transport",
+                method=method,
+                experiment_id=experiment_id,
+                retryable=not mutation or not exc.request_dispatched,
+            ) from exc
+        except MagentaExperimentServiceError as exc:
+            raise MagentaExperimentWireError(
+                "service",
+                method=method,
+                experiment_id=experiment_id,
+                retryable=False,
+            ) from exc
+        except Exception as exc:
+            raise MagentaExperimentWireError(
+                "transport",
+                method=method,
+                experiment_id=experiment_id,
+                retryable=not mutation,
+                outcome_unknown=mutation,
+            ) from exc
+        try:
+            bounded = _bounded_mapping(result)
+        except SupervisorMcpError as exc:
+            if mutation:
+                raise MagentaExperimentWireError(
+                    "transport",
+                    method=method,
+                    experiment_id=experiment_id,
+                    retryable=False,
+                    outcome_unknown=True,
+                ) from exc
+            raise MagentaExperimentWireError(
+                "invalid_response",
+                method=method,
+                experiment_id=experiment_id,
+                retryable=False,
+            ) from exc
+        return bounded
+
+    def service_status(self) -> ExperimentOperationResult:
+        result = self._call("service_status", {})
+        return ExperimentOperationResult("service_status", None, result)
+
+    def submit(
+        self,
+        request: ExperimentExecutionRequest,
+        *,
+        identity_context: SupervisorExperimentRequest | None = None,
+    ) -> ExperimentSubmitAcceptance:
+        _validate_execution_request(request)
+        if identity_context is not None:
+            _validate_submit_request(identity_context)
+            if identity_context.experiment_id != request.experiment_id:
+                _fail("identity-context-mismatch")
+        result = self._call(
+            "experiment_submit",
+            request.as_wire_params(),
+            experiment_id=request.experiment_id,
+            mutation=True,
+        )
+        returned_id = result.get("experiment_id")
+        if returned_id is not None and returned_id != request.experiment_id:
+            raise MagentaExperimentWireError(
+                "identity-mismatch",
+                method="experiment_submit",
+                experiment_id=request.experiment_id,
+                retryable=False,
+            )
+        return ExperimentSubmitAcceptance(
+            request.experiment_id, result, identity_context
+        )
+
+    def status(
+        self,
+        experiment_id: str | None = None,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> ExperimentOperationResult:
+        params: dict[str, Any] = {}
+        if experiment_id is not None:
+            _identifier(experiment_id, "experiment-id-invalid")
+            params["experiment_id"] = experiment_id
+        if limit is not None:
+            if type(limit) is not int or not 1 <= limit <= 100:
+                _fail("status-limit-invalid")
+            params["limit"] = limit
+        if offset is not None:
+            if type(offset) is not int or offset < 0:
+                _fail("status-offset-invalid")
+            params["offset"] = offset
+        result = self._call("experiment_status", params, experiment_id=experiment_id)
+        _validate_optional_result_identity(result, experiment_id, "experiment_status")
+        return ExperimentOperationResult("experiment_status", experiment_id, result)
+
+    def watch(
+        self,
+        experiment_id: str,
+        *,
+        after_sequence: int,
+        timeout_ms: int = MAX_EXPERIMENT_WATCH_MS,
+    ) -> ExperimentOperationResult:
+        _identifier(experiment_id, "experiment-id-invalid")
+        if type(after_sequence) is not int or after_sequence < 0:
+            _fail("watch-sequence-invalid")
+        if (
+            type(timeout_ms) is not int
+            or not 0 <= timeout_ms <= MAX_EXPERIMENT_WATCH_MS
+        ):
+            _fail("watch-timeout-invalid")
+        params = {
+            "after_sequence": after_sequence,
+            "experiment_id": experiment_id,
+            "timeout_seconds": timeout_ms / 1000,
+        }
+        result = self._call("experiment_watch", params, experiment_id=experiment_id)
+        _validate_optional_result_identity(result, experiment_id, "experiment_watch")
+        return ExperimentOperationResult("experiment_watch", experiment_id, result)
+
+    def cancel(self, experiment_id: str) -> ExperimentOperationResult:
+        _identifier(experiment_id, "experiment-id-invalid")
+        result = self._call(
+            "experiment_cancel",
+            {"experiment_id": experiment_id},
+            experiment_id=experiment_id,
+            mutation=True,
+        )
+        _validate_optional_result_identity(result, experiment_id, "experiment_cancel")
+        return ExperimentOperationResult("experiment_cancel", experiment_id, result)
+
+    def retry(self, experiment_id: str, reason: str) -> ExperimentOperationResult:
+        _identifier(experiment_id, "experiment-id-invalid")
+        _string(reason, "retry-reason-invalid", maximum=1024)
+        result = self._call(
+            "experiment_retry",
+            {"experiment_id": experiment_id, "reason": reason},
+            experiment_id=experiment_id,
+            mutation=True,
+        )
+        _validate_optional_result_identity(result, experiment_id, "experiment_retry")
+        return ExperimentOperationResult("experiment_retry", experiment_id, result)
+
+
 class SupervisorMcpClient:
     """Transport-neutral submit/status/watch facade.
 
@@ -595,6 +871,85 @@ def _validate_submit_request(request: SupervisorExperimentRequest) -> None:
         _fail("scratch-record-root")
 
 
+def _validate_execution_request(request: ExperimentExecutionRequest) -> None:
+    """Validate only the fields that cross Magenta's ExperimentService wire."""
+
+    _identifier(request.experiment_id, "experiment-id-invalid")
+    _wire_text(request.command, "command-invalid", maximum=16_384)
+    _wire_text(request.cwd, "cwd-invalid", maximum=4_096)
+    if (
+        type(request.gpu_count) is not int
+        or not 1 <= request.gpu_count <= MAX_EXPERIMENT_GPUS
+    ):
+        _fail("gpu-count-invalid")
+    if request.name is not None:
+        _string(request.name, "name-invalid", maximum=256)
+    if request.timeout_seconds is not None and (
+        type(request.timeout_seconds) is not int
+        or not 1 <= request.timeout_seconds <= MAX_EXPERIMENT_TIMEOUT_SECONDS
+    ):
+        _fail("timeout-seconds-invalid")
+
+
+def _wire_text(value: Any, code: str, *, maximum: int) -> str:
+    """Validate Magenta's non-empty text without rejecting shell newlines."""
+
+    if (
+        type(value) is not str
+        or not value
+        or value != value.strip()
+        or len(value) > maximum
+    ):
+        _fail(code)
+    if "\x00" in value or any(ord(char) == 0x7F for char in value):
+        _fail(code)
+    return value
+
+
+def _validate_optional_result_identity(
+    result: Mapping[str, Any], experiment_id: str | None, method: str
+) -> None:
+    """Reject a response that names a different experiment identity."""
+
+    returned_id = result.get("experiment_id")
+    if (
+        experiment_id is not None
+        and returned_id is not None
+        and returned_id != experiment_id
+    ):
+        raise MagentaExperimentWireError(
+            "identity-mismatch",
+            method=method,
+            experiment_id=experiment_id,
+            retryable=False,
+        )
+
+
+def validate_terminal_receipt(
+    value: Mapping[str, Any],
+    *,
+    identity_context: SupervisorExperimentRequest,
+    artifact_root: Path | None = None,
+    artifact_base: Path | None = None,
+) -> SupervisorReceipt:
+    """Validate a terminal receipt exported after a wire status/watch call.
+
+    The wire service returns opaque records, so callers must select and export
+    a terminal receipt using a separately reviewed status projection.  This
+    helper only performs the known BMP receipt and immutable identity checks;
+    it never treats an ACK, status event, or log as a metric.
+    """
+
+    _validate_submit_request(identity_context)
+    receipt = validate_supervisor_receipt(
+        value,
+        artifact_root=artifact_root,
+        artifact_base=artifact_base,
+    )
+    _validate_receipt_binding(identity_context, receipt)
+    return receipt
+
+
 def _validate_receipt_binding(
     request: SupervisorExperimentRequest, receipt: SupervisorReceipt
 ) -> None:
@@ -641,9 +996,20 @@ def serialize_supervisor_receipt(receipt: SupervisorReceipt) -> str:
 
 
 __all__ = [
+    "MAX_EXPERIMENT_GPUS",
+    "MAX_EXPERIMENT_TIMEOUT_SECONDS",
+    "MAX_EXPERIMENT_WATCH_MS",
     "MAX_REPORT_BYTES",
     "MAX_RESPONSE_BYTES",
     "SUPERVISOR_RECEIPT_FORMAT",
+    "ExperimentExecutionRequest",
+    "ExperimentOperationResult",
+    "ExperimentSubmitAcceptance",
+    "MagentaExperimentTransport",
+    "MagentaExperimentTransportError",
+    "MagentaExperimentServiceError",
+    "MagentaExperimentWireClient",
+    "MagentaExperimentWireError",
     "SupervisorExperimentRequest",
     "SupervisorMcpClient",
     "SupervisorMcpError",
@@ -651,5 +1017,6 @@ __all__ = [
     "SupervisorReceipt",
     "SupervisorStatus",
     "serialize_supervisor_receipt",
+    "validate_terminal_receipt",
     "validate_supervisor_receipt",
 ]
