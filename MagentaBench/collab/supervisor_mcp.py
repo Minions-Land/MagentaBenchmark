@@ -24,6 +24,7 @@ MAX_REPORT_BYTES = 256 * 1024 * 1024
 MAX_EXPERIMENT_GPUS = 8
 MAX_EXPERIMENT_TIMEOUT_SECONDS = 604_800
 MAX_EXPERIMENT_WATCH_MS = 25_000
+MAX_WIRE_SAFE_INTEGER = (1 << 53) - 1
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$")
@@ -182,9 +183,10 @@ def _bounded_mapping(value: Any) -> dict[str, Any]:
         encoded = json.dumps(
             value, allow_nan=False, ensure_ascii=False, separators=(",", ":")
         )
-    except (TypeError, ValueError, RecursionError):
+        encoded_bytes = encoded.encode("utf-8")
+    except (TypeError, ValueError, RecursionError, UnicodeEncodeError):
         _fail("response-invalid-json")
-    if len(encoded.encode("utf-8")) > MAX_RESPONSE_BYTES:
+    if len(encoded_bytes) > MAX_RESPONSE_BYTES:
         _fail("response-too-large")
     return value
 
@@ -547,7 +549,7 @@ class ExperimentSubmitAcceptance:
 
     experiment_id: str
     result: Mapping[str, Any]
-    identity_context: SupervisorExperimentRequest | None = None
+    identity_context: SupervisorExperimentRequest
 
 
 @dataclass(frozen=True)
@@ -638,13 +640,12 @@ class MagentaExperimentWireClient:
         self,
         request: ExperimentExecutionRequest,
         *,
-        identity_context: SupervisorExperimentRequest | None = None,
+        identity_context: SupervisorExperimentRequest,
     ) -> ExperimentSubmitAcceptance:
         _validate_execution_request(request)
-        if identity_context is not None:
-            _validate_submit_request(identity_context)
-            if identity_context.experiment_id != request.experiment_id:
-                _fail("identity-context-mismatch")
+        _validate_submit_request(identity_context)
+        if identity_context.experiment_id != request.experiment_id:
+            _fail("identity-context-mismatch")
         result = self._call(
             "experiment_submit",
             request.as_wire_params(),
@@ -679,7 +680,7 @@ class MagentaExperimentWireClient:
                 _fail("status-limit-invalid")
             params["limit"] = limit
         if offset is not None:
-            if type(offset) is not int or offset < 0:
+            if type(offset) is not int or offset < 0 or offset > MAX_WIRE_SAFE_INTEGER:
                 _fail("status-offset-invalid")
             params["offset"] = offset
         result = self._call("experiment_status", params, experiment_id=experiment_id)
@@ -694,7 +695,11 @@ class MagentaExperimentWireClient:
         timeout_ms: int | None = None,
     ) -> ExperimentOperationResult:
         _identifier(experiment_id, "experiment-id-invalid")
-        if type(after_sequence) is not int or after_sequence < 0:
+        if (
+            type(after_sequence) is not int
+            or after_sequence < 0
+            or after_sequence > MAX_WIRE_SAFE_INTEGER
+        ):
             _fail("watch-sequence-invalid")
         params = {
             "after_sequence": after_sequence,
@@ -1000,6 +1005,7 @@ __all__ = [
     "MAX_EXPERIMENT_GPUS",
     "MAX_EXPERIMENT_TIMEOUT_SECONDS",
     "MAX_EXPERIMENT_WATCH_MS",
+    "MAX_WIRE_SAFE_INTEGER",
     "MAX_REPORT_BYTES",
     "MAX_RESPONSE_BYTES",
     "SUPERVISOR_RECEIPT_FORMAT",

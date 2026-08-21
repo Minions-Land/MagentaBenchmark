@@ -31,19 +31,26 @@ ack = wire.submit(
         cwd="/workspace",
         gpu_count=2,
         timeout_seconds=3600,
-    )
+    ),
+    identity_context=frozen_request,
 )
 status = wire.status(ack.experiment_id)
 events = wire.watch(ack.experiment_id, after_sequence=0)
 ```
 
-`submit` returns an opaque acceptance object, never a `SupervisorReceipt`.
+`submit` requires the immutable BMP/Magenta/Supervisor identity context and
+returns an opaque acceptance object, never a `SupervisorReceipt`.
 The Magenta service contract does not promise a terminal report in the submit
 response.  A later, explicitly versioned status projection may provide a
 terminal receipt; only then may the existing receipt validator read the
 trusted artifact tree.  BMP identity fields are retained in the immutable
 experiment bundle/request context and are deliberately not sent as unknown
-Supervisor parameters.
+Supervisor parameters.  This prevents an identity-free dispatch, but the wire
+client cannot prove from a digest alone that the exact command, cwd, GPU, and
+timeout fields are the projection of `config_sha256`.  The live adapter must
+derive those fields from the digest-bound bundle/configuration and retain that
+projection as reviewed evidence; until then the execution-to-config adoption
+gate remains open.
 
 After a separately reviewed status projection has selected an exported
 terminal receipt, call `validate_terminal_receipt(...,
@@ -85,7 +92,8 @@ versioned status/watch projection, must bind all of the following:
 
 The adapter rejects missing or malformed digests, absolute or traversal paths,
 `.runs` scratch roots, nonterminal states, secret-bearing response keys,
-oversized responses/reports, report path/size/digest drift, and any
+non-UTF-8 JSON values, out-of-safe-range wire integers, oversized
+responses/reports, report path/size/digest drift, and any
 `claim_eligible=true` field.  A relative root and `record_root_fresh=true` are
 submit-time assertions; freshness cannot be proven by a later validator, so
 the caller must run `check_run_root --require-new` before submission.
@@ -106,8 +114,10 @@ runtime adapter must therefore:
 
 1. submit those execution fields through Magenta's service;
 2. retain the BMP/source identities in the same immutable request context;
-3. bind the returned experiment identity to this receipt boundary; and
-4. export the report into the declared record root before calling
+3. derive command/cwd/GPU/timeout from the digest-bound configuration and
+   preserve the reviewed projection evidence;
+4. bind the returned experiment identity to this receipt boundary; and
+5. export the report into the declared record root before calling
    `validate_supervisor_receipt(..., artifact_base=<trusted-parent>)` (or pass
    the already-resolved record root as `artifact_root`).
 

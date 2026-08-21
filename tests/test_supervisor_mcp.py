@@ -14,6 +14,7 @@ from MagentaBench.collab.supervisor_mcp import (
     MagentaExperimentTransportError,
     MagentaExperimentWireClient,
     MagentaExperimentWireError,
+    MAX_WIRE_SAFE_INTEGER,
     SupervisorExperimentRequest,
     SupervisorMcpClient,
     SupervisorMcpError,
@@ -112,6 +113,10 @@ def _execution_request() -> ExperimentExecutionRequest:
     )
 
 
+def _wire_identity() -> SupervisorExperimentRequest:
+    return replace(_request(), experiment_id="exp-wire-001")
+
+
 def test_magenta_wire_client_maps_the_pinned_lifecycle_without_receipt_projection() -> (
     None
 ):
@@ -128,7 +133,7 @@ def test_magenta_wire_client_maps_the_pinned_lifecycle_without_receipt_projectio
     client = MagentaExperimentWireClient(transport)
 
     service = client.service_status()
-    accepted = client.submit(_execution_request())
+    accepted = client.submit(_execution_request(), identity_context=_wire_identity())
     status = client.status("exp-wire-001", limit=10, offset=2)
     watched = client.watch("exp-wire-001", after_sequence=7, timeout_ms=25000)
     cancelled = client.cancel("exp-wire-001")
@@ -184,7 +189,9 @@ def test_magenta_wire_preserves_multiline_commands() -> None:
         gpu_count=1,
     )
 
-    MagentaExperimentWireClient(transport).submit(request)
+    MagentaExperimentWireClient(transport).submit(
+        request, identity_context=_wire_identity()
+    )
 
     assert transport.calls[0][1]["command"] == request.command
 
@@ -209,7 +216,9 @@ def test_magenta_wire_submit_keeps_identity_local_and_rejects_response_drift() -
     )
 
     with pytest.raises(MagentaExperimentWireError, match="identity-mismatch"):
-        MagentaExperimentWireClient(transport).submit(request)
+        MagentaExperimentWireClient(transport).submit(
+            request, identity_context=_wire_identity()
+        )
 
     assert set(transport.calls[0][1]) == {
         "experiment_id",
@@ -224,10 +233,8 @@ def test_magenta_wire_submit_keeps_identity_local_and_rejects_response_drift() -
     )
 
 
-def test_magenta_wire_binds_optional_immutable_identity_context_without_sending_it() -> (
-    None
-):
-    identity = replace(_request(), experiment_id="exp-wire-001")
+def test_magenta_wire_requires_immutable_identity_context_without_sending_it() -> None:
+    identity = _wire_identity()
     transport = FakeMagentaTransport({"experiment_submit": {"accepted": True}})
 
     accepted = MagentaExperimentWireClient(transport).submit(
@@ -298,12 +305,24 @@ def test_magenta_wire_read_response_must_be_a_bounded_object() -> None:
     assert raised.value.retryable is False
 
 
+def test_magenta_wire_rejects_non_utf8_json_response() -> None:
+    transport = FakeMagentaTransport({"experiment_status": {"value": "\ud800"}})
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        MagentaExperimentWireClient(transport).status("exp-wire-001")
+
+    assert raised.value.code == "invalid_response"
+    assert raised.value.retryable is False
+
+
 @pytest.mark.parametrize(
     ("method", "call"),
     [
         (
             "experiment_submit",
-            lambda client: client.submit(_execution_request()),
+            lambda client: client.submit(
+                _execution_request(), identity_context=_wire_identity()
+            ),
         ),
         ("experiment_cancel", lambda client: client.cancel("exp-wire-001")),
         (
@@ -360,12 +379,22 @@ def test_magenta_wire_rejects_unbounded_execution_inputs() -> None:
                 command="echo ok",
                 cwd="/workspace",
                 gpu_count=9,
-            )
+            ),
+            identity_context=_wire_identity(),
         )
     with pytest.raises(SupervisorMcpError, match="watch-timeout-invalid"):
         client.watch("exp-wire-001", after_sequence=0, timeout_ms=25_001)
     with pytest.raises(SupervisorMcpError, match="retry-reason-invalid"):
         client.retry("exp-wire-001", " ")
+
+
+def test_magenta_wire_rejects_integers_above_the_pinned_safe_bound() -> None:
+    client = MagentaExperimentWireClient(FakeMagentaTransport({}))
+
+    with pytest.raises(SupervisorMcpError, match="status-offset-invalid"):
+        client.status(offset=MAX_WIRE_SAFE_INTEGER + 1)
+    with pytest.raises(SupervisorMcpError, match="watch-sequence-invalid"):
+        client.watch("exp-wire-001", after_sequence=MAX_WIRE_SAFE_INTEGER + 1)
 
 
 def test_submit_status_watch_are_bounded_and_transport_neutral() -> None:
