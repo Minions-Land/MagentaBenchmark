@@ -3,16 +3,24 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
-from typing import Any, Mapping
+from dataclasses import replace
+from typing import Any, Mapping, cast
 
 import pytest
 
 from MagentaBench.collab.supervisor_mcp import (
+    ExperimentExecutionRequest,
+    MagentaExperimentServiceError,
+    MagentaExperimentTransportError,
+    MagentaExperimentWireClient,
+    MagentaExperimentWireError,
+    MAX_WIRE_SAFE_INTEGER,
     SupervisorExperimentRequest,
     SupervisorMcpClient,
     SupervisorMcpError,
     SUPERVISOR_RECEIPT_FORMAT,
     serialize_supervisor_receipt,
+    validate_terminal_receipt,
     validate_supervisor_receipt,
 )
 
@@ -77,6 +85,316 @@ class FakeTransport:
     def request(self, method: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
         self.calls.append((method, params))
         return {"result": self.responses[method]}
+
+
+class FakeMagentaTransport:
+    def __init__(
+        self, responses: Mapping[str, Mapping[str, Any] | BaseException]
+    ) -> None:
+        self.responses = responses
+        self.calls: list[tuple[str, Mapping[str, Any]]] = []
+
+    def request(self, method: str, params: Mapping[str, Any]) -> Mapping[str, Any]:
+        self.calls.append((method, params))
+        response = self.responses[method]
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+
+def _execution_request() -> ExperimentExecutionRequest:
+    return ExperimentExecutionRequest(
+        experiment_id="exp-wire-001",
+        command="python train.py",
+        cwd="/workspace",
+        gpu_count=2,
+        name="training",
+        timeout_seconds=3600,
+    )
+
+
+def _wire_identity() -> SupervisorExperimentRequest:
+    return replace(_request(), experiment_id="exp-wire-001")
+
+
+def test_magenta_wire_client_maps_the_pinned_lifecycle_without_receipt_projection() -> (
+    None
+):
+    transport = FakeMagentaTransport(
+        {
+            "service_status": {"state": "running", "profile_name": "h20"},
+            "experiment_submit": {"accepted": True, "experiment_id": "exp-wire-001"},
+            "experiment_status": {"experiments": [], "deployment_id": "opaque"},
+            "experiment_watch": {"events": [], "timed_out": True},
+            "experiment_cancel": {"accepted": True, "state": "stopping"},
+            "experiment_retry": {"accepted": True, "state": "pending"},
+        }
+    )
+    client = MagentaExperimentWireClient(transport)
+
+    service = client.service_status()
+    accepted = client.submit(_execution_request(), identity_context=_wire_identity())
+    status = client.status("exp-wire-001", limit=10, offset=2)
+    watched = client.watch("exp-wire-001", after_sequence=7, timeout_ms=25000)
+    cancelled = client.cancel("exp-wire-001")
+    retried = client.retry("exp-wire-001", "transient node failure")
+
+    assert service.result["state"] == "running"
+    assert accepted.experiment_id == "exp-wire-001"
+    assert accepted.result["accepted"] is True
+    assert "claim_eligible" not in accepted.result
+    assert status.result["deployment_id"] == "opaque"
+    assert watched.result["timed_out"] is True
+    assert cancelled.result["state"] == "stopping"
+    assert retried.result["state"] == "pending"
+    assert [method for method, _ in transport.calls] == [
+        "service_status",
+        "experiment_submit",
+        "experiment_status",
+        "experiment_watch",
+        "experiment_cancel",
+        "experiment_retry",
+    ]
+    assert transport.calls[1][1] == {
+        "command": "python train.py",
+        "cwd": "/workspace",
+        "experiment_id": "exp-wire-001",
+        "gpu_count": 2,
+        "name": "training",
+        "timeout_seconds": 3600,
+    }
+    assert transport.calls[2][1] == {
+        "experiment_id": "exp-wire-001",
+        "limit": 10,
+        "offset": 2,
+    }
+    assert transport.calls[3][1] == {
+        "experiment_id": "exp-wire-001",
+        "after_sequence": 7,
+        "timeout_seconds": 25.0,
+    }
+    assert transport.calls[4][1] == {"experiment_id": "exp-wire-001"}
+    assert transport.calls[5][1] == {
+        "experiment_id": "exp-wire-001",
+        "reason": "transient node failure",
+    }
+
+
+def test_magenta_wire_preserves_multiline_commands() -> None:
+    transport = FakeMagentaTransport({"experiment_submit": {"accepted": True}})
+    request = ExperimentExecutionRequest(
+        experiment_id="exp-wire-001",
+        command="printf 'first\\n';\nsleep 1",
+        cwd="/workspace",
+        gpu_count=1,
+    )
+
+    MagentaExperimentWireClient(transport).submit(
+        request, identity_context=_wire_identity()
+    )
+
+    assert transport.calls[0][1]["command"] == request.command
+
+
+def test_magenta_wire_omits_optional_watch_timeout() -> None:
+    transport = FakeMagentaTransport({"experiment_watch": {"events": []}})
+
+    MagentaExperimentWireClient(transport).watch("exp-wire-001", after_sequence=0)
+
+    assert transport.calls == [
+        (
+            "experiment_watch",
+            {"experiment_id": "exp-wire-001", "after_sequence": 0},
+        )
+    ]
+
+
+def test_magenta_wire_submit_keeps_identity_local_and_rejects_response_drift() -> None:
+    request = _execution_request()
+    transport = FakeMagentaTransport(
+        {"experiment_submit": {"accepted": True, "experiment_id": "other"}}
+    )
+
+    with pytest.raises(MagentaExperimentWireError, match="identity-mismatch"):
+        MagentaExperimentWireClient(transport).submit(
+            request, identity_context=_wire_identity()
+        )
+
+    assert set(transport.calls[0][1]) == {
+        "experiment_id",
+        "command",
+        "cwd",
+        "gpu_count",
+        "name",
+        "timeout_seconds",
+    }
+    assert not {"bmp", "magenta", "supervisor", "record_root"}.intersection(
+        transport.calls[0][1]
+    )
+
+
+def test_magenta_wire_requires_immutable_identity_context_without_sending_it() -> None:
+    identity = _wire_identity()
+    transport = FakeMagentaTransport({"experiment_submit": {"accepted": True}})
+
+    accepted = MagentaExperimentWireClient(transport).submit(
+        _execution_request(), identity_context=identity
+    )
+
+    assert accepted.identity_context == identity
+    assert "bmp" not in transport.calls[0][1]
+
+    with pytest.raises(SupervisorMcpError, match="identity-context-mismatch"):
+        MagentaExperimentWireClient(
+            FakeMagentaTransport({"experiment_submit": {"accepted": True}})
+        ).submit(_execution_request(), identity_context=_request())
+
+
+def test_terminal_receipt_requires_the_immutable_bmp_identity_context() -> None:
+    identity = _request()
+    receipt = _receipt()
+
+    validated = validate_terminal_receipt(receipt, identity_context=identity)
+    assert validated.experiment_id == identity.experiment_id
+
+    drifted = {**receipt, "record_root": "records/other/run-001"}
+    with pytest.raises(SupervisorMcpError, match="receipt-identity-mismatch"):
+        validate_terminal_receipt(drifted, identity_context=identity)
+
+
+def test_magenta_wire_service_rejection_is_nonretryable() -> None:
+    transport = FakeMagentaTransport(
+        {
+            "experiment_cancel": MagentaExperimentServiceError("not owner"),
+        }
+    )
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        MagentaExperimentWireClient(transport).cancel("exp-wire-001")
+
+    assert raised.value.code == "service"
+    assert raised.value.retryable is False
+    assert raised.value.outcome_unknown is False
+
+
+@pytest.mark.parametrize(
+    "method", ["experiment_status", "experiment_watch", "experiment_cancel"]
+)
+def test_magenta_wire_rejects_optional_response_identity_drift(method: str) -> None:
+    transport = FakeMagentaTransport({method: {"experiment_id": "other"}})
+    client = MagentaExperimentWireClient(transport)
+
+    with pytest.raises(MagentaExperimentWireError, match="identity-mismatch"):
+        if method == "experiment_status":
+            client.status("exp-wire-001")
+        elif method == "experiment_watch":
+            client.watch("exp-wire-001", after_sequence=0)
+        else:
+            client.cancel("exp-wire-001")
+
+
+def test_magenta_wire_read_response_must_be_a_bounded_object() -> None:
+    transport = FakeMagentaTransport(
+        {"experiment_status": cast(Any, ["not-an-object"])}
+    )
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        MagentaExperimentWireClient(transport).status("exp-wire-001")
+
+    assert raised.value.code == "invalid_response"
+    assert raised.value.retryable is False
+
+
+def test_magenta_wire_rejects_non_utf8_json_response() -> None:
+    transport = FakeMagentaTransport({"experiment_status": {"value": "\ud800"}})
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        MagentaExperimentWireClient(transport).status("exp-wire-001")
+
+    assert raised.value.code == "invalid_response"
+    assert raised.value.retryable is False
+
+
+@pytest.mark.parametrize(
+    ("method", "call"),
+    [
+        (
+            "experiment_submit",
+            lambda client: client.submit(
+                _execution_request(), identity_context=_wire_identity()
+            ),
+        ),
+        ("experiment_cancel", lambda client: client.cancel("exp-wire-001")),
+        (
+            "experiment_retry",
+            lambda client: client.retry("exp-wire-001", "retry"),
+        ),
+    ],
+)
+def test_magenta_wire_mutation_dispatch_failure_is_outcome_unknown(
+    method: str, call: Any
+) -> None:
+    transport = FakeMagentaTransport(
+        {
+            method: MagentaExperimentTransportError(
+                "connection lost", request_dispatched=True
+            )
+        }
+    )
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        call(MagentaExperimentWireClient(transport))
+
+    assert raised.value.code == "transport"
+    assert raised.value.retryable is False
+    assert raised.value.outcome_unknown is True
+
+
+def test_magenta_wire_read_failure_is_retryable_only_before_dispatch() -> None:
+    transport = FakeMagentaTransport(
+        {
+            "experiment_status": MagentaExperimentTransportError(
+                "socket unavailable", request_dispatched=False
+            )
+        }
+    )
+
+    with pytest.raises(MagentaExperimentWireError) as raised:
+        MagentaExperimentWireClient(transport).status("exp-wire-001")
+
+    assert raised.value.code == "unavailable"
+    assert raised.value.retryable is True
+    assert raised.value.outcome_unknown is False
+
+
+def test_magenta_wire_rejects_unbounded_execution_inputs() -> None:
+    client = MagentaExperimentWireClient(
+        FakeMagentaTransport({"experiment_status": {}})
+    )
+
+    with pytest.raises(SupervisorMcpError, match="gpu-count-invalid"):
+        client.submit(
+            ExperimentExecutionRequest(
+                experiment_id="exp-wire-001",
+                command="echo ok",
+                cwd="/workspace",
+                gpu_count=9,
+            ),
+            identity_context=_wire_identity(),
+        )
+    with pytest.raises(SupervisorMcpError, match="watch-timeout-invalid"):
+        client.watch("exp-wire-001", after_sequence=0, timeout_ms=25_001)
+    with pytest.raises(SupervisorMcpError, match="retry-reason-invalid"):
+        client.retry("exp-wire-001", " ")
+
+
+def test_magenta_wire_rejects_integers_above_the_pinned_safe_bound() -> None:
+    client = MagentaExperimentWireClient(FakeMagentaTransport({}))
+
+    with pytest.raises(SupervisorMcpError, match="status-offset-invalid"):
+        client.status(offset=MAX_WIRE_SAFE_INTEGER + 1)
+    with pytest.raises(SupervisorMcpError, match="watch-sequence-invalid"):
+        client.watch("exp-wire-001", after_sequence=MAX_WIRE_SAFE_INTEGER + 1)
 
 
 def test_submit_status_watch_are_bounded_and_transport_neutral() -> None:
