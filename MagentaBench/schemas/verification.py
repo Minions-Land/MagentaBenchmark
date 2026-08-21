@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import errno
+import heapq
 import hashlib
 import json
 import os
 import random
 import copy
+import re
+import stat
 import subprocess
 from dataclasses import dataclass
-from math import isclose
+from math import isclose, isfinite
 from pathlib import Path
 from statistics import mean
 from typing import Any, Mapping, TypeVar
@@ -30,14 +34,13 @@ from .models import (
     AdapterCapability,
     ArtifactRef,
     AttemptExecution,
+    BackendSpec,
     BenchmarkSpecAdapter,
     CaseOrderArtifact,
     CaseSetActivationReceipt,
     CaseSetArtifact,
     CheckpointSaveReceipt,
     ClaimReport,
-    ConfigurationActivationReceipt,
-    ConfigurationArtifact,
     ConfigurationCompositionStep,
     ConfigurationSpec,
     CustomCaseOrderSpec,
@@ -58,6 +61,7 @@ from .models import (
     MetricSpec,
     MetaEvolutionMethodSpec,
     ProtocolSpec,
+    ProvenanceRecord,
     RecordIndex,
     ResolvedBmpManifest,
     RolloutTrajectory,
@@ -67,12 +71,15 @@ from .models import (
     RunStatus,
     ScheduleActivationReceipt,
     StatisticalAnalysisPlan,
-    StatisticalAnalysisReceipt,
-    UsageRecord,
 )
 from .model_activation import replay_model_activation_receipt
 from .metrics import compute_metric_results
-from .statistics import PairedScore, StatisticalAnalysisResult, analyze_paired_scores, benchmark_evaluation_split
+from .statistics import (
+    PairedScore,
+    StatisticalAnalysisResult,
+    analyze_paired_scores,
+    benchmark_evaluation_split,
+)
 from .evolution import (
     EvolutionEvaluationStage,
     EvolutionRuntimeReceipt,
@@ -141,6 +148,16 @@ class VerifiedExternalProtocolAuthorityReceipt:
 
     receipt: ExternalProtocolAuthorityReceipt
     receipt_path: Path
+
+
+@dataclass(frozen=True)
+class VerifiedApptainerRuntimeReceipt:
+    """A host-independent verification of one sealed Apptainer lifecycle."""
+
+    receipt: Mapping[str, Any]
+    receipt_path: Path
+    artifact_refs: tuple[ArtifactRef, ...]
+    log_refs: tuple[ArtifactRef, ...]
 
 
 VerifiedRunReport = VerifiedClaimReport | VerifiedObservationReport
@@ -242,7 +259,1570 @@ def _verify_ref(
     return path, content
 
 
-def _parse_json_model(model: type[ReportT], content: bytes, *, label: str, mismatches: list[str]) -> ReportT | None:
+_APPTAINER_RECEIPT_FORMAT = "magentabench-apptainer-runtime-receipt-v1"
+_APPTAINER_RECEIPT_SEAL = "receipt_payload_sha256"
+_APPTAINER_RECEIPT_MAX_BYTES = 4 * 1024 * 1024
+_APPTAINER_MANIFEST_MAX_BYTES = 64 * 1024 * 1024
+# These verifier-side ceilings bound untrusted artifact work while retaining
+# room for ordinary HPC images.  A future receipt version may bind tighter
+# backend-specific values as part of its launch plan.
+_APPTAINER_INPUT_MAX_BYTES = 16 * 1024 * 1024 * 1024
+_APPTAINER_INPUT_MAX_ENTRIES = 1_000_000
+_APPTAINER_INPUT_MAX_XATTRS = 4096
+_APPTAINER_INPUT_MAX_XATTR_BYTES = 16 * 1024 * 1024
+_APPTAINER_MAX_WALL_CLOCK_SECONDS = 365 * 24 * 60 * 60
+_APPTAINER_IDENTIFIER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
+_APPTAINER_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_APPTAINER_TRUNCATION_MARKER_BYTES = len(b"\n[TRUNCATED]\n")
+_APPTAINER_XATTR_UNSUPPORTED = frozenset(
+    {errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}
+)
+
+
+def _apptainer_reject_symlink_components(
+    path: Path, *, label: str, mismatches: list[str]
+) -> bool:
+    absolute = path if path.is_absolute() else path.absolute()
+    current = Path(absolute.anchor)
+    try:
+        for part in absolute.parts[1:]:
+            current /= part
+            if current.is_symlink():
+                mismatches.append(f"{label}: path contains a symlink")
+                return False
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot inspect path components: {exc}")
+        return False
+    return True
+
+
+def _verify_apptainer_regular_file(
+    path: Path,
+    *,
+    label: str,
+    max_bytes: int,
+    mismatches: list[str],
+) -> bytes | None:
+    """Read immutable local evidence without following links or blocking on FIFOs."""
+
+    if not _apptainer_reject_symlink_components(
+        path, label=label, mismatches=mismatches
+    ):
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot open {path}: {exc}")
+        return None
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            mismatches.append(f"{label}: is not a regular file")
+            return None
+        if before.st_nlink != 1:
+            mismatches.append(f"{label}: hard-linked evidence is not immutable")
+            return None
+        if before.st_size > max_bytes:
+            mismatches.append(f"{label}: exceeds {max_bytes} bytes")
+            return None
+        chunks: list[bytes] = []
+        remaining = max_bytes + 1
+        while remaining:
+            chunk = os.read(descriptor, min(64 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        after = os.fstat(descriptor)
+        identity = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(getattr(before, field) != getattr(after, field) for field in identity):
+            mismatches.append(f"{label}: changed while being read")
+            return None
+        if len(content) != before.st_size or len(content) > max_bytes:
+            mismatches.append(f"{label}: size changed or exceeds its byte limit")
+            return None
+        return content
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot read {path}: {exc}")
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def _apptainer_resolve_locator(
+    value: Any,
+    *,
+    path_map: Mapping[str, str],
+    label: str,
+    mismatches: list[str],
+    bind_grammar: bool = False,
+) -> Path | None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or not Path(value).is_absolute()
+        or value.startswith("//")
+        or os.path.normpath(value) != value
+        or any(part in {".", ".."} for part in value.split("/"))
+        or "\x00" in value
+    ):
+        mismatches.append(f"{label}: locator must be an absolute normalized path")
+        return None
+    if bind_grammar and any(marker in value for marker in (":", ",", "\\", "\r", "\n")):
+        mismatches.append(f"{label}: locator contains an Apptainer bind separator")
+        return None
+    try:
+        resolved = _resolve_path(value, path_map)
+    except (OSError, ValueError) as exc:
+        mismatches.append(f"{label}: locator cannot be relocated: {exc}")
+        return None
+    if not resolved.is_absolute():
+        mismatches.append(f"{label}: relocated locator must be absolute")
+        return None
+    return resolved
+
+
+def _apptainer_error_type(
+    value: Any, *, label: str, mismatches: list[str]
+) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or _APPTAINER_IDENTIFIER.fullmatch(value) is None:
+        mismatches.append(f"{label}: error type is malformed")
+        return None
+    return value
+
+
+def _parse_apptainer_receipt(
+    content: bytes,
+    *,
+    label: str,
+    mismatches: list[str],
+) -> dict[str, Any] | None:
+    def reject_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate field {key!r}")
+            value[key] = item
+        return value
+
+    def reject_constant(value: str) -> None:
+        raise ValueError(f"non-finite number {value}")
+
+    try:
+        value = json.loads(
+            content.decode("utf-8"),
+            object_pairs_hook=reject_duplicates,
+            parse_constant=reject_constant,
+        )
+    except (
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        ValueError,
+        RecursionError,
+    ) as exc:
+        mismatches.append(f"{label}: malformed JSON: {exc}")
+        return None
+    if not isinstance(value, dict):
+        mismatches.append(f"{label}: root is not an object")
+        return None
+    return value
+
+
+def _apptainer_sha256_file(
+    path: Path,
+    *,
+    label: str,
+    mismatches: list[str],
+    max_bytes: int | None = None,
+) -> tuple[str, int] | None:
+    if not _apptainer_reject_symlink_components(
+        path, label=label, mismatches=mismatches
+    ):
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot open {path}: {exc}")
+        return None
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            mismatches.append(f"{label}: is not a regular file")
+            return None
+        if before.st_nlink != 1:
+            mismatches.append(f"{label}: hard-linked evidence is not immutable")
+            return None
+        if max_bytes is not None and before.st_size > max_bytes:
+            mismatches.append(f"{label}: exceeds {max_bytes} bytes")
+            return None
+        digest = hashlib.sha256()
+        observed_size = 0
+        while True:
+            block = os.read(descriptor, 1024 * 1024)
+            if not block:
+                break
+            observed_size += len(block)
+            if max_bytes is not None and observed_size > max_bytes:
+                mismatches.append(f"{label}: exceeds {max_bytes} bytes")
+                return None
+            digest.update(block)
+        after = os.fstat(descriptor)
+        identity = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(getattr(before, field) != getattr(after, field) for field in identity):
+            mismatches.append(f"{label}: changed while being hashed")
+            return None
+        if observed_size != before.st_size:
+            mismatches.append(f"{label}: size changed while being hashed")
+            return None
+        return digest.hexdigest(), observed_size
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot hash {path}: {exc}")
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def _apptainer_append_file_bytes(
+    path: Path,
+    *,
+    digest: Any,
+    label: str,
+    mismatches: list[str],
+    total_size: int,
+    max_bytes: int | None,
+) -> int | None:
+    """Append a regular file to a digest with bounded, descriptor-based I/O."""
+
+    if not _apptainer_reject_symlink_components(
+        path, label=label, mismatches=mismatches
+    ):
+        return None
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot open {path}: {exc}")
+        return None
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            mismatches.append(f"{label}: is not a regular file")
+            return None
+        if max_bytes is not None and before.st_size > max_bytes - total_size:
+            mismatches.append(f"{label}: tree exceeds its byte limit")
+            return None
+        budget = None if max_bytes is None else max_bytes - total_size
+        remaining = None if budget is None else budget + 1
+        observed_size = 0
+        while remaining is None or remaining:
+            read_size = (
+                1024 * 1024 if remaining is None else min(1024 * 1024, remaining)
+            )
+            block = os.read(descriptor, read_size)
+            if not block:
+                break
+            observed_size += len(block)
+            if budget is not None and observed_size > budget:
+                mismatches.append(f"{label}: tree exceeds its byte limit")
+                return None
+            digest.update(block)
+            if remaining is not None:
+                remaining -= len(block)
+        after = os.fstat(descriptor)
+        identity = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(getattr(before, field) != getattr(after, field) for field in identity):
+            mismatches.append(f"{label}: changed while being hashed")
+            return None
+        if observed_size != before.st_size:
+            mismatches.append(f"{label}: size changed while being hashed")
+            return None
+        return observed_size
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot hash {path}: {exc}")
+        return None
+    finally:
+        os.close(descriptor)
+
+
+def _apptainer_tree_identity(
+    root: Path,
+    *,
+    label: str,
+    mismatches: list[str],
+    max_bytes: int | None = None,
+    max_entries: int | None = None,
+) -> tuple[str, int] | None:
+    if not _apptainer_reject_symlink_components(
+        root, label=label, mismatches=mismatches
+    ):
+        return None
+    try:
+        root = root.resolve(strict=True)
+    except OSError as exc:
+        mismatches.append(f"{label}: directory is unavailable: {exc}")
+        return None
+    if not root.is_dir():
+        mismatches.append(f"{label}: is not a directory")
+        return None
+    digest = hashlib.sha256()
+    total_size = 0
+    effective_max_bytes = (
+        _APPTAINER_INPUT_MAX_BYTES
+        if max_bytes is None
+        else min(max_bytes, _APPTAINER_INPUT_MAX_BYTES)
+    )
+    effective_max_entries = (
+        _APPTAINER_INPUT_MAX_ENTRIES
+        if max_entries is None
+        else min(max_entries, _APPTAINER_INPUT_MAX_ENTRIES)
+    )
+    try:
+        hardlinks: dict[tuple[int, int], str] = {}
+        # Match the backend's global lexical ``rglob`` order without
+        # materializing an unbounded entry list.  A stack-based DFS visits all
+        # children of ``a`` before ``a-b``; lexical order requires the heap to
+        # choose ``a-b`` before ``a/child``.
+        pending: list[tuple[str, Path]] = [(".", root)]
+        entry_count = 0
+        scheduled_entries = 1
+        xattr_count = 0
+        total_xattr_bytes = 0
+        while pending:
+            _relative_key, path = heapq.heappop(pending)
+            details = path.lstat()
+            entry_count += 1
+            if entry_count > effective_max_entries:
+                mismatches.append(f"{label}: tree exceeds its entry limit")
+                return None
+            if stat.S_ISLNK(details.st_mode):
+                mismatches.append(f"{label}: tree contains a symlink")
+                return None
+            if stat.S_ISDIR(details.st_mode):
+                entry_type = "directory"
+            elif stat.S_ISREG(details.st_mode):
+                entry_type = "file"
+            else:
+                mismatches.append(f"{label}: tree contains a non-regular entry")
+                return None
+            relative_text = "." if path == root else path.relative_to(root).as_posix()
+            metadata: dict[str, Any] = {
+                "gid": details.st_gid,
+                "mode": stat.S_IMODE(details.st_mode),
+                "path": relative_text,
+                "type": entry_type,
+                "uid": details.st_uid,
+            }
+            if entry_type == "file":
+                if total_size + details.st_size > effective_max_bytes:
+                    mismatches.append(f"{label}: tree exceeds its byte limit")
+                    return None
+                inode = (details.st_dev, details.st_ino)
+                first_path = hardlinks.setdefault(inode, relative_text)
+                metadata["hardlink_to"] = (
+                    None if first_path == relative_text else first_path
+                )
+                metadata["size_bytes"] = details.st_size
+            try:
+                xattr_names = sorted(os.listxattr(path, follow_symlinks=False))
+                xattr_count += len(xattr_names)
+                if xattr_count > _APPTAINER_INPUT_MAX_XATTRS:
+                    mismatches.append(f"{label}: tree exceeds its xattr limit")
+                    return None
+                xattrs: list[dict[str, str]] = []
+                for name in xattr_names:
+                    value = os.getxattr(path, name, follow_symlinks=False)
+                    total_xattr_bytes += len(value)
+                    if total_xattr_bytes > _APPTAINER_INPUT_MAX_XATTR_BYTES:
+                        mismatches.append(f"{label}: tree exceeds its xattr byte limit")
+                        return None
+                    xattrs.append({"name": name, "sha256": _sha256(value)})
+            except OSError as exc:
+                if exc.errno not in _APPTAINER_XATTR_UNSUPPORTED:
+                    raise
+                metadata["xattrs"] = {"entries": [], "state": "unsupported"}
+            else:
+                metadata["xattrs"] = {"entries": xattrs, "state": "supported"}
+            digest.update(
+                json.dumps(
+                    metadata,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+            digest.update(b"\0")
+            if entry_type == "file":
+                observed_size = _apptainer_append_file_bytes(
+                    path,
+                    digest=digest,
+                    label=label,
+                    mismatches=mismatches,
+                    total_size=total_size,
+                    max_bytes=effective_max_bytes,
+                )
+                if observed_size is None:
+                    return None
+                digest.update(b"\0")
+                total_size += observed_size
+            elif entry_type == "directory":
+                try:
+                    for child in path.iterdir():
+                        scheduled_entries += 1
+                        if scheduled_entries > effective_max_entries:
+                            mismatches.append(f"{label}: tree exceeds its entry limit")
+                            return None
+                        heapq.heappush(
+                            pending,
+                            (child.relative_to(root).as_posix(), child),
+                        )
+                except OSError as exc:
+                    mismatches.append(
+                        f"{label}: cannot enumerate directory tree: {exc}"
+                    )
+                    return None
+    except OSError as exc:
+        mismatches.append(f"{label}: cannot hash directory tree: {exc}")
+        return None
+    return digest.hexdigest(), total_size
+
+
+def _apptainer_path_identity(
+    path: Path,
+    *,
+    directory: bool,
+    label: str,
+    mismatches: list[str],
+    max_bytes: int | None = None,
+    max_entries: int | None = None,
+) -> tuple[str, int] | None:
+    if directory:
+        return _apptainer_tree_identity(
+            path,
+            label=label,
+            mismatches=mismatches,
+            max_bytes=max_bytes,
+            max_entries=max_entries,
+        )
+    return _apptainer_sha256_file(
+        path,
+        label=label,
+        mismatches=mismatches,
+        max_bytes=max_bytes,
+    )
+
+
+def _apptainer_recorded_path_token(value: Any) -> str | None:
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        return None
+    normalized = os.path.abspath(value)
+    return _sha256(os.fsencode(normalized))
+
+
+def _apptainer_ref(
+    raw: Any,
+    *,
+    case_root: Path,
+    path_map: Mapping[str, str],
+    max_bytes: int,
+    label: str,
+    mismatches: list[str],
+) -> ArtifactRef | None:
+    try:
+        if not isinstance(raw, Mapping):
+            raise ValueError("reference must be an object")
+        if type(raw.get("path")) is not str:
+            raise ValueError("reference path must be a string")
+        if type(raw.get("sha256")) is not str:
+            raise ValueError("reference sha256 must be a string")
+        if type(raw.get("size_bytes")) is not int:
+            raise ValueError("reference size_bytes must be an integer")
+        ref = ArtifactRef.model_validate(raw)
+        path = _apptainer_resolve_locator(
+            ref.path,
+            path_map=path_map,
+            label=label,
+            mismatches=mismatches,
+        )
+        if path is None:
+            return None
+        if not _apptainer_reject_symlink_components(
+            path, label=label, mismatches=mismatches
+        ):
+            return None
+        resolved = path.resolve(strict=False)
+        resolved.relative_to(case_root)
+    except (ValidationError, ValueError, OSError) as exc:
+        mismatches.append(f"{label}: invalid reference: {exc}")
+        return None
+    content = _verify_apptainer_regular_file(
+        resolved,
+        label=label,
+        max_bytes=max_bytes,
+        mismatches=mismatches,
+    )
+    if content is None:
+        return None
+    if len(content) != ref.size_bytes or _sha256(content) != ref.sha256:
+        mismatches.append(f"{label}: content digest or size drift")
+        return None
+    return ref
+
+
+def _apptainer_export_files(
+    root: Path,
+    *,
+    max_entries: int,
+    label: str,
+    mismatches: list[str],
+) -> tuple[Path, ...] | None:
+    """Enumerate an exported tree without trusting receipt self-reporting.
+
+    The runtime may request a directory export.  A receipt that names only one
+    child of that directory is incomplete, so the standalone verifier walks the
+    retained artifact tree and compares the complete regular-file set with the
+    receipt refs below.
+    """
+
+    if not _apptainer_reject_symlink_components(
+        root, label=label, mismatches=mismatches
+    ):
+        return None
+    try:
+        root.lstat()
+    except OSError as exc:
+        mismatches.append(f"{label}: export root is unavailable: {exc}")
+        return None
+    files: list[Path] = []
+    pending = [root]
+    entries = 0
+    scheduled_entries = 1
+    while pending:
+        path = pending.pop()
+        try:
+            details = path.lstat()
+        except OSError as exc:
+            mismatches.append(f"{label}: cannot inspect export entry: {exc}")
+            return None
+        entries += 1
+        if entries > max_entries:
+            mismatches.append(f"{label}: exported artifact tree exceeds entry limit")
+            return None
+        if stat.S_ISLNK(details.st_mode):
+            mismatches.append(f"{label}: exported artifact tree contains a symlink")
+            return None
+        if stat.S_ISREG(details.st_mode):
+            files.append(path)
+        elif stat.S_ISDIR(details.st_mode):
+            try:
+                for child in path.iterdir():
+                    scheduled_entries += 1
+                    if scheduled_entries > max_entries:
+                        mismatches.append(
+                            f"{label}: exported artifact tree exceeds entry limit"
+                        )
+                        return None
+                    pending.append(child)
+            except OSError as exc:
+                mismatches.append(f"{label}: cannot enumerate export directory: {exc}")
+                return None
+        else:
+            mismatches.append(
+                f"{label}: exported artifact tree contains a non-regular entry"
+            )
+            return None
+    return tuple(sorted(files, key=lambda item: item.relative_to(root).as_posix()))
+
+
+def _apptainer_policy_identity(identity: Mapping[str, Any]) -> dict[str, Any]:
+    """Recover the immutable pre-run identity used for policy_sha256."""
+
+    value = copy.deepcopy(dict(identity))
+    binds = value.get("binds")
+    if isinstance(binds, list):
+        for bind in binds:
+            if isinstance(bind, dict):
+                bind.pop("post_run_digest", None)
+                bind.pop("post_run_size_bytes", None)
+                bind.pop("post_run_error_type", None)
+    overlay = value.get("overlay")
+    if isinstance(overlay, dict):
+        overlay.pop("post_run_sha256", None)
+        overlay.pop("post_run_size_bytes", None)
+        overlay.pop("post_run_error_type", None)
+    return value
+
+
+def _verify_apptainer_runtime_receipt(
+    receipt_ref: ArtifactRef,
+    *,
+    backend: BackendSpec,
+    provenance: ProvenanceRecord,
+    manifest_digest: str,
+    path_map: Mapping[str, str] | None = None,
+    label: str = "Apptainer runtime receipt",
+) -> VerifiedApptainerRuntimeReceipt:
+    """Verify sealed Apptainer evidence without importing or running Apptainer.
+
+    This gate authenticates a completed local lifecycle and its exported bytes.
+    It does not execute an evaluator, interpret logs as metrics, certify host
+    readiness, or promote an exploratory record to a BMP result claim.  The
+    caller must supply a trusted, immutable artifact tree and durable record
+    root; this helper derives and checks the receipt layout but does not itself
+    establish that outer boundary.  Tree hashing retains a shared-filesystem
+    TOCTOU residual and is not a claim of adversarial-filesystem immunity.
+    """
+
+    relocation = {} if path_map is None else dict(path_map)
+    mismatches: list[str] = []
+    source = _apptainer_resolve_locator(
+        receipt_ref.path,
+        path_map=relocation,
+        label=label,
+        mismatches=mismatches,
+    )
+    if source is None:
+        raise ReportVerificationError(mismatches)
+    content = _verify_apptainer_regular_file(
+        source,
+        label=label,
+        max_bytes=_APPTAINER_RECEIPT_MAX_BYTES,
+        mismatches=mismatches,
+    )
+    if content is None:
+        raise ReportVerificationError(mismatches)
+    if len(content) != receipt_ref.size_bytes or _sha256(content) != receipt_ref.sha256:
+        mismatches.append(f"{label}: reference digest or size drift")
+    receipt = _parse_apptainer_receipt(content, label=label, mismatches=mismatches)
+    if receipt is None:
+        raise ReportVerificationError(mismatches)
+
+    expected_fields = {
+        "argv_sha256",
+        "artifact_export",
+        "attempt_id",
+        "format",
+        "forwarded_env_names",
+        "forwarded_env_value_sha256",
+        "identity",
+        "lifecycle",
+        "log_refs",
+        "manifest_digest",
+        "policy_sha256",
+        _APPTAINER_RECEIPT_SEAL,
+        "resolved_manifest_sha256",
+        "resolved_manifest_size_bytes",
+        "runner_sha256",
+        "shell",
+        "teardown",
+    }
+    if set(receipt) != expected_fields:
+        mismatches.append(f"{label}: fields differ from the v1 contract")
+    seal = receipt.get(_APPTAINER_RECEIPT_SEAL)
+    unsealed = dict(receipt)
+    unsealed.pop(_APPTAINER_RECEIPT_SEAL, None)
+    if not _is_sha256(seal) or seal != _compact_json_digest(unsealed):
+        mismatches.append(f"{label}: content seal drift")
+    if receipt.get("format") != _APPTAINER_RECEIPT_FORMAT:
+        mismatches.append(f"{label}: format drift")
+    if not _is_sha256(manifest_digest):
+        mismatches.append(f"{label}: manifest digest is invalid")
+    if (
+        receipt.get("manifest_digest") != manifest_digest
+        or provenance.manifest_digest != manifest_digest
+    ):
+        mismatches.append(f"{label}: manifest digest cross-link drift")
+    if receipt.get("runner_sha256") != provenance.runner_digest:
+        mismatches.append(f"{label}: runner digest cross-link drift")
+    if backend.adapter != "apptainer" or backend.kind != "container":
+        mismatches.append(f"{label}: backend is not the Apptainer container adapter")
+    if provenance.backend_kind != "apptainer":
+        mismatches.append(f"{label}: provenance backend_kind is not apptainer")
+    if receipt.get("shell") is not False:
+        mismatches.append(f"{label}: shell-free policy drift")
+    for field in ("argv_sha256", "policy_sha256", "resolved_manifest_sha256"):
+        if not _is_sha256(receipt.get(field)):
+            mismatches.append(f"{label}: {field} is not a lowercase SHA-256")
+
+    attempt_id = receipt.get("attempt_id")
+    case_root = source.parent.resolve(strict=False)
+    manifest_root = case_root.parent.parent.resolve(strict=False)
+    if (
+        not isinstance(attempt_id, str)
+        or _APPTAINER_IDENTIFIER.fullmatch(attempt_id) is None
+        or case_root.name != attempt_id
+        or case_root.parent.name != "apptainer"
+        or manifest_root.name != manifest_digest
+    ):
+        mismatches.append(f"{label}: record layout or attempt identity drift")
+    if ".runs" in case_root.parts:
+        mismatches.append(f"{label}: scratch .runs record roots are not durable")
+
+    resolved_manifest = manifest_root / "resolved_manifest.json"
+    manifest_content = _verify_apptainer_regular_file(
+        resolved_manifest,
+        label=f"{label}.resolved_manifest",
+        max_bytes=_APPTAINER_MANIFEST_MAX_BYTES,
+        mismatches=mismatches,
+    )
+    manifest_identity = (
+        None
+        if manifest_content is None
+        else (_sha256(manifest_content), len(manifest_content))
+    )
+    declared_manifest_size = receipt.get("resolved_manifest_size_bytes")
+    if (
+        type(declared_manifest_size) is not int
+        or not 0 <= declared_manifest_size <= _APPTAINER_MANIFEST_MAX_BYTES
+    ):
+        mismatches.append(f"{label}: resolved manifest size is invalid")
+    if manifest_identity is not None and manifest_identity != (
+        receipt.get("resolved_manifest_sha256"),
+        declared_manifest_size,
+    ):
+        mismatches.append(f"{label}: resolved manifest content drift")
+    resolved_manifest_model: ResolvedBmpManifest | None = None
+    if manifest_content is not None:
+        manifest_value = _parse_apptainer_receipt(
+            manifest_content,
+            label=f"{label}.resolved_manifest",
+            mismatches=mismatches,
+        )
+        if manifest_value is not None:
+            try:
+                resolved_manifest_model = ResolvedBmpManifest.model_validate(
+                    manifest_value
+                )
+            except (ValidationError, ValueError) as exc:
+                mismatches.append(
+                    f"{label}: resolved manifest schema is invalid: {exc}"
+                )
+    if resolved_manifest_model is not None:
+        if resolved_manifest_model.canonical_digest() != manifest_digest:
+            mismatches.append(f"{label}: resolved manifest canonical digest drift")
+        if resolved_manifest_model.execution.backend != backend:
+            mismatches.append(f"{label}: resolved manifest backend binding drift")
+        if manifest_root.parent.name != resolved_manifest_model.metadata.experiment_id:
+            mismatches.append(f"{label}: experiment directory identity drift")
+
+    identity = receipt.get("identity")
+    if not isinstance(identity, dict):
+        mismatches.append(f"{label}: runtime identity is missing")
+        identity = {}
+    else:
+        policy_identity = _apptainer_policy_identity(identity)
+        if _compact_json_digest(policy_identity) != receipt.get("policy_sha256"):
+            mismatches.append(f"{label}: policy digest drift")
+    expected_identity_fields = {
+        "binds",
+        "forwarded_env_names",
+        "fakeroot",
+        "gpu",
+        "image_digest",
+        "image_kind",
+        "image_path_sha256",
+        "image_size_bytes",
+        "keep_workspace_on_failure",
+        "launcher_build_config_sha256",
+        "launcher_path_sha256",
+        "launcher_sha256",
+        "launcher_version",
+        "max_artifact_bytes",
+        "max_artifact_entries",
+        "max_capture_bytes",
+        "network_argv",
+        "overlay",
+        "termination_grace_seconds",
+    }
+    if set(identity) != expected_identity_fields:
+        mismatches.append(f"{label}: runtime identity fields are malformed")
+    defaults = backend.defaults
+    launcher_recorded = backend.executable
+    image_recorded = backend.image
+    launcher = _apptainer_resolve_locator(
+        launcher_recorded,
+        path_map=relocation,
+        label=f"{label}.launcher",
+        mismatches=mismatches,
+        bind_grammar=True,
+    )
+    image = _apptainer_resolve_locator(
+        image_recorded,
+        path_map=relocation,
+        label=f"{label}.image",
+        mismatches=mismatches,
+        bind_grammar=True,
+    )
+    if not _is_sha256(backend.digest):
+        mismatches.append(f"{label}: backend launcher digest is invalid")
+    if (
+        not isinstance(backend.version, str)
+        or not backend.version.strip()
+        or any(marker in backend.version for marker in ("\r", "\n", "\x00", "="))
+    ):
+        mismatches.append(f"{label}: backend launcher version is invalid")
+    if (
+        identity.get("launcher_sha256") != backend.digest
+        or provenance.executable_digest != backend.digest
+    ):
+        mismatches.append(f"{label}: launcher digest cross-link drift")
+    if provenance.executable != backend.executable:
+        mismatches.append(f"{label}: launcher path cross-link drift")
+    if identity.get("launcher_version") != backend.version:
+        mismatches.append(f"{label}: launcher version drift")
+    if identity.get("launcher_build_config_sha256") != defaults.get(
+        "launcher_build_config_sha256"
+    ):
+        mismatches.append(f"{label}: launcher build configuration digest drift")
+    if not _is_sha256(defaults.get("launcher_build_config_sha256")):
+        mismatches.append(f"{label}: launcher build configuration digest is invalid")
+    launcher_identity = (
+        None
+        if launcher is None
+        else _apptainer_sha256_file(
+            launcher,
+            label=f"{label}.launcher",
+            mismatches=mismatches,
+            max_bytes=_APPTAINER_INPUT_MAX_BYTES,
+        )
+    )
+    if launcher_identity is not None and launcher_identity[0] != backend.digest:
+        mismatches.append(f"{label}: launcher bytes drift")
+    if identity.get("launcher_path_sha256") != _apptainer_recorded_path_token(
+        launcher_recorded
+    ):
+        mismatches.append(f"{label}: launcher path identity drift")
+    image_kind = defaults.get("image_kind")
+    if image_kind not in {"sif", "sandbox"}:
+        mismatches.append(f"{label}: image kind is invalid")
+    if identity.get("image_kind") != image_kind or identity.get(
+        "image_digest"
+    ) != defaults.get("image_sha256"):
+        mismatches.append(f"{label}: image identity cross-link drift")
+    if provenance.image_digest != identity.get("image_digest"):
+        mismatches.append(f"{label}: provenance image digest drift")
+    if not _is_sha256(defaults.get("image_sha256")):
+        mismatches.append(f"{label}: image digest pin is invalid")
+    image_size_bytes = identity.get("image_size_bytes")
+    if type(image_size_bytes) is not int or image_size_bytes < 0:
+        mismatches.append(f"{label}: image size is invalid")
+    image_identity = (
+        None
+        if image is None
+        else _apptainer_path_identity(
+            image,
+            directory=image_kind == "sandbox",
+            label=f"{label}.image",
+            mismatches=mismatches,
+            max_bytes=_APPTAINER_INPUT_MAX_BYTES,
+            max_entries=_APPTAINER_INPUT_MAX_ENTRIES,
+        )
+    )
+    if image_identity is not None and image_identity != (
+        identity.get("image_digest"),
+        identity.get("image_size_bytes"),
+    ):
+        mismatches.append(f"{label}: image bytes drift")
+    if identity.get("image_path_sha256") != _apptainer_recorded_path_token(
+        image_recorded
+    ):
+        mismatches.append(f"{label}: image path identity drift")
+
+    network_mode = defaults.get("network_mode")
+    expected_network: list[str] | None = {
+        "none": ["--net", "--network", "none"],
+        "isolated": ["--net"],
+    }.get(network_mode if isinstance(network_mode, str) else "")
+    if expected_network is None or identity.get("network_argv") != expected_network:
+        mismatches.append(f"{label}: network policy drift")
+    if provenance.network_mode != defaults.get("network_mode"):
+        mismatches.append(f"{label}: network provenance drift")
+    if type(defaults.get("fakeroot")) is not bool or identity.get(
+        "fakeroot"
+    ) is not defaults.get("fakeroot"):
+        mismatches.append(f"{label}: fakeroot policy drift")
+    if type(defaults.get("keep_workspace_on_failure")) is not bool or identity.get(
+        "keep_workspace_on_failure"
+    ) is not defaults.get("keep_workspace_on_failure"):
+        mismatches.append(f"{label}: keep_workspace_on_failure policy drift")
+    limits: dict[str, int] = {}
+    for key in (
+        "max_artifact_bytes",
+        "max_artifact_entries",
+        "max_capture_bytes",
+    ):
+        declared = defaults.get(key)
+        if (
+            type(declared) is not int
+            or declared <= 0
+            or type(identity.get(key)) is not int
+            or identity.get(key) != declared
+        ):
+            mismatches.append(f"{label}: {key} policy drift")
+            limits[key] = 0
+        else:
+            limits[key] = declared
+    termination_grace = defaults.get("termination_grace_seconds")
+    if (
+        not isinstance(termination_grace, (int, float))
+        or isinstance(termination_grace, bool)
+        or not 0.0 <= float(termination_grace) <= 120.0
+        or not isinstance(identity.get("termination_grace_seconds"), (int, float))
+        or isinstance(identity.get("termination_grace_seconds"), bool)
+        or identity.get("termination_grace_seconds") != termination_grace
+    ):
+        mismatches.append(f"{label}: termination_grace_seconds policy drift")
+
+    env_names = receipt.get("forwarded_env_names")
+    env_hashes = receipt.get("forwarded_env_value_sha256")
+    expected_env_names = defaults.get("forwarded_env_names", [])
+    if not isinstance(expected_env_names, list):
+        expected_env_names = (
+            list(expected_env_names) if isinstance(expected_env_names, tuple) else []
+        )
+    if len(set(expected_env_names)) != len(expected_env_names) or any(
+        not isinstance(item, str) or _APPTAINER_ENV_NAME.fullmatch(item) is None
+        for item in expected_env_names
+    ):
+        mismatches.append(f"{label}: forwarded environment names are malformed")
+        expected_env_names = []
+    if (
+        env_names != expected_env_names
+        or identity.get("forwarded_env_names") != expected_env_names
+    ):
+        mismatches.append(f"{label}: forwarded environment name drift")
+    if (
+        not isinstance(env_hashes, dict)
+        or set(env_hashes) - set(expected_env_names or ())
+        or any(not _is_sha256(value) for value in env_hashes.values())
+    ):
+        mismatches.append(
+            f"{label}: forwarded environment digest evidence is malformed"
+        )
+
+    binds = identity.get("binds")
+    expected_binds = defaults.get("binds")
+    if (
+        not isinstance(binds, list)
+        or not isinstance(expected_binds, list)
+        or len(binds) != len(expected_binds)
+    ):
+        mismatches.append(f"{label}: bind identity drift")
+    else:
+        for index, (observed, declared) in enumerate(
+            zip(binds, expected_binds, strict=True)
+        ):
+            if (
+                not isinstance(observed, dict)
+                or not isinstance(declared, Mapping)
+                or set(declared) != {"destination", "read_only", "source"}
+            ):
+                mismatches.append(f"{label}: bind {index} is malformed")
+                continue
+            source_recorded = declared.get("source")
+            source_path = _apptainer_resolve_locator(
+                source_recorded,
+                path_map=relocation,
+                label=f"{label}.bind[{index}]",
+                mismatches=mismatches,
+                bind_grammar=True,
+            )
+            destination = declared.get("destination")
+            destination_valid = (
+                isinstance(destination, str)
+                and destination.startswith("/")
+                and destination != "/"
+                and not destination.startswith("//")
+                and not destination.endswith("/")
+                and "\\" not in destination
+                and all(
+                    part not in {"", ".", ".."}
+                    for part in destination.removeprefix("/").split("/")
+                )
+            )
+            read_only = declared.get("read_only")
+            expected_observed_fields = {
+                "destination",
+                "read_only",
+                "source_digest",
+                "source_is_directory",
+                "source_path_sha256",
+                "source_size_bytes",
+            }
+            if read_only is False:
+                expected_observed_fields.update(
+                    {"post_run_digest", "post_run_size_bytes"}
+                )
+            if (
+                type(read_only) is not bool
+                or not destination_valid
+                or set(observed) != expected_observed_fields
+                or observed.get("destination") != destination
+                or observed.get("read_only") is not read_only
+            ):
+                mismatches.append(f"{label}: bind {index} policy drift")
+            source_is_directory = observed.get("source_is_directory")
+            if type(source_is_directory) is not bool:
+                mismatches.append(f"{label}: bind {index} source type is malformed")
+                source_is_directory = False
+            content_identity_fields = [("source_digest", "source_size_bytes")]
+            if read_only is False:
+                content_identity_fields.append(
+                    ("post_run_digest", "post_run_size_bytes")
+                )
+            for digest_key, size_key in content_identity_fields:
+                observed_size = observed.get(size_key)
+                if (
+                    not _is_sha256(observed.get(digest_key))
+                    or type(observed_size) is not int
+                    or observed_size < 0
+                ):
+                    mismatches.append(
+                        f"{label}: bind {index} content identity is malformed"
+                    )
+            source_identity = (
+                None
+                if source_path is None
+                else _apptainer_path_identity(
+                    source_path,
+                    directory=source_is_directory,
+                    label=f"{label}.bind[{index}]",
+                    mismatches=mismatches,
+                    max_bytes=_APPTAINER_INPUT_MAX_BYTES,
+                    max_entries=_APPTAINER_INPUT_MAX_ENTRIES,
+                )
+            )
+            digest_key = "source_digest" if read_only is True else "post_run_digest"
+            size_key = (
+                "source_size_bytes" if read_only is True else "post_run_size_bytes"
+            )
+            if source_identity is not None and source_identity != (
+                observed.get(digest_key),
+                observed.get(size_key),
+            ):
+                mismatches.append(f"{label}: bind {index} content drift")
+            if observed.get("source_path_sha256") != _apptainer_recorded_path_token(
+                source_recorded
+            ):
+                mismatches.append(f"{label}: bind {index} path identity drift")
+    overlay = identity.get("overlay")
+    declared_overlay = defaults.get("overlay")
+    if (overlay is None) != (declared_overlay is None):
+        mismatches.append(f"{label}: overlay identity drift")
+    elif overlay is not None or declared_overlay is not None:
+        if (
+            not isinstance(overlay, dict)
+            or not isinstance(declared_overlay, Mapping)
+            or set(declared_overlay) != {"mode", "path", "sha256"}
+        ):
+            mismatches.append(f"{label}: overlay identity is malformed")
+            overlay = {}
+            declared_overlay = {}
+        overlay_recorded = declared_overlay.get("path")
+        overlay_path = _apptainer_resolve_locator(
+            overlay_recorded,
+            path_map=relocation,
+            label=f"{label}.overlay",
+            mismatches=mismatches,
+            bind_grammar=True,
+        )
+        overlay_mode = declared_overlay.get("mode")
+        expected_overlay_fields = {
+            "mode",
+            "path_sha256",
+            "sha256",
+            "size_bytes",
+        }
+        if overlay_mode == "rw":
+            expected_overlay_fields.update({"post_run_sha256", "post_run_size_bytes"})
+        if (
+            overlay_mode not in {"ro", "rw"}
+            or not _is_sha256(declared_overlay.get("sha256"))
+            or set(overlay) != expected_overlay_fields
+            or overlay.get("mode") != overlay_mode
+            or overlay.get("sha256") != declared_overlay.get("sha256")
+        ):
+            mismatches.append(f"{label}: overlay policy drift")
+        overlay_identity_fields = [("sha256", "size_bytes")]
+        if overlay_mode == "rw":
+            overlay_identity_fields.append(("post_run_sha256", "post_run_size_bytes"))
+        for digest_key, size_key in overlay_identity_fields:
+            observed_size = overlay.get(size_key)
+            if (
+                not _is_sha256(overlay.get(digest_key))
+                or type(observed_size) is not int
+                or observed_size < 0
+            ):
+                mismatches.append(f"{label}: overlay content identity is malformed")
+        overlay_identity = (
+            None
+            if overlay_path is None
+            else _apptainer_sha256_file(
+                overlay_path,
+                label=f"{label}.overlay",
+                mismatches=mismatches,
+                max_bytes=_APPTAINER_INPUT_MAX_BYTES,
+            )
+        )
+        digest_key = "sha256" if overlay_mode == "ro" else "post_run_sha256"
+        size_key = "size_bytes" if overlay_mode == "ro" else "post_run_size_bytes"
+        if overlay_identity is not None and overlay_identity != (
+            overlay.get(digest_key),
+            overlay.get(size_key),
+        ):
+            mismatches.append(f"{label}: overlay content drift")
+        if overlay.get("path_sha256") != _apptainer_recorded_path_token(
+            overlay_recorded
+        ):
+            mismatches.append(f"{label}: overlay path identity drift")
+    gpu = identity.get("gpu")
+    gpu_enabled = defaults.get("gpu")
+    if type(gpu_enabled) is not bool:
+        mismatches.append(f"{label}: GPU policy is malformed")
+    if gpu_enabled is True:
+        if (
+            not isinstance(gpu, dict)
+            or set(gpu) != {"library_path_sha256", "library_sha256"}
+            or not _is_sha256(defaults.get("gpu_library_sha256"))
+            or gpu.get("library_sha256") != defaults.get("gpu_library_sha256")
+            or not _is_sha256(gpu.get("library_path_sha256"))
+        ):
+            mismatches.append(f"{label}: GPU library identity drift")
+        else:
+            gpu_path = _apptainer_resolve_locator(
+                defaults.get("gpu_library_path"),
+                path_map=relocation,
+                label=f"{label}.gpu_library",
+                mismatches=mismatches,
+                bind_grammar=True,
+            )
+            gpu_identity = (
+                None
+                if gpu_path is None
+                else _apptainer_sha256_file(
+                    gpu_path,
+                    label=f"{label}.gpu_library",
+                    mismatches=mismatches,
+                    max_bytes=_APPTAINER_INPUT_MAX_BYTES,
+                )
+            )
+            if gpu_identity is not None and gpu_identity[0] != gpu.get(
+                "library_sha256"
+            ):
+                mismatches.append(f"{label}: GPU library bytes drift")
+            if gpu.get("library_path_sha256") != _apptainer_recorded_path_token(
+                defaults.get("gpu_library_path")
+            ):
+                mismatches.append(f"{label}: GPU library path identity drift")
+    elif gpu is not None or any(
+        key in defaults for key in ("gpu_library_path", "gpu_library_sha256")
+    ):
+        mismatches.append(f"{label}: undeclared GPU identity")
+
+    lifecycle = receipt.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        mismatches.append(f"{label}: lifecycle is malformed")
+        lifecycle = {}
+    expected_lifecycle_fields = {
+        "capture_error_type",
+        "launch_error_type",
+        "post_identity_error_type",
+        "process_returncode",
+        "process_status",
+        "status",
+        "termination",
+        "wall_clock_seconds",
+    }
+    if set(lifecycle) != expected_lifecycle_fields:
+        mismatches.append(f"{label}: lifecycle fields are malformed")
+    process_status = lifecycle.get("process_status")
+    final_status = lifecycle.get("status")
+    returncode = lifecycle.get("process_returncode")
+    capture_error_raw = lifecycle.get("capture_error_type")
+    launch_error_raw = lifecycle.get("launch_error_type")
+    post_identity_error_raw = lifecycle.get("post_identity_error_type")
+    capture_error = _apptainer_error_type(
+        capture_error_raw,
+        label=f"{label}.lifecycle.capture_error_type",
+        mismatches=mismatches,
+    )
+    launch_error = _apptainer_error_type(
+        launch_error_raw,
+        label=f"{label}.lifecycle.launch_error_type",
+        mismatches=mismatches,
+    )
+    _apptainer_error_type(
+        post_identity_error_raw,
+        label=f"{label}.lifecycle.post_identity_error_type",
+        mismatches=mismatches,
+    )
+    if post_identity_error_raw is not None:
+        mismatches.append(f"{label}: post-run identity observation failed")
+    if process_status not in {
+        "cancelled",
+        "capture_error",
+        "completed",
+        "launch_error",
+        "process_error",
+        "timeout",
+    }:
+        mismatches.append(f"{label}: process status is not terminal")
+    if final_status != process_status:
+        mismatches.append(f"{label}: lifecycle final status is inconsistent")
+    if returncode is not None and (
+        type(returncode) is not int or not -(2**31) <= returncode < 2**31
+    ):
+        mismatches.append(f"{label}: lifecycle return code is malformed")
+    if process_status == "completed" and (
+        returncode != 0 or launch_error is not None or capture_error is not None
+    ):
+        mismatches.append(f"{label}: completed process state is inconsistent")
+    if process_status == "process_error" and (
+        type(returncode) is not int or returncode == 0 or launch_error is not None
+    ):
+        mismatches.append(f"{label}: failed process state is inconsistent")
+    if process_status in {"timeout", "cancelled"} and type(returncode) is not int:
+        mismatches.append(f"{label}: interrupted process state is inconsistent")
+    if process_status == "launch_error" and launch_error is None:
+        mismatches.append(f"{label}: launch failure evidence is missing")
+    if process_status == "capture_error" and capture_error is None:
+        mismatches.append(f"{label}: capture failure evidence is missing")
+    wall_seconds = lifecycle.get("wall_clock_seconds")
+    if (
+        not isinstance(wall_seconds, (int, float))
+        or isinstance(wall_seconds, bool)
+        or wall_seconds < 0
+        or wall_seconds > _APPTAINER_MAX_WALL_CLOCK_SECONDS
+        or (isinstance(wall_seconds, float) and not isfinite(wall_seconds))
+    ):
+        mismatches.append(f"{label}: lifecycle duration is malformed")
+    termination = lifecycle.get("termination")
+    if (
+        not isinstance(termination, dict)
+        or set(termination)
+        != {
+            "kill_sent",
+            "residual_kill_sent",
+            "residual_term_sent",
+            "returncode",
+            "term_sent",
+        }
+        or termination.get("returncode") != returncode
+        or any(
+            type(termination.get(key)) is not bool
+            for key in (
+                "kill_sent",
+                "residual_kill_sent",
+                "residual_term_sent",
+                "term_sent",
+            )
+        )
+    ):
+        mismatches.append(f"{label}: termination evidence is malformed")
+    elif (
+        (termination.get("kill_sent") and not termination.get("term_sent"))
+        or (
+            termination.get("residual_kill_sent")
+            and not termination.get("residual_term_sent")
+        )
+        or (
+            process_status in {"timeout", "cancelled"}
+            and not termination.get("term_sent")
+        )
+    ):
+        mismatches.append(f"{label}: termination escalation is inconsistent")
+    elif process_status in {"completed", "process_error"} and (
+        termination.get("term_sent") or termination.get("kill_sent")
+    ):
+        mismatches.append(f"{label}: natural process termination is inconsistent")
+    teardown = receipt.get("teardown")
+    teardown_fields = {
+        "artifact_export_before_destroy",
+        "error_type",
+        "result",
+        "workspace_path_sha256",
+        "workspace_retained",
+    }
+    if not isinstance(teardown, dict) or set(teardown) != teardown_fields:
+        mismatches.append(f"{label}: teardown did not close successfully")
+    else:
+        teardown_error = _apptainer_error_type(
+            teardown.get("error_type"),
+            label=f"{label}.teardown.error_type",
+            mismatches=mismatches,
+        )
+        retained = teardown.get("workspace_retained")
+        teardown_valid = (
+            teardown.get("artifact_export_before_destroy") is True
+            and teardown_error is None
+            and teardown.get("error_type") is None
+            and type(retained) is bool
+            and _is_sha256(teardown.get("workspace_path_sha256"))
+            and (
+                (
+                    retained is False
+                    and teardown.get("result") in {"removed", "already_absent"}
+                )
+                or (
+                    retained is True
+                    and teardown.get("result") == "retained"
+                    and process_status != "completed"
+                    and identity.get("keep_workspace_on_failure") is True
+                )
+            )
+        )
+        if not teardown_valid:
+            mismatches.append(f"{label}: teardown did not close successfully")
+
+    artifact_export = receipt.get("artifact_export")
+    artifact_refs: list[ArtifactRef] = []
+    if not isinstance(artifact_export, dict):
+        mismatches.append(f"{label}: artifact export is malformed")
+        artifact_export = {}
+    if set(artifact_export) != {"complete", "error_type", "refs", "requested"}:
+        mismatches.append(f"{label}: artifact export fields are malformed")
+    requested = artifact_export.get("requested")
+    raw_artifact_refs = artifact_export.get("refs")
+    _apptainer_error_type(
+        artifact_export.get("error_type"),
+        label=f"{label}.artifact_export.error_type",
+        mismatches=mismatches,
+    )
+    if (
+        artifact_export.get("complete") is not True
+        or artifact_export.get("error_type") is not None
+    ):
+        mismatches.append(f"{label}: artifact export is incomplete")
+    if not isinstance(requested, list) or any(
+        not isinstance(item, str)
+        or not item
+        or Path(item).is_absolute()
+        or "\\" in item
+        or any(part in {"", ".", ".."} for part in item.split("/"))
+        for item in (requested if isinstance(requested, list) else ())
+    ):
+        mismatches.append(f"{label}: requested export paths are malformed")
+        requested = []
+    if len(set(requested)) != len(requested):
+        mismatches.append(f"{label}: requested export paths are not unique")
+    if not isinstance(raw_artifact_refs, list):
+        mismatches.append(f"{label}: exported artifact refs are malformed")
+        raw_artifact_refs = []
+    max_artifact_bytes = limits.get("max_artifact_bytes", 0)
+    max_artifact_entries = limits.get("max_artifact_entries", 0)
+    artifact_sizes = [
+        item.get("size_bytes") if isinstance(item, Mapping) else None
+        for item in raw_artifact_refs
+    ]
+    if (
+        len(raw_artifact_refs) > max_artifact_entries
+        or len(requested) > max_artifact_entries
+        or any(type(size) is not int or size < 0 for size in artifact_sizes)
+        or sum(size for size in artifact_sizes if type(size) is int)
+        > max_artifact_bytes
+    ):
+        mismatches.append(f"{label}: exported artifacts exceed backend limits")
+        raw_artifact_refs = []
+    artifact_root = case_root / "artifacts"
+    complete_export_files: tuple[Path, ...] = ()
+    if artifact_root.exists() or artifact_root.is_symlink():
+        enumerated = _apptainer_export_files(
+            artifact_root,
+            # The backend counts each requested root; the retained tree adds
+            # the artifacts directory plus any intermediate path components.
+            max_entries=max_artifact_entries
+            + 1
+            + sum(max(0, len(Path(item).parts) - 1) for item in requested),
+            label=f"{label}.artifact_export",
+            mismatches=mismatches,
+        )
+        if enumerated is not None:
+            complete_export_files = enumerated
+    elif requested:
+        mismatches.append(f"{label}: artifact export root is missing")
+    covered = {item: False for item in requested}
+    observed_ref_paths: set[Path] = set()
+    for index, raw_ref in enumerate(raw_artifact_refs):
+        ref = _apptainer_ref(
+            raw_ref,
+            case_root=case_root,
+            path_map=relocation,
+            max_bytes=max_artifact_bytes,
+            label=f"{label}.artifact_export.refs[{index}]",
+            mismatches=mismatches,
+        )
+        if ref is None:
+            continue
+        artifact_refs.append(ref)
+        mapped_path = _apptainer_resolve_locator(
+            ref.path,
+            path_map=relocation,
+            label=f"{label}.artifact_export.refs[{index}]",
+            mismatches=mismatches,
+        )
+        if mapped_path is None:
+            continue
+        mapped = mapped_path.resolve(strict=False)
+        observed_ref_paths.add(mapped)
+        try:
+            relative = mapped.relative_to(artifact_root)
+        except ValueError:
+            mismatches.append(f"{label}: exported artifact escapes artifact root")
+            continue
+        matches = [
+            item
+            for item in requested
+            if relative == Path(item) or Path(item) in relative.parents
+        ]
+        if len(matches) != 1:
+            mismatches.append(f"{label}: exported artifact does not prove one request")
+        else:
+            covered[matches[0]] = True
+    if any(not value for value in covered.values()) or bool(requested) != bool(
+        artifact_refs
+    ):
+        mismatches.append(f"{label}: exported artifacts do not cover every request")
+    expected_export_paths: set[Path] = set()
+    for requested_path in requested:
+        target = artifact_root / requested_path
+        try:
+            details = target.lstat()
+        except OSError as exc:
+            mismatches.append(
+                f"{label}: requested export {requested_path!r} is unavailable: {exc}"
+            )
+            continue
+        if stat.S_ISREG(details.st_mode):
+            expected_export_paths.add(target.resolve(strict=False))
+        elif stat.S_ISDIR(details.st_mode):
+            expected_export_paths.update(
+                path.resolve(strict=False)
+                for path in complete_export_files
+                if path == target or target in path.parents
+            )
+        else:
+            mismatches.append(
+                f"{label}: requested export {requested_path!r} is not a regular file or directory"
+            )
+    complete_paths = {path.resolve(strict=False) for path in complete_export_files}
+    if complete_paths != expected_export_paths or observed_ref_paths != complete_paths:
+        mismatches.append(
+            f"{label}: artifact refs do not exactly cover the retained export tree"
+        )
+
+    raw_log_refs = receipt.get("log_refs")
+    log_refs: list[ArtifactRef] = []
+    if not isinstance(raw_log_refs, list) or len(raw_log_refs) != 2:
+        mismatches.append(f"{label}: exactly two log refs are required")
+        raw_log_refs = []
+    max_log_bytes = limits.get("max_capture_bytes", 0) + (
+        _APPTAINER_TRUNCATION_MARKER_BYTES
+        if limits.get("max_capture_bytes", 0) > 0
+        else 0
+    )
+    expected_log_names = ("stdout.log", "stderr.log")
+    for index, raw_ref in enumerate(raw_log_refs):
+        ref = _apptainer_ref(
+            raw_ref,
+            case_root=case_root,
+            path_map=relocation,
+            max_bytes=max_log_bytes,
+            label=f"{label}.log_refs[{index}]",
+            mismatches=mismatches,
+        )
+        if ref is not None:
+            log_refs.append(ref)
+            mapped_log = _apptainer_resolve_locator(
+                ref.path,
+                path_map=relocation,
+                label=f"{label}.log_refs[{index}]",
+                mismatches=mismatches,
+            )
+            if (
+                mapped_log is None
+                or mapped_log.resolve(strict=False)
+                != case_root / expected_log_names[index]
+            ):
+                mismatches.append(f"{label}: log ref path identity drift")
+    if len({ref.path for ref in (*artifact_refs, *log_refs)}) != len(
+        artifact_refs
+    ) + len(log_refs):
+        mismatches.append(f"{label}: artifact/log refs are not unique")
+
+    if mismatches:
+        raise ReportVerificationError(mismatches)
+    return VerifiedApptainerRuntimeReceipt(
+        receipt=receipt,
+        receipt_path=source.resolve(),
+        artifact_refs=tuple(artifact_refs),
+        log_refs=tuple(log_refs),
+    )
+
+
+def verify_apptainer_runtime_receipt(
+    receipt_ref: ArtifactRef,
+    *,
+    backend: BackendSpec,
+    provenance: ProvenanceRecord,
+    manifest_digest: str,
+    path_map: Mapping[str, str] | None = None,
+    label: str = "Apptainer runtime receipt",
+) -> VerifiedApptainerRuntimeReceipt:
+    """Normalize malformed receipt failures into the standalone error type."""
+
+    try:
+        return _verify_apptainer_runtime_receipt(
+            receipt_ref,
+            backend=backend,
+            provenance=provenance,
+            manifest_digest=manifest_digest,
+            path_map=path_map,
+            label=label,
+        )
+    except ReportVerificationError:
+        raise
+    except (OSError, TypeError, ValueError, RecursionError, OverflowError) as exc:
+        raise ReportVerificationError([f"{label}: malformed receipt: {exc}"]) from exc
+
+
+def _parse_json_model(
+    model: type[ReportT], content: bytes, *, label: str, mismatches: list[str]
+) -> ReportT | None:
     try:
         return model.model_validate_json(content)
     except (ValidationError, ValueError) as exc:
@@ -265,8 +1845,7 @@ def _verify_bundle_artifacts(
         for index, ref in enumerate(bundle.output_refs)
     )
     refs.extend(
-        (f"{label}.log_refs[{index}]", ref)
-        for index, ref in enumerate(bundle.log_refs)
+        (f"{label}.log_refs[{index}]", ref) for index, ref in enumerate(bundle.log_refs)
     )
     if bundle.trace_ref is not None:
         refs.append((f"{label}.trace_ref", bundle.trace_ref))
@@ -322,7 +1901,10 @@ def _verify_bundle_artifacts(
             (f"{label}.network_observation.evidence_refs[{index}]", ref)
             for index, ref in enumerate(bundle.network_observation.evidence_refs)
         )
-    if bundle.provenance.container_receipt_ref is not None:
+    if (
+        bundle.provenance.container_receipt_ref is not None
+        and bundle.provenance.backend_kind != "apptainer"
+    ):
         refs.append(
             (
                 f"{label}.provenance.container_receipt_ref",
@@ -667,9 +2249,7 @@ def _verify_evolution_file(
         )
         if parent_bytes is not None:
             try:
-                parent_path = _resolve_path(
-                    evidence.parent_evidence_ref.path, path_map
-                )
+                parent_path = _resolve_path(evidence.parent_evidence_ref.path, path_map)
             except ValueError as exc:
                 mismatches.append(f"{label}.parent_evidence_ref: {exc}")
             else:
@@ -754,7 +2334,9 @@ def verify_evolution_run_evidence(
         label="evolution evidence",
     )
     if mismatches or verified is None:
-        raise ReportVerificationError(mismatches or ["evolution evidence verification failed"])
+        raise ReportVerificationError(
+            mismatches or ["evolution evidence verification failed"]
+        )
     return verified
 
 
@@ -943,7 +2525,9 @@ def verify_external_protocol_authority(
                 check=True,
             ).stdout
         except (OSError, subprocess.SubprocessError) as exc:
-            mismatches.append(f"external authority.{label}: cannot read tracked bytes: {exc}")
+            mismatches.append(
+                f"external authority.{label}: cannot read tracked bytes: {exc}"
+            )
             continue
         if tracked != content:
             mismatches.append(
@@ -1067,9 +2651,7 @@ def _verify_manifest_measurement_registry(
             if set(document) != {section} or not isinstance(
                 document.get(section), Mapping
             ):
-                raise ValueError(
-                    f"declaration must contain only [{section}]"
-                )
+                raise ValueError(f"declaration must contain only [{section}]")
             validator = validators[section]
             observed = (
                 validator.validate_python(document[section])
@@ -1143,6 +2725,7 @@ def _verify_manifest_measurement_registry(
                 _compile_benchmark_artifact,
                 _compile_dataset_artifact,
             )
+
             if section == "benchmark":
                 observed_digest = _compile_benchmark_artifact(
                     observed, declaration_path=resolved_path
@@ -1239,9 +2822,7 @@ def _replay_configuration_composition(
     """Replay the recorded configuration recipe and compare every projection."""
 
     steps = tuple(configuration.composition)
-    source_keys = {
-        (ref.sha256, ref.size_bytes) for ref in configuration.source_refs
-    }
+    source_keys = {(ref.sha256, ref.size_bytes) for ref in configuration.source_refs}
     composition_source_keys = {
         (step.source_ref.sha256, step.source_ref.size_bytes)
         for step in steps
@@ -1268,7 +2849,9 @@ def _replay_configuration_composition(
             key = (step.source_ref.sha256, step.source_ref.size_bytes)
             content = source_contents.get(key)
             if content is None:
-                mismatches.append(f"{step_label}: source_ref is absent from source_refs")
+                mismatches.append(
+                    f"{step_label}: source_ref is absent from source_refs"
+                )
                 continue
             try:
                 document = tomllib.loads(content.decode("utf-8"))
@@ -1288,7 +2871,9 @@ def _replay_configuration_composition(
                 try:
                     spec = ConfigurationSpec.model_validate(document["configuration"])
                 except ValidationError as exc:
-                    mismatches.append(f"{step_label}: invalid configuration envelope: {exc}")
+                    mismatches.append(
+                        f"{step_label}: invalid configuration envelope: {exc}"
+                    )
                     continue
                 observed_values = spec.values
                 observed_schema = spec.json_schema
@@ -1439,17 +3024,13 @@ def _verify_manifest_adapter_capabilities(
         or manifest.benchmark.adapter not in _BUILTIN_BENCHMARK_LOADER_ADAPTERS
     ):
         required.add((manifest.benchmark.adapter, "benchmark_loader"))
-    if (
-        manifest.execution.backend.adapter
-        not in _BUILTIN_BACKEND_FACTORY_ADAPTERS
-    ):
+    if manifest.execution.backend.adapter not in _BUILTIN_BACKEND_FACTORY_ADAPTERS:
         required.add((manifest.execution.backend.adapter, "backend_factory"))
     if (
         manifest.benchmark.kind == "custom"
         or compatibility not in _BUILTIN_EXECUTION_COMPATIBILITY
         or manifest.subject.kind in {"evolver", "meta_evolver"}
-        or manifest.execution.model
-        not in {"none", "none/deterministic", "none/echo"}
+        or manifest.execution.model not in {"none", "none/deterministic", "none/echo"}
     ):
         required.add((manifest.benchmark.adapter, "execution"))
     for metric_artifact in manifest.metrics:
@@ -1556,9 +3137,7 @@ def _verify_manifest_adapter_capabilities(
                     capability.metric_config_schema
                 )
                 validator_cls.check_schema(capability.metric_config_schema)
-                metric_config_validator = validator_cls(
-                    capability.metric_config_schema
-                )
+                metric_config_validator = validator_cls(capability.metric_config_schema)
             except jsonschema.exceptions.SchemaError as exc:
                 mismatches.append(
                     f"{artifact_label}: capability metric config JSON Schema "
@@ -1593,9 +3172,7 @@ def _verify_manifest_adapter_capabilities(
                 if set(document) != {"adapter"} or not isinstance(
                     document.get("adapter"), Mapping
                 ):
-                    raise ValueError(
-                        "declaration must contain only [adapter]"
-                    )
+                    raise ValueError("declaration must contain only [adapter]")
                 declared_capability = AdapterCapability.model_validate(
                     document["adapter"]
                 )
@@ -1617,9 +3194,7 @@ def _verify_manifest_adapter_capabilities(
         closure_refs = artifact.source_closure_refs
         closure_paths = artifact.source_closure_paths
         if not closure_refs or artifact.source_closure_digest is None:
-            mismatches.append(
-                f"{artifact_label}: source import closure is missing"
-            )
+            mismatches.append(f"{artifact_label}: source import closure is missing")
             continue
         if len(closure_refs) != len(closure_paths):
             mismatches.append(
@@ -1658,20 +3233,15 @@ def _verify_manifest_adapter_capabilities(
                 resolve_source_root,
             )
 
-            declaration_path = _resolve_path(
-                artifact.declaration_ref.path, path_map
-            )
+            declaration_path = _resolve_path(artifact.declaration_ref.path, path_map)
             project_root = declaration_path.parent.parent.parent
-            source_root = resolve_source_root(
-                project_root, artifact.capability.source
-            )
+            source_root = resolve_source_root(project_root, artifact.capability.source)
             entrypoint_path = resolve_entrypoint(
                 source_root, artifact.capability.entrypoint
             )
             observed_paths = import_closure(source_root, entrypoint_path)
             expected_paths = tuple(
-                path.relative_to(source_root).as_posix()
-                for path in observed_paths
+                path.relative_to(source_root).as_posix() for path in observed_paths
             )
             if expected_paths != tuple(closure_paths):
                 mismatches.append(
@@ -1726,14 +3296,20 @@ def _verify_bundle_provenance(
         "fake": "fake",
         "subprocess": "subprocess",
         "aose-docker": "docker",
+        "apptainer": "apptainer",
         "harbor": "harbor",
         "harbor-shim": "harbor",
     }.get(manifest.execution.backend.adapter)
-    if expected_backend_kind is not None and provenance.backend_kind != expected_backend_kind:
+    if (
+        expected_backend_kind is not None
+        and provenance.backend_kind != expected_backend_kind
+    ):
         mismatches.append(f"{label}: provenance backend_kind drift")
     if provenance.test_override != manifest.metadata.test_override:
         mismatches.append(f"{label}: provenance test_override drift")
-    if provenance.trace_emission_claimed != bool(getattr(manifest.subject, "emits_trace", False)):
+    if provenance.trace_emission_claimed != bool(
+        getattr(manifest.subject, "emits_trace", False)
+    ):
         mismatches.append(f"{label}: provenance trace_emission_claimed drift")
     configuration = manifest.metadata.configuration
     activation = provenance.configuration_activation
@@ -1905,9 +3481,7 @@ def _verify_bundle_provenance(
                     mapped_trace_path.read_text(encoding="utf-8")
                 )
             except (OSError, UnicodeError, ValueError, MagentaJsonlError) as exc:
-                mismatches.append(
-                    f"{label}: runtime manifest trace is invalid: {exc}"
-                )
+                mismatches.append(f"{label}: runtime manifest trace is invalid: {exc}")
             else:
                 expected_manifest_digests = tuple(
                     _compact_json_digest(item)
@@ -1917,36 +3491,45 @@ def _verify_bundle_provenance(
                     mismatches.append(f"{label}: runtime manifest run_id drift")
                 if runtime_receipt.manifest_sha256 != expected_manifest_digests:
                     mismatches.append(f"{label}: runtime manifest digest lineage drift")
-                expected_sequence = int(
-                    parsed_trace.effective_runtime_manifest["sequence"]
+                expected_sequence_raw = parsed_trace.effective_runtime_manifest.get(
+                    "sequence"
                 )
-                if runtime_receipt.effective_sequence != expected_sequence:
+                if type(expected_sequence_raw) is not int:
+                    mismatches.append(
+                        f"{label}: effective runtime manifest sequence is malformed"
+                    )
+                elif runtime_receipt.effective_sequence != expected_sequence_raw:
                     mismatches.append(f"{label}: effective runtime manifest drift")
                 expected_sidecars = []
                 for item in parsed_trace.runtime_manifests:
                     sidecar = item.get("assembly")
                     if not isinstance(sidecar, Mapping):
                         continue
-                    encoded = json.dumps(
-                        sidecar,
-                        ensure_ascii=False,
-                        allow_nan=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ).encode("utf-8") + b"\n"
-                    expected_sidecars.append(
-                        (
-                            int(item["sequence"]),
-                            _sha256(encoded),
-                            len(encoded),
-                        )
+                    encoded = (
+                        json.dumps(
+                            sidecar,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode("utf-8")
+                        + b"\n"
                     )
+                    sequence = item.get("sequence")
+                    if type(sequence) is not int:
+                        mismatches.append(
+                            f"{label}: runtime assembly sequence is malformed"
+                        )
+                        continue
+                    expected_sidecars.append((sequence, _sha256(encoded), len(encoded)))
                 observed_sidecars = [
                     (ref.sequence, ref.sha256, ref.size_bytes)
                     for ref in runtime_receipt.assembly_sidecar_refs
                 ]
                 if observed_sidecars != expected_sidecars:
-                    mismatches.append(f"{label}: runtime assembly sidecar lineage drift")
+                    mismatches.append(
+                        f"{label}: runtime assembly sidecar lineage drift"
+                    )
     elif runtime_receipt is not None:
         mismatches.append(f"{label}: undeclared runtime manifest receipt")
     environment = manifest.execution.backend.environment
@@ -1976,6 +3559,35 @@ def _verify_bundle_provenance(
         if provenance.image_digest is None:
             mismatches.append(f"{label}: Harbor task image digest is missing")
     container_ref = provenance.container_receipt_ref
+    if backend.adapter == "apptainer":
+        if container_ref is None:
+            mismatches.append(f"{label}: Apptainer runtime receipt is missing")
+        else:
+            try:
+                verified_apptainer = verify_apptainer_runtime_receipt(
+                    container_ref,
+                    backend=backend,
+                    provenance=provenance,
+                    manifest_digest=manifest.canonical_digest(),
+                    path_map=path_map,
+                    label=f"{label}.apptainer_receipt",
+                )
+            except ReportVerificationError as exc:
+                mismatches.extend(str(item) for item in exc.mismatches)
+            else:
+                lifecycle = verified_apptainer.receipt.get("lifecycle")
+                if verified_apptainer.receipt.get("attempt_id") != bundle.run_id:
+                    mismatches.append(
+                        f"{label}: Apptainer attempt identity cross-link drift"
+                    )
+                if bundle.status in {RunStatus.pass_, RunStatus.verified_fail} and (
+                    not isinstance(lifecycle, Mapping)
+                    or lifecycle.get("status") != "completed"
+                ):
+                    mismatches.append(
+                        f"{label}: scored Apptainer evidence is not a completed lifecycle"
+                    )
+        return
     if container_ref is None:
         if harbor_identity_required:
             mismatches.append(f"{label}: Harbor container receipt is missing")
@@ -2042,9 +3654,7 @@ def _schedule_attempt_allocation_mismatches(
         for case_id in schedule.observed_case_order
         for attempt_index in range(schedule.declared_rollouts_per_case)
     }
-    allocation_slots = {
-        (item.case_id, item.attempt_index) for item in allocations
-    }
+    allocation_slots = {(item.case_id, item.attempt_index) for item in allocations}
     if len(allocation_by_id) != len(allocations):
         mismatches.append("attempt allocation ids are not unique")
     if len(allocation_slots) != len(allocations):
@@ -2087,19 +3697,29 @@ def _verify_schedule_manifest_binding(
     if schedule.protocol_digest != canonical_digest(protocol):
         mismatches.append(f"{label}: protocol_digest does not match manifest protocol")
     checks = (
-        ("declared_rollouts_per_case", schedule.declared_rollouts_per_case, protocol.rollouts_per_case),
+        (
+            "declared_rollouts_per_case",
+            schedule.declared_rollouts_per_case,
+            protocol.rollouts_per_case,
+        ),
         ("declared_parallelism", schedule.declared_parallelism, protocol.parallelism),
         ("declared_case_order", schedule.declared_case_order, protocol.case_order),
         ("declared_state_reset", schedule.declared_state_reset, protocol.state_reset),
-        ("declared_candidate_selection", schedule.declared_candidate_selection, protocol.candidate_selection),
-        ("declared_checkpoint_policy", schedule.declared_checkpoint_policy, protocol.checkpoint_policy),
+        (
+            "declared_candidate_selection",
+            schedule.declared_candidate_selection,
+            protocol.candidate_selection,
+        ),
+        (
+            "declared_checkpoint_policy",
+            schedule.declared_checkpoint_policy,
+            protocol.checkpoint_policy,
+        ),
     )
     for field_name, observed, expected in checks:
         expected_value = getattr(expected, "value", expected)
         if observed != expected_value:
-            mismatches.append(
-                f"{label}: {field_name} does not match manifest protocol"
-            )
+            mismatches.append(f"{label}: {field_name} does not match manifest protocol")
     expected_seed = (
         manifest.execution.seed if protocol.case_order == "seeded_random" else None
     )
@@ -2110,8 +3730,7 @@ def _verify_schedule_manifest_binding(
         mismatches.append(f"{label}: {reason}")
 
     allocated_case_ids = tuple(
-        allocation.case_id
-        for allocation in schedule.budget_ledger.case_allocations
+        allocation.case_id for allocation in schedule.budget_ledger.case_allocations
     )
     if schedule.observed_case_order != allocated_case_ids:
         mismatches.append(
@@ -2269,12 +3888,12 @@ def _verify_case_set_receipt(
         if expected_case_order is not None
         else None
     )
-    if expected_selection_method is not None and artifact.selection_method != expected_selection_method:
-        mismatches.append(f"{label}: selection_method does not match manifest protocol")
     if (
-        expected_case_order is not None
-        and artifact.case_order != expected_case_order
+        expected_selection_method is not None
+        and artifact.selection_method != expected_selection_method
     ):
+        mismatches.append(f"{label}: selection_method does not match manifest protocol")
+    if expected_case_order is not None and artifact.case_order != expected_case_order:
         mismatches.append(f"{label}: case_order does not match manifest protocol")
     if artifact.order_seed != expected_order_seed:
         mismatches.append(f"{label}: order_seed does not match manifest protocol")
@@ -2343,7 +3962,10 @@ def _verify_case_set_receipt(
         )
     for case in artifact.cases:
         content_refs.append(
-            (f"{label}.case_set.cases[{case.case_id}].public_input_ref", case.public_input_ref)
+            (
+                f"{label}.case_set.cases[{case.case_id}].public_input_ref",
+                case.public_input_ref,
+            )
         )
         content_refs.extend(
             (
@@ -2412,9 +4034,7 @@ def _verify_schedule_attempt(
         if attempt.debit.spent != bundle.usage:
             mismatches.append(f"{label}: budget debit usage drift")
         expected_status = (
-            RunStatus.agent_error
-            if attempt.debit.budget_exceeded
-            else bundle.status
+            RunStatus.agent_error if attempt.debit.budget_exceeded else bundle.status
         )
         if attempt.status != expected_status:
             mismatches.append(f"{label}: attempt status drift")
@@ -2445,9 +4065,7 @@ def _verify_schedule_attempt(
     metric = manifest.authoritative_reward_metric
     verifier_evidence = bundle.verifier_evidence
     reward_value = (
-        None
-        if verifier_evidence is None
-        else verifier_evidence.metrics.get(metric)
+        None if verifier_evidence is None else verifier_evidence.metrics.get(metric)
     )
     expected_reward_metric = metric if reward_value is not None else None
     if (
@@ -2509,14 +4127,17 @@ def _checkpoint_fields(
     *,
     label: str,
     mismatches: list[str],
-) -> tuple[
-    str,
-    int,
-    dict[str, str],
-    dict[str, str],
-    dict[str, str],
-    tuple[str, ...],
-] | None:
+) -> (
+    tuple[
+        str,
+        int,
+        dict[str, str],
+        dict[str, str],
+        dict[str, str],
+        tuple[str, ...],
+    ]
+    | None
+):
     """Parse the identity-bearing portion of a checkpoint ledger."""
 
     plan_digest = checkpoint.get("plan_sha256")
@@ -2553,9 +4174,8 @@ def _checkpoint_fields(
             mismatches.append(f"{label}: {field_name} contains a non-absolute path")
     if isinstance(retained, str) or not isinstance(retained, (list, tuple)):
         mismatches.append(f"{label}: retained_plan_sha256 is malformed")
-    elif (
-        any(not _is_sha256(item) for item in retained)
-        or len(set(retained)) != len(retained)
+    elif any(not _is_sha256(item) for item in retained) or len(set(retained)) != len(
+        retained
     ):
         mismatches.append(
             f"{label}: retained_plan_sha256 contains invalid or duplicate digests"
@@ -2574,7 +4194,9 @@ def _checkpoint_fields(
         return None
     if next_index != len(completed):
         mismatches.append(f"{label}: next_index does not equal completed ledger size")
-    if set(completed) != set(schedule_receipts) or set(completed) != set(schedule_paths):
+    if set(completed) != set(schedule_receipts) or set(completed) != set(
+        schedule_paths
+    ):
         mismatches.append(f"{label}: checkpoint lineage key sets disagree")
     return (
         plan_digest,
@@ -2602,13 +4224,16 @@ def _provisional_schedule_digest(schedule: ScheduleActivationReceipt) -> str:
             "mismatch_reasons": mismatch_reasons,
         }
     )
-    content = json.dumps(
-        provisional.model_dump(mode="json"),
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8") + b"\n"
+    content = (
+        json.dumps(
+            provisional.model_dump(mode="json"),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
     return _sha256(content)
 
 
@@ -2676,7 +4301,9 @@ def _verify_checkpoint_prefix(
         if prefix_run_id in schedule_refs
     }
     if schedule_paths != expected_schedule_paths:
-        mismatches.append(f"{label}: schedule_receipt_paths do not match report lineage")
+        mismatches.append(
+            f"{label}: schedule_receipt_paths do not match report lineage"
+        )
     return plan_digest, retained, completed
 
 
@@ -2692,9 +4319,7 @@ def _verify_schedule_checkpoints(
     """Verify checkpoint ledgers, active plan binding, and ancestor chains."""
 
     checkpoint_documents: dict[str, dict[str, Any]] = {}
-    checkpoint_fields: dict[
-        str, tuple[str, tuple[str, ...], dict[str, str]]
-    ] = {}
+    checkpoint_fields: dict[str, tuple[str, tuple[str, ...], dict[str, str]]] = {}
     roots: set[Path] = set()
     for run_id, schedule in schedules.items():
         label = f"schedule[{run_id}]"
@@ -2730,7 +4355,10 @@ def _verify_schedule_checkpoints(
         )
         roots.add(save_path.parent.parent)
         expected_name = f"{save.write_completion_sequence:04d}-{run_id}.json"
-        if save_path.parent.name != "checkpoint_saves" or save_path.name != expected_name:
+        if (
+            save_path.parent.name != "checkpoint_saves"
+            or save_path.name != expected_name
+        ):
             mismatches.append(f"{label}: checkpoint save path/sequence binding drift")
         if checkpoint is None:
             continue
@@ -2799,9 +4427,15 @@ def _verify_schedule_checkpoints(
                 live_retained,
             ) = live_fields
             if live_plan_digest != active_plan_digest:
-                mismatches.append("active checkpoint plan_sha256 does not match plan bytes")
-            if live_next_index != len(run_order) or set(live_completed) != set(run_order):
-                mismatches.append("active checkpoint does not cover the indexed run order")
+                mismatches.append(
+                    "active checkpoint plan_sha256 does not match plan bytes"
+                )
+            if live_next_index != len(run_order) or set(live_completed) != set(
+                run_order
+            ):
+                mismatches.append(
+                    "active checkpoint does not cover the indexed run order"
+                )
             expected_completed = {
                 run_id: selected_bundle_digests[run_id]
                 for run_id in run_order
@@ -2968,7 +4602,9 @@ def _verify_aggregate(
     if aggregate["experiment_id"] != report.experiment_id:
         mismatches.append("aggregate experiment_id does not match report experiment_id")
     if aggregate["experiment_digest"] != report.manifest_digest:
-        mismatches.append("aggregate experiment_digest does not match report manifest_digest")
+        mismatches.append(
+            "aggregate experiment_digest does not match report manifest_digest"
+        )
     observed_report_digest = _sha256(report_bytes)
     if aggregate["run_report_sha256"] != observed_report_digest:
         mismatches.append(
@@ -2988,9 +4624,7 @@ def _verify_aggregate(
         )
 
     expected_statuses = [
-        bundle.status.value
-        for _, bundle in lineage_entries
-        if bundle is not None
+        bundle.status.value for _, bundle in lineage_entries if bundle is not None
     ]
     expected_scores = [
         (
@@ -3093,11 +4727,7 @@ def _schedule_substantiates_protocol(
         or schedule.declared_candidate_selection != protocol.candidate_selection
         or schedule.declared_checkpoint_policy != protocol.checkpoint_policy
         or schedule.order_seed
-        != (
-            manifest.execution.seed
-            if protocol.case_order == "seeded_random"
-            else None
-        )
+        != (manifest.execution.seed if protocol.case_order == "seeded_random" else None)
         or schedule.observed_attempt_count != len(schedule.attempts)
         or schedule.observed_selection_policy != protocol.candidate_selection
         or _schedule_attempt_allocation_mismatches(schedule)
@@ -3312,10 +4942,7 @@ def _replay_statistical_plan(
 ) -> tuple[StatisticalAnalysisResult, bool, str | None]:
     """Rebuild the receipt and the gate-side pairing checks from report bytes."""
 
-    manifests = [
-        manifest_by_run.get(lineage.run_id)
-        for lineage, _ in lineage_entries
-    ]
+    manifests = [manifest_by_run.get(lineage.run_id) for lineage, _ in lineage_entries]
     errors: list[str] = []
     if any(manifest is None for manifest in manifests):
         errors.append("statistical analysis lineage manifest is missing")
@@ -3373,7 +5000,9 @@ def _replay_statistical_plan(
                 factor_path=factor_path,
             )
             if arm in grouped.setdefault(pair_key, {}):
-                errors.append("paired control/treatment structure contains duplicate arms")
+                errors.append(
+                    "paired control/treatment structure contains duplicate arms"
+                )
                 continue
             grouped[pair_key][arm] = (lineage, bundle, manifest)
         for pair in grouped.values():
@@ -3395,7 +5024,9 @@ def _replay_statistical_plan(
                 else treatment_evidence.metrics.get(metric)
             )
             if control_score is None or treatment_score is None:
-                errors.append("statistics require authoritative verifier scores for every pair")
+                errors.append(
+                    "statistics require authoritative verifier scores for every pair"
+                )
                 continue
             observations.append(
                 PairedScore(
@@ -3428,10 +5059,7 @@ def _replay_statistical_plan(
         errors=tuple(dict.fromkeys((*errors, *result.errors))),
     )
     counterbalanced = bool(
-        (
-            factor_path is not None
-            or binding is not None
-        )
+        (factor_path is not None or binding is not None)
         and resolved_manifests
         and resolved_manifests[0].contrast.counterbalanced
         and _counterbalance_for_statistical_plan(
@@ -3510,7 +5138,10 @@ def _statistics_are_substantiated(
     ):
         return False
 
-    if not protocol.deterministic_conformance or not ordered[0][2].contrast.counterbalanced:
+    if (
+        not protocol.deterministic_conformance
+        or not ordered[0][2].contrast.counterbalanced
+    ):
         return False
     positions = {
         (lineage.run_id, lineage.case_id): index
@@ -3544,8 +5175,7 @@ def _statistics_are_substantiated(
         )
         counts[outer_key] += 1
     if not directions or any(
-        counts[key] < 2 or values != {False, True}
-        for key, values in directions.items()
+        counts[key] < 2 or values != {False, True} for key, values in directions.items()
     ):
         return False
     return all(
@@ -3671,13 +5301,9 @@ def _network_policy_binding_reasons(
     if observation.policy_digest != canonical_digest(policy):
         errors.append(f"{case_id}: network observation policy digest drift")
     if observation.declared_allow_internet != policy.allow_internet:
-        errors.append(
-            f"{case_id}: network observation disagrees with resolved policy"
-        )
+        errors.append(f"{case_id}: network observation disagrees with resolved policy")
     if observation.mode != policy.required_observation:
-        errors.append(
-            f"{case_id}: network observation mode does not satisfy policy"
-        )
+        errors.append(f"{case_id}: network observation mode does not satisfy policy")
     if not observation.evidence_refs:
         errors.append(f"{case_id}: NetworkObservation evidence reference missing")
     return errors
@@ -3741,12 +5367,8 @@ def _verify_report_semantics(
     *,
     lineage_entries: list[tuple[Any, EvidenceBundle | None]],
     manifest_by_run: Mapping[str, ResolvedBmpManifest],
-    schedules: Mapping[
-        tuple[str, str, str], ScheduleActivationReceipt | None
-    ],
-    case_set_receipts: Mapping[
-        tuple[str, str, str], CaseSetActivationReceipt | None
-    ],
+    schedules: Mapping[tuple[str, str, str], ScheduleActivationReceipt | None],
+    case_set_receipts: Mapping[tuple[str, str, str], CaseSetActivationReceipt | None],
     path_map: Mapping[str, str],
     mismatches: list[str],
 ) -> None:
@@ -3775,9 +5397,7 @@ def _verify_report_semantics(
             continue
         seen_metric_runs.add(lineage.run_id)
         manifest = manifest_by_run.get(lineage.run_id)
-        schedule = schedules.get(
-            (lineage.run_id, lineage.attempt_id, lineage.case_id)
-        )
+        schedule = schedules.get((lineage.run_id, lineage.attempt_id, lineage.case_id))
         if manifest is None or schedule is None:
             mismatches.append(
                 f"{lineage.run_id}: registered metrics lack manifest or schedule"
@@ -3834,10 +5454,14 @@ def _verify_report_semantics(
                     f"claim gate {gate_name.value} evidence_refs do not match "
                     "verified runner evidence"
                 )
-        execution_expected = bool(bundles) and all(
-            bundle.status in {RunStatus.pass_, RunStatus.verified_fail}
-            for bundle in bundles
-        ) and len(bundles) == len(lineage_entries)
+        execution_expected = (
+            bool(bundles)
+            and all(
+                bundle.status in {RunStatus.pass_, RunStatus.verified_fail}
+                for bundle in bundles
+            )
+            and len(bundles) == len(lineage_entries)
+        )
         execution_gate = report.gates[GateName.execution_valid]
         if execution_gate.valid != execution_expected:
             mismatches.append("claim execution_valid does not match verified lineage")
@@ -3845,9 +5469,7 @@ def _verify_report_semantics(
         protocol_expected = bool(lineage_entries) and all(
             lineage.run_id in manifest_by_run
             and _schedule_substantiates_protocol(
-                schedules.get(
-                    (lineage.run_id, lineage.attempt_id, lineage.case_id)
-                ),
+                schedules.get((lineage.run_id, lineage.attempt_id, lineage.case_id)),
                 manifest_by_run[lineage.run_id],
                 active_digests=active_schedule_digests,
                 case_set_receipt=case_set_receipts.get(
@@ -4005,7 +5627,9 @@ def _verify_report_semantics(
                 )
         metrics = {metric for metric, _, _ in metric_scores}
         if len(metrics) > 1:
-            mismatches.append("observation report contains multiple authoritative metrics")
+            mismatches.append(
+                "observation report contains multiple authoritative metrics"
+            )
             return
         expected_observations = (
             ()
@@ -4038,13 +5662,10 @@ def _verify_report_semantics(
     if not isinstance(report, ClaimReport):
         return
     metric_set = {
-        manifest.authoritative_reward_metric
-        for manifest in manifest_by_run.values()
+        manifest.authoritative_reward_metric for manifest in manifest_by_run.values()
     }
     authoritative_metric = next(iter(metric_set)) if len(metric_set) == 1 else None
-    scores_by_lineage = {
-        lineage_key: score for _, score, lineage_key in metric_scores
-    }
+    scores_by_lineage = {lineage_key: score for _, score, lineage_key in metric_scores}
     if analysis_plan is not None:
         # A registered statistical plan owns the estimand and interval method.
         # Reuse the independently replayed receipt instead of falling back to
@@ -4069,7 +5690,11 @@ def _verify_report_semantics(
         if contrast is None:
             expected_effect = None
         else:
-            binding = _verification_contrast_binding(first_manifest) if first_manifest else None
+            binding = (
+                _verification_contrast_binding(first_manifest)
+                if first_manifest
+                else None
+            )
             if binding is None:
                 expected_effect = None
                 binding = None
@@ -4115,7 +5740,10 @@ def _verify_report_semantics(
                         break
                     control_score = pair[control_key][1]
                     treatment_score = pair[treatment_key][1]
-                    if control_score != control_score or treatment_score != treatment_score:
+                    if (
+                        control_score != control_score
+                        or treatment_score != treatment_score
+                    ):
                         differences = []
                         break
                     differences.append(treatment_score - control_score)
@@ -4142,7 +5770,9 @@ def _verify_report_semantics(
         }
     )
     if actual_effect != expected_effect:
-        mismatches.append("claim effect estimate does not match authoritative lineage scores")
+        mismatches.append(
+            "claim effect estimate does not match authoritative lineage scores"
+        )
 
 
 def _verify_report(
@@ -4158,11 +5788,15 @@ def _verify_report(
         report_bytes = path.read_bytes()
     except OSError as exc:
         raise ReportVerificationError([f"report: cannot read {path}: {exc}"]) from exc
-    report = _parse_json_model(expected_type, report_bytes, label="report", mismatches=mismatches)
+    report = _parse_json_model(
+        expected_type, report_bytes, label="report", mismatches=mismatches
+    )
     if report is None:
         raise ReportVerificationError(mismatches)
     if report.record_index_ref is None:
-        mismatches.append("report: record_index_ref is missing; standalone provenance is incomplete")
+        mismatches.append(
+            "report: record_index_ref is missing; standalone provenance is incomplete"
+        )
         raise ReportVerificationError(mismatches)
 
     _, index_bytes = _verify_ref(
@@ -4251,12 +5885,9 @@ def _verify_report(
             "report manifest_digest mismatch: "
             f"expected {report.manifest_digest}, observed {observed_experiment_digest}"
         )
-    comparison_kinds = {
-        manifest.claim_design.comparison_kind for manifest in manifests
-    }
+    comparison_kinds = {manifest.claim_design.comparison_kind for manifest in manifests}
     if manifests and (
-        len(comparison_kinds) != 1
-        or report.comparison_kind not in comparison_kinds
+        len(comparison_kinds) != 1 or report.comparison_kind not in comparison_kinds
     ):
         mismatches.append(
             "report comparison_kind does not match indexed resolved manifests"
@@ -4266,7 +5897,10 @@ def _verify_report(
             {manifest.subject.kind for manifest in manifests},
         )
     )
-    if manifests and tuple(kind.value for kind in report.subject_kinds) != subject_kinds:
+    if (
+        manifests
+        and tuple(kind.value for kind in report.subject_kinds) != subject_kinds
+    ):
         mismatches.append(
             "report subject_kinds do not match indexed resolved manifests"
         )
@@ -4275,12 +5909,8 @@ def _verify_report(
     selected_attempt_keys: set[tuple[str, str, str]] = set()
     seen_schedule_refs: set[tuple[str, str]] = set()
     lineage_entries: list[tuple[Any, EvidenceBundle | None]] = []
-    case_set_receipts: dict[
-        tuple[str, str, str], CaseSetActivationReceipt | None
-    ] = {}
-    schedules: dict[
-        tuple[str, str, str], ScheduleActivationReceipt | None
-    ] = {}
+    case_set_receipts: dict[tuple[str, str, str], CaseSetActivationReceipt | None] = {}
+    schedules: dict[tuple[str, str, str], ScheduleActivationReceipt | None] = {}
     checkpoint_schedules: dict[str, ScheduleActivationReceipt] = {}
     checkpoint_schedule_refs: dict[str, ArtifactRef] = {}
     selected_bundle_digests: dict[str, str] = {}
@@ -4307,9 +5937,7 @@ def _verify_report(
             selected_key, lineage.evidence_bundle_ref.sha256
         )
         if previous_selected != lineage.evidence_bundle_ref.sha256:
-            mismatches.append(
-                f"{label}: selected case has conflicting bundle digests"
-            )
+            mismatches.append(f"{label}: selected case has conflicting bundle digests")
         schedule_key_for_checkpoint = (
             lineage.run_id
             if lineage_parent_counts[lineage.run_id] == 1
@@ -4368,36 +5996,26 @@ def _verify_report(
             label=f"{label}.case_set_receipt",
             path_map=relocation,
             mismatches=mismatches,
-            expected_benchmark_id=(
-                None if manifest is None else manifest.benchmark.id
-            ),
+            expected_benchmark_id=(None if manifest is None else manifest.benchmark.id),
             expected_benchmark_digest=(
                 None if manifest is None else manifest.benchmark.artifact_digest
             ),
-            expected_dataset_id=(
-                None if manifest is None else manifest.dataset.id
-            ),
+            expected_dataset_id=(None if manifest is None else manifest.dataset.id),
             expected_dataset_digest=(
                 None if manifest is None else manifest.dataset.artifact_digest
             ),
             expected_loader_adapter=(
                 None if manifest is None else manifest.benchmark.adapter
             ),
-            expected_case_order=(
-                None if protocol is None else protocol.case_order
-            ),
+            expected_case_order=(None if protocol is None else protocol.case_order),
             expected_order_seed=(
                 manifest.execution.seed
                 if protocol is not None and protocol.case_order == "seeded_random"
                 else None
             ),
-            expected_custom_order=(
-                None if protocol is None else protocol.custom_order
-            ),
+            expected_custom_order=(None if protocol is None else protocol.custom_order),
             expected_source_content_digest=(
-                None
-                if manifest is None
-                else manifest.dataset.source_content_digest
+                None if manifest is None else manifest.dataset.source_content_digest
             ),
         )
         case_set_receipts[key] = case_set_receipt
@@ -4442,7 +6060,9 @@ def _verify_report(
                         f"{label}: conflicting schedule receipts for parent run"
                     )
                 for attempt_index, attempt in enumerate(schedule.attempts):
-                    attempt_label = f"{label}.schedule_receipt.attempts[{attempt_index}]"
+                    attempt_label = (
+                        f"{label}.schedule_receipt.attempts[{attempt_index}]"
+                    )
                     attempt_bundle = _verify_schedule_attempt(
                         attempt,
                         manifest=manifest,
@@ -4572,7 +6192,9 @@ def verify_observation_report(
         expected_type=ObservationReport,
         path_map=path_map,
     )
-    return VerifiedObservationReport(report=report, report_path=path, record_index=index)
+    return VerifiedObservationReport(
+        report=report, report_path=path, record_index=index
+    )
 
 
 def verify_run_report(
@@ -4615,8 +6237,12 @@ def _parse_path_maps(values: list[str]) -> dict[str, str]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Verify a BMP report and all indexed lineage")
-    parser.add_argument("report", help="Path to claim_report.json or observation_report.json")
+    parser = argparse.ArgumentParser(
+        description="Verify a BMP report and all indexed lineage"
+    )
+    parser.add_argument(
+        "report", help="Path to claim_report.json or observation_report.json"
+    )
     parser.add_argument(
         "--map",
         action="append",
@@ -4683,6 +6309,7 @@ def authority_main(argv: list[str] | None = None) -> int:
 
 __all__ = [
     "ReportVerificationError",
+    "VerifiedApptainerRuntimeReceipt",
     "VerifiedClaimReport",
     "VerifiedEvolutionRunEvidence",
     "VerifiedIntegrationProbeRecord",
@@ -4695,6 +6322,7 @@ __all__ = [
     "verify_external_protocol_authority",
     "verify_observation_report",
     "verify_run_report",
+    "verify_apptainer_runtime_receipt",
     "main",
     "probe_main",
     "authority_main",

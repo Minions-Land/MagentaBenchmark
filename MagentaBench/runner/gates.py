@@ -8,7 +8,7 @@ import json
 from math import isclose
 from pathlib import Path
 from statistics import mean
-from typing import Iterable, Mapping
+from typing import Any, Iterable, Mapping
 
 from MagentaBench.schemas import (
     ArtifactRef,
@@ -36,6 +36,10 @@ from MagentaBench.schemas import (
 )
 from MagentaBench.schemas.models import ComparisonKind, SubjectKind
 from MagentaBench.schemas.model_activation import replay_model_activation_receipt
+from MagentaBench.schemas.verification import (
+    ReportVerificationError,
+    verify_apptainer_runtime_receipt,
+)
 from MagentaBench.schemas.statistics import (
     PairedScore,
     analyze_paired_scores,
@@ -212,14 +216,18 @@ def _counterbalance_is_valid(
         if set(pair) != {control_key, treatment_key}:
             return False
         control_first = (
-            positions[(
-            pair[control_key].plan.manifest.metadata.run_id,
-                pair[control_key].case.case_id,
-            )]
-            < positions[(
-            pair[treatment_key].plan.manifest.metadata.run_id,
-                pair[treatment_key].case.case_id,
-            )]
+            positions[
+                (
+                    pair[control_key].plan.manifest.metadata.run_id,
+                    pair[control_key].case.case_id,
+                )
+            ]
+            < positions[
+                (
+                    pair[treatment_key].plan.manifest.metadata.run_id,
+                    pair[treatment_key].case.case_id,
+                )
+            ]
         )
         outer = outer_keys[pair_key]
         directions[outer].add(control_first)
@@ -245,9 +253,7 @@ def _report_subject_identity(
         item.plan.manifest.claim_design.comparison_kind for item in runs
     }
     if len(comparison_kinds) != 1:
-        raise ValueError(
-            "comparison kind must be invariant across an experiment"
-        )
+        raise ValueError("comparison kind must be invariant across an experiment")
     raw_kinds = tuple(
         sorted(
             {SubjectKind(item.plan.manifest.subject.kind) for item in runs},
@@ -338,11 +344,17 @@ def _lineage_ref(item: CompletedRun) -> LineageRef:
 
     receipt = item.schedule_receipt
     if receipt is None:
-        raise ValueError(f"{item.case.case_id}: schedule receipt is required for lineage")
+        raise ValueError(
+            f"{item.case.case_id}: schedule receipt is required for lineage"
+        )
     if item.schedule_receipt_path is None:
-        raise ValueError(f"{item.case.case_id}: schedule receipt path is required for lineage")
+        raise ValueError(
+            f"{item.case.case_id}: schedule receipt path is required for lineage"
+        )
     if item.case_set_receipt_path is None:
-        raise ValueError(f"{item.case.case_id}: case-set receipt path is required for lineage")
+        raise ValueError(
+            f"{item.case.case_id}: case-set receipt path is required for lineage"
+        )
     parent_run_id = receipt.run_id
     attempt_id = item.case.bundle.run_id
     matching = [
@@ -373,9 +385,7 @@ def _exploratory_metric_scores(
     items: Iterable[CompletedRun],
 ) -> tuple[str, tuple[float, ...]]:
     runs = tuple(items)
-    metrics = {
-        item.plan.manifest.authoritative_reward_metric for item in runs
-    }
+    metrics = {item.plan.manifest.authoritative_reward_metric for item in runs}
     if len(metrics) != 1:
         raise ValueError(
             "exploratory authoritative reward metric differs across included runs"
@@ -440,9 +450,7 @@ def _receipt_binding_errors(
         errors.append("schedule protocol_digest does not match resolved protocol")
     if not receipt.schedule_valid and (
         not receipt.mismatch_reasons
-        or not set(receipt.mismatch_reasons).issubset(
-            allowed_invalid_schedule_reasons
-        )
+        or not set(receipt.mismatch_reasons).issubset(allowed_invalid_schedule_reasons)
     ):
         reasons = "; ".join(receipt.mismatch_reasons) or "unspecified mismatch"
         errors.append(f"schedule receipt is invalid: {reasons}")
@@ -484,8 +492,7 @@ def _receipt_binding_errors(
     if receipt.pipeline_digest != item.pipeline_digest:
         errors.append("schedule pipeline_digest does not match active pipeline")
     allocated_case_ids = tuple(
-        allocation.case_id
-        for allocation in receipt.budget_ledger.case_allocations
+        allocation.case_id for allocation in receipt.budget_ledger.case_allocations
     )
     if receipt.observed_attempt_count != len(receipt.attempts):
         errors.append("observed attempt count does not match attempt executions")
@@ -536,8 +543,7 @@ def _receipt_binding_errors(
                     ancestor_save_path = Path(ancestor_save.path)
                     if (
                         not ancestor_save_path.is_file()
-                        or ancestor_save_path.stat().st_size
-                        != ancestor_save.size_bytes
+                        or ancestor_save_path.stat().st_size != ancestor_save.size_bytes
                         or sha256_file(ancestor_save_path)
                         != ancestor_save.written_digest
                     ):
@@ -618,9 +624,8 @@ def _receipt_binding_errors(
             if bundle.verifier_evidence is None
             else bundle.verifier_evidence.metrics.get(reward_metric)
         )
-        if (
-            attempt.reward_value != score
-            or attempt.reward_metric != (reward_metric if score is not None else None)
+        if attempt.reward_value != score or attempt.reward_metric != (
+            reward_metric if score is not None else None
         ):
             errors.append(f"{attempt.attempt_id}: authoritative reward drift")
 
@@ -673,10 +678,10 @@ def _receipt_binding_errors(
             errors.append("persisted schedule receipt is malformed")
         else:
             if persisted_receipt != receipt:
-                errors.append("persisted schedule receipt differs from in-memory receipt")
-    expected_receipt_sha = sha256_bytes(
-        canonical_json_bytes(receipt) + b"\n"
-    )
+                errors.append(
+                    "persisted schedule receipt differs from in-memory receipt"
+                )
+    expected_receipt_sha = sha256_bytes(canonical_json_bytes(receipt) + b"\n")
     if item.schedule_receipt_sha256 != expected_receipt_sha:
         errors.append("schedule receipt digest does not match receipt content")
     return errors
@@ -772,7 +777,9 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
             errors.append("case-set explicit case order drift")
     elif protocol is not None and protocol.case_order == "custom":
         try:
-            expected_ids, expected_adapter, expected_ref = custom_order_binding(protocol)
+            expected_ids, expected_adapter, expected_ref = custom_order_binding(
+                protocol
+            )
         except CaseOrderError as exc:
             errors.append(str(exc))
         else:
@@ -786,9 +793,7 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
     compiled_source_digest = dataset.source_content_digest
     try:
         observed_source_digest = (
-            source_closure_digest(
-                Path(source), artifact.source_content_refs
-            )
+            source_closure_digest(Path(source), artifact.source_content_refs)
             if source is not None
             else None
         )
@@ -800,22 +805,30 @@ def _case_set_binding_errors(item: CompletedRun) -> list[str]:
         or observed_source_digest != compiled_source_digest
     ):
         errors.append("case-set source closure differs from compiled dataset")
-    selected_case_ids = tuple(
-        attempt.case_id
-        for attempt in item.schedule_receipt.attempts
-        if attempt.selected
-    ) if item.schedule_receipt is not None else ()
+    selected_case_ids = (
+        tuple(
+            attempt.case_id
+            for attempt in item.schedule_receipt.attempts
+            if attempt.selected
+        )
+        if item.schedule_receipt is not None
+        else ()
+    )
     if selected_case_ids != receipt.ordered_case_ids:
         errors.append("selected schedule case order differs from activated case set")
-    matching_attempts = [
-        attempt
-        for attempt in item.schedule_receipt.attempts
-        if (
-            attempt.selected
-            and attempt.evidence_bundle_ref is not None
-            and attempt.evidence_bundle_ref.sha256 == item.case.bundle_digest
-        )
-    ] if item.schedule_receipt is not None else []
+    matching_attempts = (
+        [
+            attempt
+            for attempt in item.schedule_receipt.attempts
+            if (
+                attempt.selected
+                and attempt.evidence_bundle_ref is not None
+                and attempt.evidence_bundle_ref.sha256 == item.case.bundle_digest
+            )
+        ]
+        if item.schedule_receipt is not None
+        else []
+    )
     if len(matching_attempts) != 1:
         errors.append("completed case lacks unique selected-attempt lineage")
     content_refs = list(artifact.source_content_refs)
@@ -955,7 +968,10 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
     elif configuration_activation is None and activation_required:
         errors.append("ConfigurationActivationReceipt missing")
     elif configuration_activation is not None:
-        if configuration_activation.configuration_digest != configuration.artifact_digest:
+        if (
+            configuration_activation.configuration_digest
+            != configuration.artifact_digest
+        ):
             errors.append("configuration activation digest drift")
         expected_consumer_adapter = getattr(
             manifest.subject, "adapter", configuration.adapter
@@ -975,7 +991,9 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
         if manifest.execution.provider_binding is not None:
             errors.append("none-model execution has an undeclared ProviderBinding")
         if model_activation is not None:
-            errors.append("none-model execution has an undeclared ModelActivationReceipt")
+            errors.append(
+                "none-model execution has an undeclared ModelActivationReceipt"
+            )
     elif model_activation is not None:
         binding = manifest.execution.provider_binding
         sources = {
@@ -1097,13 +1115,43 @@ def _evidence_integrity_errors(item: CompletedRun) -> list[str]:
             errors.append("Harbor executable digest missing or drifted")
         if provenance.image_digest is None:
             errors.append("Harbor task image digest missing")
+    if backend.adapter == "apptainer":
+        apptainer_ref = provenance.container_receipt_ref
+        if apptainer_ref is None:
+            errors.append("Apptainer runtime receipt reference missing")
+        else:
+            try:
+                verified_apptainer = verify_apptainer_runtime_receipt(
+                    apptainer_ref,
+                    backend=backend,
+                    provenance=provenance,
+                    manifest_digest=item.plan.manifest_digest,
+                    label="Apptainer runtime receipt",
+                )
+            except ReportVerificationError as exc:
+                errors.extend(
+                    f"Apptainer runtime: {reason}" for reason in exc.mismatches
+                )
+            else:
+                lifecycle = verified_apptainer.receipt.get("lifecycle")
+                if verified_apptainer.receipt.get("attempt_id") != bundle.run_id:
+                    errors.append("Apptainer attempt identity cross-link drift")
+                if bundle.status in _EXECUTION_VALID and (
+                    not isinstance(lifecycle, Mapping)
+                    or lifecycle.get("status") != "completed"
+                ):
+                    errors.append(
+                        "scored Apptainer evidence is not a completed lifecycle"
+                    )
     if provenance.backend_kind == "docker" or harbor_identity_required:
-        ref = provenance.container_receipt_ref
-        if ref is None:
+        container_ref = provenance.container_receipt_ref
+        if container_ref is None:
             errors.append("container receipt reference missing")
         else:
             try:
-                receipt = json.loads(Path(ref.path).read_text(encoding="utf-8"))
+                receipt = json.loads(
+                    Path(container_ref.path).read_text(encoding="utf-8")
+                )
             except (OSError, ValueError):
                 errors.append("container receipt is unreadable")
             else:
@@ -1151,9 +1199,7 @@ def _model_activation_isolation_errors(item: CompletedRun) -> list[str]:
         return []
     errors: list[str] = []
     if manifest.execution.provider_binding is None:
-        errors.append(
-            f"{item.case.case_id}: real-model ProviderBinding is missing"
-        )
+        errors.append(f"{item.case.case_id}: real-model ProviderBinding is missing")
     receipt = item.case.bundle.provenance.model_activation
     if receipt is None:
         errors.append(f"{item.case.case_id}: ModelActivationReceipt is missing")
@@ -1171,6 +1217,7 @@ _NETWORK_BOUNDARIES = {
     "harbor-shim": NetworkBoundary.process,
     "aose-docker": NetworkBoundary.task_container,
     "harbor": NetworkBoundary.task_container,
+    "apptainer": NetworkBoundary.task_container,
 }
 
 
@@ -1201,9 +1248,7 @@ def _network_policy_errors(item: CompletedRun) -> list[str]:
     manifest = item.plan.manifest
     backend_adapter = manifest.execution.backend.adapter
     if policy.execution_adapter != backend_adapter:
-        errors.append(
-            f"{item.case.case_id}: network policy execution adapter mismatch"
-        )
+        errors.append(f"{item.case.case_id}: network policy execution adapter mismatch")
     if policy.case_id != item.case.case_id:
         errors.append(f"{item.case.case_id}: network policy case binding mismatch")
     expected_boundary = _network_boundary_for_backend(manifest.execution.backend)
@@ -1315,7 +1360,9 @@ def _evaluate_claim(
         next(iter(authoritative_metrics)) if len(authoritative_metrics) == 1 else None
     )
     statuses = [item.case.bundle.status for item in items]
-    execution_errors = [status.value for status in statuses if status not in _EXECUTION_VALID]
+    execution_errors = [
+        status.value for status in statuses if status not in _EXECUTION_VALID
+    ]
     execution_gate = (
         _valid(
             "all cases produced contractual, verifiable outputs",
@@ -1324,7 +1371,9 @@ def _evaluate_claim(
         if not execution_errors and len(items) == expected_run_count
         else _invalid(
             "execution-invalid statuses or missing cases: "
-            + ", ".join(execution_errors or [f"{len(items)}/{expected_run_count} complete"])
+            + ", ".join(
+                execution_errors or [f"{len(items)}/{expected_run_count} complete"]
+            )
         )
     )
 
@@ -1335,7 +1384,6 @@ def _evaluate_claim(
         protocol = item.plan.manifest.execution.protocol
         if protocol is None:
             protocol_reasons.append("resolved protocol missing")
-        receipt = item.schedule_receipt
         binding_errors = _receipt_binding_errors(item)
         protocol_reasons.extend(
             f"{item.plan.manifest.metadata.run_id}: {reason}"
@@ -1429,11 +1477,10 @@ def _evaluate_claim(
                     f"{authoritative_metric!r} disagrees with verifier score"
                 )
             elif bundle.status == RunStatus.pass_ and not evidence.passed:
-                scoring_errors.append(f"{bundle.run_id}: pass status contradicts verifier")
-            elif (
-                bundle.status == RunStatus.verified_fail
-                and evidence.passed
-            ):
+                scoring_errors.append(
+                    f"{bundle.run_id}: pass status contradicts verifier"
+                )
+            elif bundle.status == RunStatus.verified_fail and evidence.passed:
                 scoring_errors.append(
                     f"{bundle.run_id}: verified_fail status contradicts verifier"
                 )
@@ -1496,8 +1543,7 @@ def _evaluate_claim(
         if item.plan.manifest.claim_design.statistical_analysis is not None
     }
     plans_missing = any(
-        item.plan.manifest.claim_design.statistical_analysis is None
-        for item in items
+        item.plan.manifest.claim_design.statistical_analysis is None for item in items
     )
     if analysis_plans and (plans_missing or len(analysis_plans) != 1):
         statistics_reasons.append(
@@ -1573,8 +1619,7 @@ def _evaluate_claim(
             metric=authoritative_metric or "unbound",
             observations=observations,
             evaluation_splits=tuple(
-                benchmark_evaluation_split(item.plan.manifest.dataset)
-                for item in items
+                benchmark_evaluation_split(item.plan.manifest.dataset) for item in items
             ),
             allow_no_holdout=deterministic_conformance,
         )
@@ -1591,7 +1636,9 @@ def _evaluate_claim(
             control_value=contrast_control_value,
             treatment_value=contrast_treatment_value,
         ):
-            statistics_reasons.append("observed control/treatment order is not counterbalanced")
+            statistics_reasons.append(
+                "observed control/treatment order is not counterbalanced"
+            )
         if len(items) != expected_run_count:
             statistics_reasons.append("not all repetitions are terminal")
         missing_scores = sum(1 for item in items if _score(item) is None)
@@ -1784,9 +1831,7 @@ def evaluate_run_report(
             derived_factor_path,
             derived_control_value,
             derived_treatment_value,
-        ) = (
-            _report_contrast(items)
-        )
+        ) = _report_contrast(items)
         return _evaluate_claim(
             completed=items,
             expected_run_count=expected_run_count,
@@ -1816,8 +1861,7 @@ def evaluate_run_report(
     ]
     if integrity_errors:
         raise ValueError(
-            "exploratory evidence integrity failed: "
-            + "; ".join(integrity_errors)
+            "exploratory evidence integrity failed: " + "; ".join(integrity_errors)
         )
     protocol_errors: list[str] = []
     for item in items:
@@ -1850,12 +1894,11 @@ def evaluate_run_report(
     statuses = [item.case.bundle.status for item in items]
     metric, scores = _exploratory_metric_scores(items)
     observations = (
-        Observation(metric=metric, value=mean(scores), n_runs=len(scores)),
-    ) if scores else ()
-    lineage = tuple(
-        _lineage_ref(item)
-        for item in items
+        (Observation(metric=metric, value=mean(scores), n_runs=len(scores)),)
+        if scores
+        else ()
     )
+    lineage = tuple(_lineage_ref(item) for item in items)
     return ObservationReport(
         purpose=RunPurpose.exploratory,
         comparison_kind=comparison_kind,
