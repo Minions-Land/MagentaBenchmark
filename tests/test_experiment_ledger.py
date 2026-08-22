@@ -12,10 +12,23 @@ import pytest
 from MagentaBench.collab import build_experiment_ledger, parse_path_maps, render_csv
 from MagentaBench.collab import ledger as ledger_module
 from MagentaBench.collab.cli import main as collab_main
+from MagentaBench.collab.import_models import (
+    HistoricalRun,
+    HistoricalUnitResult,
+    canonical_json_bytes,
+    compute_record_id,
+    logical_key_digest,
+)
+from MagentaBench.collab.imports import (
+    HistoricalImportSnapshot,
+    LoadedHistoricalRecord,
+    load_historical_imports,
+)
 from MagentaBench.collab.ledger import (
     ExperimentLedger,
     _bmp_observation_rows,
     _expected_manifest_identities,
+    _historical_projection_rows,
     _manifest_rows,
     _method_id,
     _run_rows,
@@ -30,6 +43,107 @@ from MagentaBench.schemas.verification import verify_run_report
 ROOT = Path(__file__).parents[1]
 FAKE_SPEC = "MagentaBench/conformance/experiments/fake-sweep.toml"
 DUPLICATE_SPEC = "MagentaBench/conformance/experiments/subprocess-echo-smoke.toml"
+
+
+def _historical_unit_projection(
+    *, owner_evidence_tier: str
+) -> tuple[
+    HistoricalImportSnapshot, HistoricalRun, HistoricalRun, HistoricalUnitResult
+]:
+    imported = load_historical_imports(ROOT)
+    aggregate_item = next(
+        item
+        for item in imported.records
+        if isinstance(item.record, HistoricalRun)
+        and item.record.evidence_tier == "legacy-evaluated"
+        and item.record.metrics
+        and item.record.experiment.model is not None
+    )
+    aggregate = aggregate_item.record
+    owner_payload = aggregate.model_dump(mode="json")
+    owner_payload.update(
+        {
+            "evidence_tier": owner_evidence_tier,
+            "logical_key": f"ledger-{owner_evidence_tier}-unit-owner",
+            "metrics": (
+                [] if owner_evidence_tier == "candidate" else owner_payload["metrics"]
+            ),
+            "record_id": "0" * 64,
+            "run_id": f"ledger-{owner_evidence_tier}-unit-owner",
+            "supersedes": [],
+        }
+    )
+    owner_payload["record_id"] = compute_record_id(owner_payload)
+    owner = HistoricalRun.model_validate_json(
+        canonical_json_bytes(owner_payload), strict=True
+    )
+    owner_item = LoadedHistoricalRecord(
+        record=owner,
+        path=f"imports/test/records/{owner.record_id}.json",
+        logical_key_sha256=logical_key_digest(owner.kind, owner.logical_key),
+    )
+
+    source_metric = aggregate.metrics[0]
+    unit_metric = source_metric.model_copy(
+        update={
+            "aggregation": "none",
+            "denominator": source_metric.denominator.model_copy(
+                update={
+                    "excluded_count": 0,
+                    "observed_count": 1,
+                    "planned_count": 1,
+                }
+            ),
+            "invalid_count": 0,
+            "missing_count": 0,
+            "state": "observed",
+            "uncertainty": None,
+            "value": 1.0,
+            "zero_filled_count": 0,
+        }
+    )
+    unit_payload = {
+        "aggregate_reconciliation_status": "matched",
+        "aggregate_run_record_id": aggregate.record_id,
+        "attempt_id": "attempt-001",
+        "claim_eligible": False,
+        "code_commit": None,
+        "evidence_tier": "legacy-evaluated",
+        "experiment": owner.experiment.model_dump(mode="json"),
+        "format": "magentabench-historical-record-v1",
+        "kind": "unit-result",
+        "logical_key": f"ledger-{owner_evidence_tier}-unit-result",
+        "metric": unit_metric.model_dump(mode="json"),
+        "provenance": [item.model_dump(mode="json") for item in owner.provenance],
+        "record_id": "0" * 64,
+        "result_reason": "official-evaluator-success",
+        "result_status": "success",
+        "source_evidence_class": "legacy-evaluated",
+        "source_id": owner.source_id,
+        "source_run_id": owner.run_id,
+        "source_run_record_id": owner.record_id,
+        "source_snapshot_sha256": owner.source_snapshot_sha256,
+        "supersedes": [],
+        "terminal_state": owner.terminal_state,
+        "unit_id": "case-001",
+        "unit_kind": "case",
+        "verification_status": "unverified",
+    }
+    unit_payload["record_id"] = compute_record_id(unit_payload)
+    unit = HistoricalUnitResult.model_validate_json(
+        canonical_json_bytes(unit_payload), strict=True
+    )
+    unit_item = LoadedHistoricalRecord(
+        record=unit,
+        path=f"imports/test/records/{unit.record_id}.json",
+        logical_key_sha256=logical_key_digest(unit.kind, unit.logical_key),
+    )
+    return (
+        HistoricalImportSnapshot(records=(owner_item, aggregate_item, unit_item)),
+        owner,
+        aggregate,
+        unit,
+    )
 
 
 @pytest.fixture(scope="module")
@@ -106,19 +220,13 @@ def test_checked_in_ledger_is_derived_from_bundle_and_lab() -> None:
     assert "latest_run_id" not in row
     assert ledger.runs == ()
     assert ledger.metrics == ()
-    bmp_sources = [
-        item for item in ledger.sources if item["record_origin"] == "bmp"
-    ]
-    bmp_catalog = [
-        item for item in ledger.catalog if item["record_origin"] == "bmp"
-    ]
+    bmp_sources = [item for item in ledger.sources if item["record_origin"] == "bmp"]
+    bmp_catalog = [item for item in ledger.catalog if item["record_origin"] == "bmp"]
     legacy_catalog = [
         item for item in ledger.catalog if item["record_origin"] == "legacy-import"
     ]
     legacy_observations = [
-        item
-        for item in ledger.observations
-        if item["record_origin"] == "legacy-import"
+        item for item in ledger.observations if item["record_origin"] == "legacy-import"
     ]
     assert len(bmp_sources) == len(ledger.experiments)
     assert len(bmp_catalog) == len(ledger.experiments)
@@ -139,9 +247,7 @@ def test_checked_in_ledger_is_derived_from_bundle_and_lab() -> None:
         for item in rows
     } <= {"bmp", "legacy-import"}
     assert all(item["claim_eligible"] is False for item in legacy_catalog)
-    assert all(
-        item["claim_eligible"] is False for item in legacy_observations
-    )
+    assert all(item["claim_eligible"] is False for item in legacy_observations)
     assert all(item["claim_eligible"] is False for item in ledger.catalog)
     unmanaged = next(
         item
@@ -150,6 +256,68 @@ def test_checked_in_ledger_is_derived_from_bundle_and_lab() -> None:
     )
     assert unmanaged["lab_status"] == "unmanaged"
     assert unmanaged["bundle_id"] is None
+
+
+def test_candidate_unit_owner_infers_catalog_metrics_without_observation() -> None:
+    snapshot, owner, aggregate, unit = _historical_unit_projection(
+        owner_evidence_tier="candidate"
+    )
+
+    _, catalog, observations, _ = _historical_projection_rows(snapshot)
+
+    owner_catalog = next(
+        item for item in catalog if item["record_id"] == owner.record_id
+    )
+    assert owner_catalog["metric_ids"] == [unit.metric.metric_id]
+    assert all(item["record_id"] != owner.record_id for item in observations)
+    assert any(item["record_id"] == aggregate.record_id for item in observations)
+    assert any(item["record_id"] == unit.record_id for item in observations)
+
+
+def test_evaluated_unit_owner_retains_observations() -> None:
+    snapshot, owner, aggregate, unit = _historical_unit_projection(
+        owner_evidence_tier="legacy-evaluated"
+    )
+
+    _, catalog, observations, _ = _historical_projection_rows(snapshot)
+
+    owner_catalog = next(
+        item for item in catalog if item["record_id"] == owner.record_id
+    )
+    assert owner_catalog["metric_ids"] == sorted(
+        metric.metric_id for metric in owner.metrics
+    )
+    assert sum(item["record_id"] == owner.record_id for item in observations) == len(
+        owner.metrics
+    )
+    assert any(item["record_id"] == aggregate.record_id for item in observations)
+    assert any(item["record_id"] == unit.record_id for item in observations)
+
+
+def test_historical_runs_without_units_keep_their_observations() -> None:
+    imported = load_historical_imports(ROOT)
+    without_units = HistoricalImportSnapshot(
+        sources=imported.sources,
+        records=tuple(
+            item
+            for item in imported.records
+            if not isinstance(item.record, HistoricalUnitResult)
+        ),
+    )
+    expected_observations = sorted(
+        (item.record.record_id, metric.metric_id)
+        for item in without_units.records
+        if isinstance(item.record, HistoricalRun)
+        and item.record.evidence_tier == "legacy-evaluated"
+        for metric in item.record.metrics
+    )
+
+    _, _, observations, _ = _historical_projection_rows(without_units)
+
+    assert (
+        sorted((item["record_id"], item["metric_id"]) for item in observations)
+        == expected_observations
+    )
 
 
 def test_csv_is_machine_readable_and_deterministic() -> None:

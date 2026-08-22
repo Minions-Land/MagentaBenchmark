@@ -1734,6 +1734,12 @@ def _historical_projection_rows(
         for loaded in snapshot.records
         if isinstance(loaded.record, HistoricalRun)
     }
+    unit_metric_ids_by_owner: dict[str, set[str]] = {}
+    for loaded in snapshot.records:
+        if isinstance(loaded.record, HistoricalUnitResult):
+            unit_metric_ids_by_owner.setdefault(
+                loaded.record.source_run_record_id, set()
+            ).add(loaded.record.metric.metric_id)
     for loaded in snapshot.records:
         record = loaded.record
         if isinstance(record, (HistoricalDeclaration, HistoricalRun)):
@@ -1760,11 +1766,14 @@ def _historical_projection_rows(
                     else execution.budget.max_wall_seconds
                 ),
             )
-            metric_ids = (
-                sorted(record.metric_ids)
-                if isinstance(record, HistoricalDeclaration)
-                else sorted(metric.metric_id for metric in record.metrics)
-            )
+            if isinstance(record, HistoricalDeclaration):
+                metric_ids = sorted(record.metric_ids)
+            elif record.evidence_tier == "candidate":
+                metric_ids = sorted(
+                    unit_metric_ids_by_owner.get(record.record_id, set())
+                )
+            else:
+                metric_ids = sorted(metric.metric_id for metric in record.metrics)
             catalog.append(
                 {
                     "backend_id": execution.backend_id,
