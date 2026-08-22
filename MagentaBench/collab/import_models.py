@@ -36,6 +36,7 @@ SHA1_PATTERN = r"^[0-9a-f]{40}$"
 SHA256_PATTERN = r"^[0-9a-f]{64}$"
 
 _ID_RE = re.compile(ID_PATTERN)
+_UNIT_ID_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,254}[A-Za-z0-9])?$")
 _SHA1_RE = re.compile(SHA1_PATTERN)
 _SHA256_RE = re.compile(SHA256_PATTERN)
 _GITHUB_NAME_RE = re.compile(
@@ -862,6 +863,26 @@ class HistoricalAsset(HistoricalImportModel):
 
 EvidenceTier: TypeAlias = Literal["legacy-evaluated", "declaration-only", "candidate"]
 
+HistoricalResultStatus: TypeAlias = Literal[
+    "success",
+    "verified_fail",
+    "no_output",
+    "invalid_output",
+    "timeout",
+    "agent_error",
+    "harness_fault",
+    "verifier_error",
+    "infra_error",
+    "unsupported",
+    "missing",
+]
+
+HistoricalSourceEvidenceClass: TypeAlias = Literal[
+    "legacy-evaluated",
+    "derived-non-claim-view",
+    "historical-official-harness-report",
+]
+
 
 class HistoricalRecordBase(HistoricalImportModel):
     format: Literal["magentabench-historical-record-v1"] = RECORD_FORMAT
@@ -1011,6 +1032,110 @@ class HistoricalRun(HistoricalRecordBase):
         return self
 
 
+class HistoricalUnitResult(HistoricalRecordBase):
+    """One immutable historical metric outcome for one benchmark unit attempt."""
+
+    kind: Literal["unit-result"]
+    evidence_tier: Literal["legacy-evaluated"]
+    experiment: ExperimentConditions
+    source_run_id: str
+    source_run_record_id: str
+    aggregate_run_record_id: str | None = None
+    aggregate_reconciliation_status: (
+        Literal["matched", "not-compared", "mismatch"] | None
+    ) = None
+    unit_id: str
+    unit_kind: str
+    attempt_id: str
+    result_status: HistoricalResultStatus
+    result_reason: str | None = None
+    source_evidence_class: HistoricalSourceEvidenceClass
+    code_commit: str | None = None
+    terminal_state: Literal["completed", "partial", "failed", "cancelled", "timed-out"]
+    verification_status: Literal[
+        "unverified", "candidate", "verified", "rejected", "not_applicable", "not-run"
+    ]
+    metric: HistoricalMetric
+
+    @field_validator("source_run_id", "attempt_id")
+    @classmethod
+    def run_and_attempt_ids_are_normalized(cls, value: str, info) -> str:
+        return _normalized_id(value, label=info.field_name)
+
+    @field_validator("unit_id")
+    @classmethod
+    def unit_id_is_safe(cls, value: str) -> str:
+        _safe_string(value, label="unit_id", max_length=256)
+        if _UNIT_ID_RE.fullmatch(value) is None:
+            raise ValueError("unit_id must be a normalized case or question identifier")
+        return value
+
+    @field_validator("result_reason")
+    @classmethod
+    def result_reason_is_a_code(cls, value: str | None) -> str | None:
+        if value is not None:
+            return _normalized_id(value, label="result_reason")
+        return value
+
+    @field_validator("source_run_record_id", "aggregate_run_record_id")
+    @classmethod
+    def run_record_ids_are_sha256(cls, value: str | None, info) -> str | None:
+        if value is not None and _SHA256_RE.fullmatch(value) is None:
+            raise ValueError(f"{info.field_name} must be lowercase 64-hex")
+        return value
+
+    @field_validator("unit_kind")
+    @classmethod
+    def unit_kind_is_normalized(cls, value: str) -> str:
+        return _normalized_id(value, label="unit_kind")
+
+    @field_validator("code_commit")
+    @classmethod
+    def code_commit_is_full_sha1(cls, value: str | None) -> str | None:
+        if value is not None and _SHA1_RE.fullmatch(value) is None:
+            raise ValueError("code_commit must be a full lowercase 40-hex Git commit")
+        return value
+
+    @model_validator(mode="after")
+    def outcome_matches_metric(self) -> HistoricalUnitResult:
+        if not any(ref.role in {"result", "metric"} for ref in self.provenance):
+            raise ValueError("unit result requires result or metric provenance")
+
+        observed = {"success", "verified_fail"}
+        missing = {"missing", "no_output"}
+        if self.result_status in observed and self.metric.state != "observed":
+            raise ValueError("success and verified_fail require an observed metric")
+        if self.result_status in missing and self.metric.state != "missing":
+            raise ValueError("missing and no_output require a missing metric")
+        if (
+            self.result_status not in observed | missing
+            and self.metric.state != "invalid"
+        ):
+            raise ValueError("invalid execution outcomes require an invalid metric")
+        denominator = self.metric.denominator
+        accounted = (
+            denominator.observed_count
+            + denominator.excluded_count
+            + self.metric.missing_count
+            + self.metric.invalid_count
+        )
+        if denominator.planned_count != 1 or accounted != 1:
+            raise ValueError(
+                "unit result denominator must account for exactly one unit"
+            )
+        if denominator.excluded_count or self.metric.zero_filled_count:
+            raise ValueError("unit result cannot be excluded or zero-filled")
+        if self.metric.aggregation != "none":
+            raise ValueError("unit result metric aggregation must be none")
+        if (self.aggregate_run_record_id is None) != (
+            self.aggregate_reconciliation_status is None
+        ):
+            raise ValueError(
+                "aggregate run record and reconciliation status must be declared together"
+            )
+        return self
+
+
 class HistoricalAssetRecord(HistoricalRecordBase):
     kind: Literal["asset"]
     evidence_tier: EvidenceTier
@@ -1040,7 +1165,10 @@ class HistoricalAssetRecord(HistoricalRecordBase):
 
 
 HistoricalRecord: TypeAlias = Annotated[
-    HistoricalDeclaration | HistoricalRun | HistoricalAssetRecord,
+    HistoricalDeclaration
+    | HistoricalRun
+    | HistoricalUnitResult
+    | HistoricalAssetRecord,
     Field(discriminator="kind"),
 ]
 
@@ -1058,6 +1186,16 @@ def record_natural_identity(record: HistoricalRecordBase) -> tuple[str, ...]:
             record.kind,
             record.experiment.experiment_id,
             record.run_id,
+        )
+    if isinstance(record, HistoricalUnitResult):
+        return (
+            record.source_id,
+            record.kind,
+            record.experiment.experiment_id,
+            record.source_run_id,
+            record.unit_id,
+            record.attempt_id,
+            record.metric.metric_id,
         )
     return (record.source_id, record.kind, record.asset.asset_id)
 
@@ -1111,7 +1249,10 @@ __all__ = [
     "HistoricalRecord",
     "HistoricalRecordBase",
     "HistoricalRun",
+    "HistoricalResultStatus",
+    "HistoricalSourceEvidenceClass",
     "HistoricalSource",
+    "HistoricalUnitResult",
     "MethodIdentity",
     "MetricDenominator",
     "MetricUncertainty",

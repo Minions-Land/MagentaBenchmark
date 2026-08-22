@@ -14,13 +14,17 @@ from urllib.parse import parse_qsl, urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from .import_models import (
+    ExperimentConditions,
     HistoricalAssetRecord,
     HistoricalDeclaration,
+    HistoricalMetric,
     HistoricalRecord,
     HistoricalRecordBase,
     HistoricalRun,
     HistoricalSource,
+    HistoricalUnitResult,
     canonical_repository_name,
+    experiment_condition_digest,
     logical_key_digest,
     record_natural_identity,
     source_document_digest,
@@ -76,6 +80,64 @@ _CREDENTIAL_KEYS = frozenset(
         "token",
     }
 )
+
+
+def _metric_semantic_identity(metric: HistoricalMetric) -> tuple[str, str, str, str]:
+    return (
+        metric.metric_id,
+        metric.definition_sha256,
+        metric.unit,
+        metric.direction,
+    )
+
+
+def _reconciliation_cohort_identity(
+    experiment: ExperimentConditions,
+) -> tuple[object, ...]:
+    model = experiment.model
+    provider = experiment.provider
+    return (
+        (experiment.benchmark.id, experiment.benchmark.version),
+        (
+            experiment.dataset.id,
+            experiment.dataset.version,
+            experiment.dataset.split,
+            experiment.dataset.commit_sha,
+            experiment.dataset.content_sha256,
+        ),
+        (
+            experiment.method.id,
+            experiment.method.version,
+            experiment.method.subject_id,
+        ),
+        None if model is None else (model.id, model.version, model.revision),
+        (
+            None
+            if provider is None
+            else (provider.id, provider.version, provider.region)
+        ),
+        (
+            experiment.harness.id,
+            experiment.harness.version,
+            experiment.harness.protocol_id,
+            experiment.harness.configuration_sha256,
+        ),
+        (
+            experiment.evaluator.id,
+            experiment.evaluator.version,
+            experiment.evaluator.kind,
+            experiment.evaluator.independent,
+        ),
+        (
+            experiment.comparability.status,
+            experiment.comparability.comparison_group,
+            experiment.comparability.protocol_sha256,
+            experiment.comparability.case_set_sha256,
+            experiment.comparability.evaluator_sha256,
+        ),
+    )
+
+
 _FORBIDDEN_RAW_KEYS = frozenset(
     {
         "answer",
@@ -553,6 +615,7 @@ def _validate_record_references(
     records: list[LoadedHistoricalRecord],
     errors: list[HistoricalImportFinding],
 ) -> None:
+    records_by_id = {item.record.record_id: item for item in records}
     runs_by_identity: dict[tuple[str, str, str], list[LoadedHistoricalRecord]] = {}
     runs_by_source_and_id: dict[tuple[str, str], list[LoadedHistoricalRecord]] = {}
     experiment_ids: set[tuple[str, str]] = set()
@@ -580,8 +643,169 @@ def _validate_record_references(
             HistoricalImportFinding(code=code, message=message, path=item.path)
         )
 
+    reconciliation_statuses: dict[
+        tuple[str, str], tuple[str, LoadedHistoricalRecord]
+    ] = {}
+    for candidate in records:
+        candidate_record = candidate.record
+        if (
+            not isinstance(candidate_record, HistoricalUnitResult)
+            or candidate_record.aggregate_run_record_id is None
+        ):
+            continue
+        key = (
+            candidate_record.aggregate_run_record_id,
+            candidate_record.metric.metric_id,
+        )
+        status = candidate_record.aggregate_reconciliation_status
+        if status is None:
+            reference_finding(
+                "unit-aggregate-reconciliation-missing",
+                "aggregate reconciliation status is required with an aggregate run",
+                candidate,
+            )
+            continue
+        existing = reconciliation_statuses.get(key)
+        if existing is not None and existing[0] != status:
+            reference_finding(
+                "unit-aggregate-reconciliation-conflict",
+                "one aggregate run and metric must have one reconciliation status",
+                candidate,
+            )
+        else:
+            reconciliation_statuses[key] = (status, candidate)
+
     for item in records:
         record = item.record
+        if isinstance(record, HistoricalUnitResult):
+            owning_item = records_by_id.get(record.source_run_record_id)
+            owning_run = (
+                owning_item.record
+                if owning_item is not None
+                and isinstance(owning_item.record, HistoricalRun)
+                else None
+            )
+            if owning_run is None:
+                reference_finding(
+                    "unit-source-run-missing",
+                    "source_run_record_id references no historical run",
+                    item,
+                )
+            elif (
+                owning_run.source_id != record.source_id
+                or owning_run.source_snapshot_sha256 != record.source_snapshot_sha256
+                or owning_run.experiment.experiment_id
+                != record.experiment.experiment_id
+                or owning_run.run_id != record.source_run_id
+                or owning_run.terminal_state != record.terminal_state
+            ):
+                reference_finding(
+                    "unit-source-run-mismatch",
+                    "source run must match the unit source snapshot, experiment, run id, and terminal state",
+                    item,
+                )
+            elif (
+                len(
+                    runs_by_identity.get(
+                        (
+                            record.source_id,
+                            record.experiment.experiment_id,
+                            record.source_run_id,
+                        ),
+                        [],
+                    )
+                )
+                != 1
+            ):
+                reference_finding(
+                    "unit-source-run-ambiguous",
+                    "source_run_id must resolve to exactly one historical run",
+                    item,
+                )
+            elif experiment_condition_digest(
+                owning_run.experiment
+            ) != experiment_condition_digest(record.experiment):
+                reference_finding(
+                    "unit-source-run-condition-mismatch",
+                    "source run and unit result must bind identical experiment conditions",
+                    item,
+                )
+            else:
+                owning_metric = next(
+                    (
+                        metric
+                        for metric in owning_run.metrics
+                        if metric.metric_id == record.metric.metric_id
+                    ),
+                    None,
+                )
+                if (
+                    owning_run.evidence_tier != "legacy-evaluated"
+                    or owning_metric is None
+                ):
+                    reference_finding(
+                        "unit-source-run-metric-missing",
+                        "source run must be evaluated and declare the unit metric",
+                        item,
+                    )
+                elif _metric_semantic_identity(
+                    owning_metric
+                ) != _metric_semantic_identity(record.metric):
+                    reference_finding(
+                        "unit-source-run-metric-mismatch",
+                        "source run and unit metric identities must match",
+                        item,
+                    )
+
+            if record.aggregate_run_record_id is not None:
+                aggregate_item = records_by_id.get(record.aggregate_run_record_id)
+                aggregate_run = (
+                    aggregate_item.record
+                    if aggregate_item is not None
+                    and isinstance(aggregate_item.record, HistoricalRun)
+                    else None
+                )
+                if aggregate_run is None:
+                    reference_finding(
+                        "unit-aggregate-run-missing",
+                        "aggregate_run_record_id references no historical run",
+                        item,
+                    )
+                else:
+                    if (
+                        aggregate_run.evidence_tier != "legacy-evaluated"
+                        or _reconciliation_cohort_identity(record.experiment)
+                        != _reconciliation_cohort_identity(aggregate_run.experiment)
+                    ):
+                        reference_finding(
+                            "unit-aggregate-run-incompatible",
+                            "aggregate run must be an evaluated run for the same comparison cohort",
+                            item,
+                        )
+                    elif record.aggregate_reconciliation_status != "not-compared":
+                        aggregate_metric = next(
+                            (
+                                metric
+                                for metric in aggregate_run.metrics
+                                if metric.metric_id == record.metric.metric_id
+                            ),
+                            None,
+                        )
+                        if aggregate_metric is None:
+                            reference_finding(
+                                "unit-aggregate-metric-missing",
+                                "a compared aggregate run must declare the unit metric",
+                                item,
+                            )
+                        elif _metric_semantic_identity(
+                            aggregate_metric
+                        ) != _metric_semantic_identity(record.metric):
+                            reference_finding(
+                                "unit-aggregate-metric-mismatch",
+                                "compared aggregate and unit metric identities must match",
+                                item,
+                            )
+
         if isinstance(record, HistoricalRun) and record.parent_run_id is not None:
             if record.parent_run_id == record.run_id:
                 reference_finding(
@@ -840,9 +1064,7 @@ def validate_historical_imports(
             and source.license_status == "declared"
             and source.publication_approval is None
         )
-        if checked_in and not (
-            normally_publishable or approved_private_projection
-        ):
+        if checked_in and not (normally_publishable or approved_private_projection):
             _finding(
                 errors,
                 "publication-approval",

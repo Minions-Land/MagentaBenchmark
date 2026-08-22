@@ -26,7 +26,7 @@ from typing import Any, Mapping, Sequence
 from .ledger import ExperimentLedger, build_experiment_ledger, parse_path_maps
 
 
-PAPER_TABLE_FORMAT = "magentabench-paper-experiment-table-v1"
+PAPER_TABLE_FORMAT = "magentabench-paper-experiment-table-v2"
 
 # Keep this tuple explicit.  Adding a source field is a reviewed contract
 # change, while row order and structured-cell encoding remain reproducible.
@@ -36,15 +36,25 @@ PAPER_COLUMNS: tuple[str, ...] = (
     "record_origin",
     "lab_issue",
     "evidence_tier",
+    "source_evidence_class",
     "benchmark_id",
     "dataset_id",
     "dataset_split",
     "case_id",
     "question",
     "case_or_question",
+    "unit_id",
+    "unit_kind",
+    "attempt_id",
     "experiment_id",
     "run_id",
+    "source_run_id",
+    "source_run_record_id",
     "parent_run_id",
+    "aggregate_run_id",
+    "aggregate_run_record_id",
+    "aggregate_reconciliation_status",
+    "result_granularity",
     "purpose",
     "terminal_state",
     "method_id",
@@ -57,6 +67,7 @@ PAPER_COLUMNS: tuple[str, ...] = (
     "metric_id",
     "metric_state",
     "result_status",
+    "result_reason",
     "value",
     "unit",
     "direction",
@@ -194,7 +205,7 @@ def _code_commit(row: Mapping[str, Any]) -> str | None:
 def _case_and_question(
     row: Mapping[str, Any], experiment: Mapping[str, Any]
 ) -> tuple[str | None, str | None, str | None]:
-    case_id = _first(row, "case_id", "case", "question_id")
+    case_id = _first(row, "case_id", "case", "question_id", "unit_id")
     question = _first(row, "question", "question_text")
     if case_id is None:
         conditions = _mapping(row.get("conditions"))
@@ -297,6 +308,8 @@ def _base_row(
         "record_origin": record_origin,
         "experiment_id": source.get("experiment_id") or experiment.get("experiment_id"),
         "run_id": _first(source, "run_id", "lab_run_id") or run.get("lab_run_id"),
+        "unit_id": source.get("unit_id"),
+        "attempt_id": source.get("attempt_id"),
         "metric_id": source.get("metric_id"),
         "row_kind": row_kind,
         "record_id": source.get("record_id"),
@@ -337,6 +350,7 @@ def _base_row(
             _first(experiment, "lab_issue"),
         ),
         "evidence_tier": source.get("evidence_tier"),
+        "source_evidence_class": source.get("source_evidence_class"),
         "benchmark_id": _coalesce(
             _first(source, "benchmark_id"), experiment.get("benchmark_id")
         ),
@@ -347,9 +361,20 @@ def _base_row(
         "case_id": case_id,
         "question": question,
         "case_or_question": case_or_question,
+        "unit_id": source.get("unit_id"),
+        "unit_kind": source.get("unit_kind"),
+        "attempt_id": source.get("attempt_id"),
         "experiment_id": experiment_id,
         "run_id": run_id,
+        "source_run_id": source.get("source_run_id"),
+        "source_run_record_id": source.get("source_run_record_id"),
         "parent_run_id": source.get("parent_run_id"),
+        "aggregate_run_id": source.get("aggregate_run_id"),
+        "aggregate_run_record_id": source.get("aggregate_run_record_id"),
+        "aggregate_reconciliation_status": source.get(
+            "aggregate_reconciliation_status"
+        ),
+        "result_granularity": source.get("result_granularity"),
         "purpose": _coalesce(
             _first(source, "purpose"),
             _first(run, "purpose"),
@@ -382,6 +407,7 @@ def _base_row(
         "metric_id": source.get("metric_id"),
         "metric_state": metric_state,
         "result_status": result_status,
+        "result_reason": source.get("result_reason"),
         "value": source.get("value"),
         "unit": source.get("unit"),
         "direction": source.get("direction"),

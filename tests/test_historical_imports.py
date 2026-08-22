@@ -26,7 +26,11 @@ from MagentaBench.collab.imports import (
 )
 from MagentaBench.collab import imports as imports_module
 from MagentaBench.collab.cli import main as collab_main
-from MagentaBench.collab.ledger import build_experiment_ledger, render_csv
+from MagentaBench.collab.ledger import (
+    ExperimentLedger,
+    build_experiment_ledger,
+    render_csv,
+)
 from MagentaBench.collab.repository import CollaborationError
 
 _RECORD_ADAPTER = TypeAdapter(HistoricalRecord)
@@ -259,6 +263,91 @@ def _run(
     }
 
 
+def _unit_result(
+    *,
+    status: str = "success",
+    unit_id: str = "case-001",
+    attempt_id: str = "attempt-001",
+    logical_key: str | None = None,
+    reason: str | None = None,
+    source_run_record_id: str = "b" * 64,
+    aggregate_run_record_id: str | None = "c" * 64,
+    aggregate_reconciliation_status: str | None = "matched",
+    source_evidence_class: str = "derived-non-claim-view",
+) -> dict[str, object]:
+    if status in {"success", "verified_fail"}:
+        state = "observed"
+        value: float | None = 1.0 if status == "success" else 0.0
+        observed_count, missing_count, invalid_count = 1, 0, 0
+    elif status in {"missing", "no_output"}:
+        state = "missing"
+        value = None
+        observed_count, missing_count, invalid_count = 0, 1, 0
+    else:
+        state = "invalid"
+        value = None
+        observed_count, missing_count, invalid_count = 0, 0, 1
+
+    if reason is None:
+        reason = {
+            "success": "official-evaluator-success",
+            "verified_fail": "official-evaluator-verified-failure",
+            "missing": "source-row-missing",
+            "no_output": "agent-no-output",
+        }.get(status, f"execution-{status}")
+
+    return {
+        "aggregate_run_record_id": aggregate_run_record_id,
+        "aggregate_reconciliation_status": aggregate_reconciliation_status,
+        "attempt_id": attempt_id,
+        "claim_eligible": False,
+        "code_commit": "f" * 40,
+        "evidence_tier": "legacy-evaluated",
+        "experiment": _experiment(),
+        "format": "magentabench-historical-record-v1",
+        "kind": "unit-result",
+        "logical_key": logical_key or f"sample-run-001-{unit_id}-{attempt_id}-accuracy",
+        "metric": {
+            "aggregation": "none",
+            "definition_sha256": "e" * 64,
+            "denominator": {
+                "excluded_count": 0,
+                "observed_count": observed_count,
+                "planned_count": 1,
+                "unit": "cases",
+            },
+            "direction": "higher-is-better",
+            "invalid_count": invalid_count,
+            "metric_id": "accuracy",
+            "missing_count": missing_count,
+            "state": state,
+            "uncertainty": None,
+            "unit": "fraction",
+            "value": value,
+            "zero_filled_count": 0,
+        },
+        "provenance": [
+            _provenance(
+                "result",
+                path="results/task-observations.jsonl",
+                content_digit="a",
+            )
+        ],
+        "result_reason": reason,
+        "result_status": status,
+        "source_evidence_class": source_evidence_class,
+        "source_id": "sample-source",
+        "source_run_id": "sample-run-001",
+        "source_run_record_id": source_run_record_id,
+        "source_snapshot_sha256": _snapshot_digest(_source()),
+        "supersedes": [],
+        "terminal_state": "completed",
+        "unit_id": unit_id,
+        "unit_kind": "case",
+        "verification_status": "unverified",
+    }
+
+
 def _asset(
     *,
     source_id: str = "sample-source",
@@ -392,6 +481,180 @@ def test_valid_declaration_run_and_asset_load_deterministically(tmp_path: Path) 
         first.sources[0].source.source_id = "changed"  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):
         first.sources[0].path = "changed"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("status", "metric_state", "value"),
+    (
+        ("success", "observed", 1.0),
+        ("verified_fail", "observed", 0.0),
+        ("no_output", "missing", None),
+        ("missing", "missing", None),
+        ("timeout", "invalid", None),
+        ("invalid_output", "invalid", None),
+        ("verifier_error", "invalid", None),
+    ),
+)
+def test_unit_result_preserves_explicit_outcome_without_claim_promotion(
+    status: str,
+    metric_state: str,
+    value: float | None,
+) -> None:
+    model = _record_model(_unit_result(status=status))
+
+    assert model.kind == "unit-result"
+    assert model.result_status == status
+    assert model.metric.state == metric_state
+    assert model.metric.value == value
+    assert model.claim_eligible is False
+
+
+def test_unit_result_rejects_outcome_metric_mismatch() -> None:
+    payload = _unit_result(status="timeout")
+    payload["metric"]["state"] = "observed"  # type: ignore[index]
+    payload["metric"]["value"] = 0.0  # type: ignore[index]
+    payload["metric"]["denominator"]["observed_count"] = 1  # type: ignore[index]
+    payload["metric"]["invalid_count"] = 0  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="invalid execution outcomes"):
+        _record_model(payload)
+
+
+def test_unit_result_rejects_aggregate_denominator() -> None:
+    payload = _unit_result()
+    payload["metric"]["denominator"]["planned_count"] = 50  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="exactly one unit"):
+        _record_model(payload)
+
+    aggregate = _unit_result()
+    aggregate["metric"]["aggregation"] = "rate"  # type: ignore[index]
+    with pytest.raises(ValidationError, match="aggregation must be none"):
+        _record_model(aggregate)
+
+
+def test_unit_result_aggregate_link_and_status_are_atomic() -> None:
+    without_aggregate = _unit_result(
+        aggregate_run_record_id=None,
+        aggregate_reconciliation_status=None,
+    )
+    assert _record_model(without_aggregate).aggregate_run_record_id is None
+
+    incomplete = _unit_result(aggregate_reconciliation_status=None)
+    with pytest.raises(ValidationError, match="must be declared together"):
+        _record_model(incomplete)
+
+
+def test_unit_result_rejects_zero_fill_and_raw_question_surface() -> None:
+    zero_filled = _unit_result(status="no_output")
+    zero_filled["metric"]["zero_filled_count"] = 1  # type: ignore[index]
+    with pytest.raises(ValidationError, match="zero-filled"):
+        _record_model(zero_filled)
+
+    raw_question = _unit_result()
+    raw_question["question"] = "raw benchmark prompt"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        _record_model(raw_question)
+
+
+@pytest.mark.parametrize(
+    "source_evidence_class",
+    (
+        "legacy-evaluated",
+        "derived-non-claim-view",
+        "historical-official-harness-report",
+    ),
+)
+def test_unit_result_retains_closed_source_evidence_class(
+    source_evidence_class: str,
+) -> None:
+    model = _record_model(_unit_result(source_evidence_class=source_evidence_class))
+
+    assert model.source_evidence_class == source_evidence_class
+    assert model.evidence_tier == "legacy-evaluated"
+    assert model.claim_eligible is False
+
+
+def test_ledger_projects_unit_identity_attempt_outcome_and_relationship(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    _, run = _install_record(tmp_path, _run())
+    _, unit = _install_record(
+        tmp_path,
+        _unit_result(
+            status="verified_fail",
+            source_run_record_id=str(run["record_id"]),
+            aggregate_run_record_id=str(run["record_id"]),
+        ),
+    )
+
+    ledger = build_experiment_ledger(ROOT, imports_dir=tmp_path / "imports")
+
+    assert ledger.ok, ledger.errors
+    row = next(
+        item for item in ledger.observations if item["record_id"] == unit["record_id"]
+    )
+    assert row["run_id"] == "sample-run-001"
+    assert row["source_run_id"] == "sample-run-001"
+    assert row["unit_id"] == "case-001"
+    assert row["unit_kind"] == "case"
+    assert row["attempt_id"] == "attempt-001"
+    assert row["result_status"] == "verified_fail"
+    assert row["result_reason"] == "official-evaluator-verified-failure"
+    assert row["result_granularity"] == "unit"
+    assert row["parent_run_id"] is None
+    assert row["source_run_record_id"] == run["record_id"]
+    assert row["aggregate_run_id"] == "sample-run-001"
+    assert row["aggregate_run_record_id"] == run["record_id"]
+    assert row["aggregate_reconciliation_status"] == "matched"
+    assert row["code_commit"] == "f" * 40
+    assert row["source_evidence_class"] == "derived-non-claim-view"
+    assert row["verification_status"] == "unverified"
+    assert row["claim_eligible"] is False
+    assert any(item.get("record_id") == run["record_id"] for item in ledger.catalog)
+    assert not any(
+        item.get("record_id") == unit["record_id"] for item in ledger.catalog
+    )
+
+    old = next(
+        item for item in ledger.observations if item["record_id"] != unit["record_id"]
+    )
+    assert "unit_id" not in old
+    assert "result_granularity" not in old
+
+    csv_header = render_csv(ledger, "observations").splitlines()[0].split(",")
+    for field in (
+        "source_run_id",
+        "source_run_record_id",
+        "aggregate_run_id",
+        "aggregate_run_record_id",
+        "aggregate_reconciliation_status",
+        "unit_id",
+        "unit_kind",
+        "attempt_id",
+        "result_status",
+        "result_reason",
+        "verification_status",
+        "source_evidence_class",
+    ):
+        assert field in csv_header
+
+
+def test_legacy_observation_csv_does_not_acquire_unit_columns() -> None:
+    ledger = ExperimentLedger(
+        experiments=(),
+        runs=(),
+        metrics=(),
+        observations=({"observation_id": "legacy-observation"},),
+    )
+
+    header = render_csv(ledger, "observations").splitlines()[0].split(",")
+
+    assert "result_granularity" not in header
+    assert "unit_id" not in header
+    assert "source_run_record_id" not in header
+    assert "aggregate_run_record_id" not in header
 
 
 def test_source_requires_coherent_license_status() -> None:
@@ -884,6 +1147,28 @@ def test_parallel_records_with_same_logical_key_require_explicit_supersession(
     _install_record(tmp_path, conflict)
 
     assert "logical-conflict" in _error_codes(tmp_path)
+
+
+def test_unit_natural_identity_cannot_be_hidden_by_a_new_logical_key(
+    tmp_path: Path,
+) -> None:
+    _install_source(tmp_path)
+    _, run = _install_record(tmp_path, _run())
+    relationship = {
+        "source_run_record_id": str(run["record_id"]),
+        "aggregate_run_record_id": str(run["record_id"]),
+    }
+    _install_record(tmp_path, _unit_result(**relationship))
+    _install_record(
+        tmp_path,
+        _unit_result(
+            status="verified_fail",
+            logical_key="different-caller-key",
+            **relationship,
+        ),
+    )
+
+    assert "natural-identity-conflict" in _error_codes(tmp_path)
 
 
 def test_explicit_supersession_chain_is_valid_and_not_collapsed(tmp_path: Path) -> None:
