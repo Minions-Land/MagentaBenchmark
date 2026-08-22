@@ -41,6 +41,10 @@ _T = TypeVar("_T", bound=str)
 SNAPSHOT_FORMAT: Final[SnapshotFormat] = (
     "magentabench-h20-experimental-results-snapshot-v1"
 )
+EXPECTED_SNAPSHOT_SHA256 = (
+    "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0"
+)
+EXPECTED_SNAPSHOT_SIZE_BYTES: Final[Literal[703_813]] = 703_813
 EXPECTED_CATALOG_SHA256 = (
     "6eaacb5c6b9437dfd00a7fdae1b64da888e4ff512ec8712739568a4cfa153b90"
 )
@@ -1143,6 +1147,12 @@ def validate_snapshot(snapshot: H20ExperimentalResultsSnapshot) -> None:
         != EXPECTED_UNIT_IDENTITY_SHA256
     ):
         raise ExperimentalResultsError("snapshot fact identities are invalid")
+    snapshot_bytes = canonical_json_bytes(snapshot, newline=True)
+    if (
+        len(snapshot_bytes) != EXPECTED_SNAPSHOT_SIZE_BYTES
+        or _digest_bytes(snapshot_bytes) != EXPECTED_SNAPSHOT_SHA256
+    ):
+        raise ExperimentalResultsError("snapshot content identity is invalid")
 
 
 def load_snapshot(path: Path) -> H20ExperimentalResultsSnapshot:
@@ -1159,6 +1169,8 @@ def load_snapshot(path: Path) -> H20ExperimentalResultsSnapshot:
 __all__ = [
     "EXPECTED_CATALOG_SHA256",
     "EXPECTED_OWNER_COUNT",
+    "EXPECTED_SNAPSHOT_SHA256",
+    "EXPECTED_SNAPSHOT_SIZE_BYTES",
     "EXPECTED_UNIT_COUNT",
     "ExperimentalResultsError",
     "H20ExperimentalResultsSnapshot",
