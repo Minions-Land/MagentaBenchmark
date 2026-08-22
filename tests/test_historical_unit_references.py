@@ -409,6 +409,23 @@ def test_aggregate_cohort_rejects_conflicting_effective_dataset_digest() -> None
     )
 
 
+def test_aggregate_cohort_preserves_exact_legacy_dataset_identity() -> None:
+    records, run = _records_and_run()
+    conflicting_dataset = run.experiment.dataset.model_copy(
+        update={"content_sha256": "0" * 64}
+    )
+    legacy_item = _loaded_run(
+        run,
+        run_id="exact-legacy-dataset-conflict",
+        experiment_update={"dataset": conflicting_dataset},
+        path_suffix="exact-legacy-dataset-conflict",
+    )
+    legacy = legacy_item.record
+    assert isinstance(legacy, HistoricalRun)
+
+    assert _codes([*records, legacy_item, _unit(legacy)]) == set()
+
+
 def test_aggregate_cohort_binds_dataset_id_and_split() -> None:
     records, run = _records_and_run()
 
