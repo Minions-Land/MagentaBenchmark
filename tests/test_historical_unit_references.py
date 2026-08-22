@@ -76,6 +76,31 @@ def _loaded_run(
     )
 
 
+def _candidate_run(
+    run: HistoricalRun,
+    *,
+    run_id: str = "candidate-unit-owner",
+) -> LoadedHistoricalRecord:
+    payload = run.model_dump(mode="json")
+    payload.update(
+        {
+            "evidence_tier": "candidate",
+            "metrics": [],
+            "record_id": "0" * 64,
+            "run_id": run_id,
+            "supersedes": [],
+        }
+    )
+    payload["record_id"] = compute_record_id(payload)
+    record = _RECORD_ADAPTER.validate_json(canonical_json_bytes(payload), strict=True)
+    assert isinstance(record, HistoricalRun)
+    return LoadedHistoricalRecord(
+        record=record,
+        path="imports/test/records/candidate-owner.json",
+        logical_key_sha256=logical_key_digest(record.kind, record.logical_key),
+    )
+
+
 def _unit(
     run: HistoricalRun,
     *,
@@ -212,6 +237,64 @@ def test_unit_source_metric_definition_must_match() -> None:
     )
 
 
+def test_candidate_source_owner_uses_unit_metric_semantics() -> None:
+    records, run = _records_and_run()
+    candidate_item = _candidate_run(run)
+    candidate = candidate_item.record
+    assert isinstance(candidate, HistoricalRun)
+
+    assert (
+        _codes(
+            [
+                *records,
+                candidate_item,
+                _unit(
+                    run,
+                    source_run_id=candidate.run_id,
+                    source_run_record_id=candidate.record_id,
+                    unit_id="case-001",
+                ),
+                _unit(
+                    run,
+                    source_run_id=candidate.run_id,
+                    source_run_record_id=candidate.record_id,
+                    unit_id="case-002",
+                ),
+            ]
+        )
+        == set()
+    )
+
+
+def test_candidate_source_owner_rejects_conflicting_unit_metric_semantics() -> None:
+    records, run = _records_and_run()
+    candidate_item = _candidate_run(run)
+    candidate = candidate_item.record
+    assert isinstance(candidate, HistoricalRun)
+
+    assert "unit-source-run-metric-mismatch" in _codes(
+        [
+            *records,
+            candidate_item,
+            _unit(
+                run,
+                source_run_id=candidate.run_id,
+                source_run_record_id=candidate.record_id,
+                aggregate_reconciliation_status="not-compared",
+                unit_id="case-001",
+            ),
+            _unit(
+                run,
+                source_run_id=candidate.run_id,
+                source_run_record_id=candidate.record_id,
+                aggregate_reconciliation_status="not-compared",
+                metric_definition_sha256="0" * 64,
+                unit_id="case-002",
+            ),
+        ]
+    )
+
+
 def test_aggregate_reference_must_exist_and_match_the_cohort() -> None:
     records, run = _records_and_run()
     other = next(
@@ -269,6 +352,101 @@ def test_aggregate_cohort_binds_model_and_protocol_digest() -> None:
             _unit(run, aggregate_run_record_id=protocol_aggregate.record.record_id),
         ]
     )
+
+
+def test_aggregate_cohort_allows_digest_equivalent_dataset_enrichment() -> None:
+    records, run = _records_and_run()
+    case_set_sha256 = run.experiment.comparability.case_set_sha256
+    assert case_set_sha256 is not None
+    corrected_dataset = run.experiment.dataset.model_copy(
+        update={
+            "commit_sha": "1" * 40,
+            "content_sha256": case_set_sha256,
+            "version": "corrected-revision",
+        }
+    )
+    source_item = _loaded_run(
+        run,
+        run_id="corrected-source-owner",
+        experiment_update={"dataset": corrected_dataset},
+        path_suffix="corrected-source-owner",
+    )
+    source = source_item.record
+    assert isinstance(source, HistoricalRun)
+
+    assert (
+        _codes(
+            [
+                *records,
+                source_item,
+                _unit(source, aggregate_run_record_id=run.record_id),
+            ]
+        )
+        == set()
+    )
+
+
+def test_aggregate_cohort_rejects_conflicting_effective_dataset_digest() -> None:
+    records, run = _records_and_run()
+    conflicting_dataset = run.experiment.dataset.model_copy(
+        update={"content_sha256": "0" * 64}
+    )
+    source_item = _loaded_run(
+        run,
+        run_id="conflicting-source-owner",
+        experiment_update={"dataset": conflicting_dataset},
+        path_suffix="conflicting-source-owner",
+    )
+    source = source_item.record
+    assert isinstance(source, HistoricalRun)
+
+    assert "unit-aggregate-run-incompatible" in _codes(
+        [
+            *records,
+            source_item,
+            _unit(source, aggregate_run_record_id=run.record_id),
+        ]
+    )
+
+
+def test_aggregate_cohort_preserves_exact_legacy_dataset_identity() -> None:
+    records, run = _records_and_run()
+    conflicting_dataset = run.experiment.dataset.model_copy(
+        update={"content_sha256": "0" * 64}
+    )
+    legacy_item = _loaded_run(
+        run,
+        run_id="exact-legacy-dataset-conflict",
+        experiment_update={"dataset": conflicting_dataset},
+        path_suffix="exact-legacy-dataset-conflict",
+    )
+    legacy = legacy_item.record
+    assert isinstance(legacy, HistoricalRun)
+
+    assert _codes([*records, legacy_item, _unit(legacy)]) == set()
+
+
+def test_aggregate_cohort_binds_dataset_id_and_split() -> None:
+    records, run = _records_and_run()
+
+    for field, value in (("id", "different-dataset"), ("split", "train")):
+        changed_dataset = run.experiment.dataset.model_copy(update={field: value})
+        source_item = _loaded_run(
+            run,
+            run_id=f"different-dataset-{field}",
+            experiment_update={"dataset": changed_dataset},
+            path_suffix=f"different-dataset-{field}",
+        )
+        source = source_item.record
+        assert isinstance(source, HistoricalRun)
+
+        assert "unit-aggregate-run-incompatible" in _codes(
+            [
+                *records,
+                source_item,
+                _unit(source, aggregate_run_record_id=run.record_id),
+            ]
+        )
 
 
 def test_compared_aggregate_metric_definition_must_match() -> None:
