@@ -119,6 +119,7 @@ def test_projection_is_deterministic_and_preserves_states() -> None:
 
     assert table.as_dict() == again.as_dict()
     assert table.as_dict()["format"] == PAPER_TABLE_FORMAT
+    assert PAPER_TABLE_FORMAT == "magentabench-paper-experiment-table-v2"
     assert {row["row_id"] for row in table.rows} >= {
         "obs-zero",
         "obs-invalid",
@@ -191,3 +192,54 @@ def test_empty_projection_keeps_machine_readable_schema() -> None:
     assert table.rows == ()
     assert list(csv.DictReader(io.StringIO(render_csv(table)))) == []
     assert render_csv(table).splitlines()[0].split(",") == list(PAPER_COLUMNS)
+
+
+def test_task_level_identity_and_aggregate_relationship_are_not_flattened() -> None:
+    ledger = ExperimentLedger(
+        experiments=(),
+        runs=(),
+        metrics=(),
+        observations=(
+            {
+                "aggregate_run_id": "aggregate-001",
+                "aggregate_run_record_id": "a" * 64,
+                "aggregate_reconciliation_status": "matched",
+                "attempt_id": "attempt-002",
+                "benchmark_id": "bench-a",
+                "claim_eligible": False,
+                "experiment_id": "exp-a",
+                "metric_id": "accuracy",
+                "metric_state": "observed",
+                "observation_id": "obs-unit",
+                "record_origin": "legacy-import",
+                "result_granularity": "unit",
+                "result_reason": "official-verifier-returned-false",
+                "result_status": "verified_fail",
+                "run_id": "source-run-001",
+                "source_evidence_class": "derived-non-claim-view",
+                "source_run_id": "source-run-001",
+                "source_run_record_id": "b" * 64,
+                "unit_id": "question-017",
+                "unit_kind": "question",
+                "value": 0,
+            },
+        ),
+    )
+
+    row = project_paper_table(ledger).rows[0]
+
+    assert row["case_id"] == "question-017"
+    assert row["case_or_question"] == "question-017"
+    assert row["unit_id"] == "question-017"
+    assert row["unit_kind"] == "question"
+    assert row["attempt_id"] == "attempt-002"
+    assert row["source_run_id"] == "source-run-001"
+    assert row["source_run_record_id"] == "b" * 64
+    assert row["aggregate_run_id"] == "aggregate-001"
+    assert row["aggregate_run_record_id"] == "a" * 64
+    assert row["aggregate_reconciliation_status"] == "matched"
+    assert row["source_evidence_class"] == "derived-non-claim-view"
+    assert row["result_granularity"] == "unit"
+    assert row["result_status"] == "verified_fail"
+    assert row["result_reason"] == "official-verifier-returned-false"
+    assert row["claim_eligible"] is False

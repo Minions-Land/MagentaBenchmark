@@ -5,6 +5,11 @@ The paper table is a deterministic, read-only projection of that ledger for a
 paper appendix, a camera-ready table, or a notebook. It is not a second ledger
 and it must never be hand-edited.
 
+The task-level identity columns introduced here are
+`magentabench-paper-experiment-table-v2`. Version 1 remains reproducible from
+the repository commit that emitted it; consumers must not interpret a v2
+header as byte-compatible with v1.
+
 ## Render
 
 Run from a clean, pinned checkout with the locked environment:
@@ -50,17 +55,22 @@ state:
 
 | Group | Columns | Meaning |
 | --- | --- | --- |
-| Identity | `row_id`, `row_kind`, `record_origin`, `lab_issue`, `experiment_id`, `run_id`, `parent_run_id`, `purpose` | Stable row identity, ownership linkage, and whether the row is an observation or a result-less run. |
-| Benchmark unit | `benchmark_id`, `dataset_id`, `dataset_split`, `case_id`, `question`, `case_or_question` | The benchmark, split, case/question, and method comparison unit. Missing fields stay `-`. |
-| Method and metric | `method_id`, `subject_id`, `model`, `code_commit`, `provider_id`, `harness_id`, `protocol_id`, `metric_id`, `metric_state`, `result_status`, `value`, `unit`, `direction`, `aggregation` | Method/runtime identity and the reported value. A numeric zero is a real value, never a missing value. |
+| Identity | `row_id`, `row_kind`, `record_origin`, `lab_issue`, `experiment_id`, `run_id`, `source_run_id`, `source_run_record_id`, `parent_run_id`, `aggregate_run_id`, `aggregate_run_record_id`, `aggregate_reconciliation_status`, `result_granularity`, `purpose` | Stable row identity, ownership and content-addressed reconciliation linkage, and whether the row is an observation or a result-less run. |
+| Benchmark unit | `benchmark_id`, `dataset_id`, `dataset_split`, `case_id`, `question`, `case_or_question`, `unit_id`, `unit_kind`, `attempt_id` | The benchmark, split, case/question, source unit, attempt, and method comparison unit. Missing fields stay `-`. |
+| Method and metric | `method_id`, `subject_id`, `model`, `code_commit`, `provider_id`, `harness_id`, `protocol_id`, `metric_id`, `metric_state`, `result_status`, `result_reason`, `value`, `unit`, `direction`, `aggregation` | Method/runtime identity and the reported value. A numeric zero is a real value, never a missing value. |
 | Denominator | `denominator`, `denominator_*`, `planned_rollout_count`, `task_count`, `rollouts_per_task` | Planned, observed, zero-filled, excluded, missing, and invalid counts remain explicit. |
 | Uncertainty | `uncertainty`, `uncertainty_method`, `uncertainty_confidence_level`, `uncertainty_lower`, `uncertainty_upper` | The reported uncertainty object and its scalar fields. No interval is synthesized. |
-| Verification | `evaluator_id`, `evidence_tier`, `verification_status`, `standalone_verification`, `terminal_state`, `claim_eligible`, `claim_status`, `validity_gates`, `failure_breakdown`, `verified_manifest_refs` | Official evaluator/evidence boundary and claim gate status. Standalone state is retained but not certified by this projection. |
+| Verification | `evaluator_id`, `evidence_tier`, `source_evidence_class`, `verification_status`, `standalone_verification`, `terminal_state`, `claim_eligible`, `claim_status`, `validity_gates`, `failure_breakdown`, `verified_manifest_refs` | Official evaluator/evidence boundary and claim gate status. Standalone state is retained but not certified by this projection. |
 | Conditions | `configuration_*`, `factor_values`, `condition_digest`, `conditions`, `backend_id`, `execution_mode`, `image_digest`, `budget`, `comparability` | Reproducibility and comparability context, encoded as canonical JSON where structured. |
 | Provenance | `record_root`, `report_ref`, `manifest_digest`, `metric_digest`, `dataset_*`, `provenance_*`, `limitations`, `source_id`, `record_id`, `logical_key_sha256`, `supersedes` | Content identity and source limitations needed to locate or audit the row. |
 
 `row_kind=observation` rows are copied from the ledger's `observations` table,
 including legacy records and metric states such as `invalid` or `missing`.
+Historical `unit-result` records retain their source run, unit, attempt,
+outcome, and optional aggregate link rather than collapsing into a summary.
+For task-level analysis, select `result_granularity=unit`; use linked aggregate
+rows only as reconciliation evidence so the same source outcomes are not
+counted twice.
 `row_kind=run` rows preserve failed, non-terminal, or report-less attempts that
 have no observation. Declaration-only designs are intentionally left in the
 ledger's `experiments` and `catalog` tables rather than presented as results.

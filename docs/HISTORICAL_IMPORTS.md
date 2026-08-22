@@ -40,15 +40,60 @@ explicit blockers rather than being interpreted as permission. A branch is
 only a `ref_hint`; it never means "latest". Changing the source commit or
 normalizer creates a new snapshot directory.
 
-Records are typed as declarations, evaluated runs, or assets. They carry
-whitelisted benchmark, dataset, method, model, evaluator, execution, metric,
-denominator, uncertainty, and provenance fields. Arbitrary metadata maps are
-not accepted. Each provenance item binds a repository-relative path, Git blob
-OID, content SHA-256, and size. The canonical payload determines both
-`record_id` and the record filename.
+Records are typed as declarations, evaluated runs, unit results, or assets.
+They carry whitelisted benchmark, dataset, method, model, evaluator,
+execution, metric, denominator, uncertainty, and provenance fields. Arbitrary
+metadata maps are not accepted. Each provenance item binds a
+repository-relative path, Git blob OID, content SHA-256, and size. The
+canonical payload determines both `record_id` and the record filename.
+
+`kind=unit-result` is the task-level contract. One record binds exactly one
+source run, benchmark unit, attempt, and metric outcome. Its natural identity
+is `(source, experiment, source_run_id, unit_id, attempt_id, metric_id)` and
+its `record_id` binds the complete condition, method/model, optional code
+commit, denominator, evaluator, result status/reason, and provenance. The
+result status must agree with the metric state: `success` and
+`verified_fail` are observed numeric results; `missing` and `no_output` are
+missing; timeout, invalid output, agent/harness/verifier/infrastructure error,
+and unsupported outcomes are invalid. `source_evidence_class` retains whether
+the source row was legacy evaluated evidence, a derived non-claim view, or a
+historical official-harness report. All three remain under the conservative
+`legacy-evaluated` BMP evidence umbrella and hard-false claim boundary.
+
+Task rows project as `result_granularity=unit` and retain `unit_id`,
+`unit_kind`, `attempt_id`, `source_run_id`, and `source_run_record_id`. The
+record ID binds the exact owning run in the same source snapshot, experiment,
+and condition set. Optional `aggregate_run_record_id` binds a separate,
+content-addressed historical run used only for reconciliation; the ledger
+derives its display `aggregate_run_id` from that record. The paired
+`aggregate_reconciliation_status` says whether this metric matched, was not
+compared, or mismatched; a link alone never implies equality. Neither
+the import validator nor the paper projection recomputes that source-declared
+status. The source-specific normalizer must reconcile the complete unit
+population against the aggregate and bind the evidence bytes. Neither
+relationship is execution lineage, so task rows do not project either run as
+a parent. Use unit rows for a task-level paper denominator and aggregate rows only for
+reconciliation; never sum or average both populations together. Validation
+never guesses a link from a method name or timestamp.
+Every unit metric accounts for exactly one planned unit and cannot be excluded
+or zero-filled, and its aggregation is `none`; aggregation policy belongs in
+the linked run record. Source and unit metric identities must match on metric
+ID, definition digest, unit, and direction. Reconciliation cohorts bind the
+benchmark and dataset version/snapshot, complete method/model/provider
+identity, harness protocol/configuration, evaluator identity, and all declared
+comparability digests. Execution settings may differ for a derived task
+projector, so they are not silently treated as cohort identity. Every unit
+population that names the same aggregate record and metric must declare one
+consistent reconciliation status.
+
+`unit_id`, `unit_kind`, and optional `result_reason` are identifiers or short
+reason codes, not a publication channel for prompts or answers. Unit records
+do not accept question text. Never copy raw questions, prompts, answers, gold
+content, traces, or logs into a historical record.
 
 Two records with the same logical identity or the same source-scoped natural
-identity (experiment, run, or asset ID) but different contents fail closed.
+identity (experiment, run, unit attempt/metric, or asset ID) but different
+contents fail closed.
 Changing caller-selected `logical_key` cannot hide a duplicate run. Parent-run
 references resolve inside the same experiment, while asset experiment/run
 references must be unambiguous inside the same source snapshot. A
@@ -115,6 +160,12 @@ The generated JSON includes `sources`, `catalog`, `observations`, and `assets`.
 CSV exports one selected table. These are disposable views; the canonical
 import records and, where permitted, their pinned source bytes remain the
 recoverable inputs.
+
+The ledger remains `magentabench-experiment-ledger-v2`. Existing observation
+sets without `unit-result` records retain the v2 CSV header byte-for-byte.
+When unit records are present, the observations CSV includes the reviewed unit,
+source-run, aggregate-link, outcome, and evidence columns; consumers that need
+a fixed publication schema should use the explicitly versioned paper table v2.
 
 ```bash
 uv run --frozen bmp-collab validate-imports
