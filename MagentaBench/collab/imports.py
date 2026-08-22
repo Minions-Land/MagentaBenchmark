@@ -93,17 +93,26 @@ def _metric_semantic_identity(metric: HistoricalMetric) -> tuple[str, str, str, 
 
 def _reconciliation_cohort_identity(
     experiment: ExperimentConditions,
-) -> tuple[object, ...]:
+) -> tuple[object, ...] | None:
     model = experiment.model
     provider = experiment.provider
+    dataset_content = experiment.dataset.content_sha256
+    case_set = experiment.comparability.case_set_sha256
+    if (
+        dataset_content is not None
+        and case_set is not None
+        and dataset_content != case_set
+    ):
+        return None
+    effective_case_set = dataset_content or case_set
+    if effective_case_set is None:
+        return None
     return (
         (experiment.benchmark.id, experiment.benchmark.version),
         (
             experiment.dataset.id,
-            experiment.dataset.version,
             experiment.dataset.split,
-            experiment.dataset.commit_sha,
-            experiment.dataset.content_sha256,
+            effective_case_set,
         ),
         (
             experiment.method.id,
@@ -646,8 +655,19 @@ def _validate_record_references(
     reconciliation_statuses: dict[
         tuple[str, str], tuple[str, LoadedHistoricalRecord]
     ] = {}
+    source_unit_metric_identities: dict[
+        tuple[str, str], set[tuple[str, str, str, str]]
+    ] = {}
     for candidate in records:
         candidate_record = candidate.record
+        if isinstance(candidate_record, HistoricalUnitResult):
+            source_unit_metric_identities.setdefault(
+                (
+                    candidate_record.source_run_record_id,
+                    candidate_record.metric.metric_id,
+                ),
+                set(),
+            ).add(_metric_semantic_identity(candidate_record.metric))
         if (
             not isinstance(candidate_record, HistoricalUnitResult)
             or candidate_record.aggregate_run_record_id is None
@@ -739,10 +759,17 @@ def _validate_record_references(
                     ),
                     None,
                 )
-                if (
-                    owning_run.evidence_tier != "legacy-evaluated"
-                    or owning_metric is None
-                ):
+                if owning_run.evidence_tier == "candidate":
+                    unit_metric_identities = source_unit_metric_identities.get(
+                        (owning_run.record_id, record.metric.metric_id), set()
+                    )
+                    if len(unit_metric_identities) != 1:
+                        reference_finding(
+                            "unit-source-run-metric-mismatch",
+                            "candidate source run unit metrics must have one semantic identity",
+                            item,
+                        )
+                elif owning_metric is None:
                     reference_finding(
                         "unit-source-run-metric-missing",
                         "source run must be evaluated and declare the unit metric",
@@ -772,10 +799,15 @@ def _validate_record_references(
                         item,
                     )
                 else:
+                    unit_cohort = _reconciliation_cohort_identity(record.experiment)
+                    aggregate_cohort = _reconciliation_cohort_identity(
+                        aggregate_run.experiment
+                    )
                     if (
                         aggregate_run.evidence_tier != "legacy-evaluated"
-                        or _reconciliation_cohort_identity(record.experiment)
-                        != _reconciliation_cohort_identity(aggregate_run.experiment)
+                        or unit_cohort is None
+                        or aggregate_cohort is None
+                        or unit_cohort != aggregate_cohort
                     ):
                         reference_finding(
                             "unit-aggregate-run-incompatible",
