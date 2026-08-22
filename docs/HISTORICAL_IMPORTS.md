@@ -15,7 +15,7 @@ The ledger distinguishes record origin and evidence tier:
 | `bmp` / `bmp-standalone` | A lab-linked report and every indexed byte passed standalone BMP verification. | Only when the report independently sets `claim_eligible=true`. |
 | `legacy-import` / `legacy-evaluated` | A pinned historical source contains an evaluator output, but it was not replayed through BMP. | No. |
 | `declaration-only` | The source describes an experiment or cohort but contains no evaluated result. | No. |
-| `candidate` | A recoverable asset or implementation lead still needs materialization or evaluation. | No. |
+| `candidate` | A recoverable lead or metric-free run identity envelope; it still needs materialization or evaluation before it can carry a result. | No. |
 
 Import validation always forces legacy `claim_eligible` to false. A declaration
 or candidate cannot contain metrics, and no imported row is copied into the BMP
@@ -77,9 +77,11 @@ historical official-harness report. All three remain under the conservative
 Task rows project as `result_granularity=unit` and retain `unit_id`,
 `unit_kind`, `attempt_id`, `source_run_id`, and `source_run_record_id`. The
 record ID binds the exact owning run in the same source snapshot, experiment,
-and condition set. Optional `aggregate_run_record_id` binds a separate,
-content-addressed historical run used only for reconciliation; the ledger
-derives its display `aggregate_run_id` from that record. The paired
+and condition set. An owner may be a `candidate` identity envelope with
+`metrics=[]`; in that form it exists only as the immutable source-run target and
+does not emit a ledger observation. Optional `aggregate_run_record_id` binds a
+separate, content-addressed historical run used only for reconciliation; the
+ledger derives its display `aggregate_run_id` from that record. The paired
 `aggregate_reconciliation_status` says whether this metric matched, was not
 compared, or mismatched; a link alone never implies equality. Neither
 the import validator nor the paper projection recomputes that source-declared
@@ -90,12 +92,18 @@ a parent. Use unit rows for a task-level paper denominator and aggregate rows on
 reconciliation; never sum or average both populations together. Validation
 never guesses a link from a method name or timestamp.
 Every unit metric accounts for exactly one planned unit and cannot be excluded
-or zero-filled, and its aggregation is `none`; aggregation policy belongs in
-the linked run record. Source and unit metric identities must match on metric
-ID, definition digest, unit, and direction. Reconciliation cohorts bind the
-benchmark and dataset version/snapshot, complete method/model/provider
-identity, harness protocol/configuration, evaluator identity, and all declared
-comparability digests. Execution settings may differ for a derived task
+or zero-filled, and its aggregation is `none`. Aggregate policy comes from the
+source-specific metric contract and optional aggregate record, never from a
+metric-free candidate owner. Evaluated source owners and unit metrics match on
+metric ID, definition digest, unit, and direction; candidate identity envelopes
+instead bind the exact source snapshot, run, experiment, terminal state, and
+conditions while unit populations retain consistent metric identities.
+Reconciliation cohorts bind the benchmark, dataset ID, split, and effective
+case-set digest, plus complete method/model/provider identity, harness
+protocol/configuration, evaluator identity, and the remaining declared
+comparability digests. Dataset revision and commit fields remain preserved
+enrichment; they are not strict identity fields for the digest-first cohort.
+Execution settings may differ for a derived task
 projector, so they are not silently treated as cohort identity. Every unit
 population that names the same aggregate record and metric must declare one
 consistent reconciliation status.
@@ -192,18 +200,36 @@ uv run --frozen bmp-collab ledger --table assets
 uv run --frozen bmp-collab validate-imports --imports-dir /authorized/imports
 uv run --frozen bmp-collab ledger --imports-dir /authorized/imports
 
-# H20 Issue #159 (read-only source; output is a new isolated import root)
+# H20 Issue #159. Set all variables to operator-approved locations first.
+: "${BMP_H20_RESULTS_ROOT:?set to the read-only H20 catalog root}"
+: "${BMP_H20_EVIDENCE_ROOT:?set to a new isolated evidence directory}"
+: "${BMP_H20_PROJECTION_ROOT:?set to a new empty import source directory}"
 uv run --frozen python scripts/historical_imports/h20_experimental_results_v1.py \
-  snapshot --source-root /mnt/aliyunsb/ProjectManagement/.experimentalResults \
-  --output /mnt/aliyunsb/h20-evidence/source_snapshot.json
+  snapshot --source-root "$BMP_H20_RESULTS_ROOT" \
+  --output "$BMP_H20_EVIDENCE_ROOT/source_snapshot.json"
+uv run --frozen python scripts/historical_imports/h20_experimental_results_v1.py \
+  project --snapshot "$BMP_H20_EVIDENCE_ROOT/source_snapshot.json" \
+  --output-root "$BMP_H20_PROJECTION_ROOT" \
+  --source-commit 4dd8c0bd7786899434d1d01c625df6a9f5205ba1 \
+  --source-tree 0bcf574c47f50a1cb27296b6202ec601449f9610 \
+  --source-blob 89dd5d9e1250a289c3e5547bac911e7a3cc7198e
+diff -qr "$BMP_H20_PROJECTION_ROOT" \
+  imports/h20-experimental-results-20260822
 uv run --frozen bmp-collab validate-imports
 ```
 
+The isolated projection intentionally references aggregate records owned by
+other checked-in sources. Therefore its final reference validation must run in
+the complete repository import set after the byte-identical tree comparison;
+validating the isolated source alone will correctly report missing aggregate
+targets.
+
 The H20 snapshot gate must report 30 owners and 2,360 unit facts. The import
-contains 2,390 records; the ledger reports 2,837 legacy observations because
-58 owner metrics are explicit reconciliation rows. The paper projection must
-select unit rows and report 2,360 rows. This distinction is intentional and is
-part of the acceptance contract, not a generated-cache count.
+contains 2,390 records and all have `claim_eligible=false`. Its 30 candidate
+owners are metric-free identity envelopes, so the ledger reports 2,779 legacy
+observations: 419 existing observations plus 2,360 imported unit rows. The
+paper projection must select those 2,360 unit rows. These counts are part of
+the acceptance contract, not generated-cache counts.
 
 The catalog stores a deterministic
 `magentabench-catalog-condition-set-v1` wrapper and its digest. Every variant in

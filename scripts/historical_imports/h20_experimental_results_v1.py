@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import statistics
+import subprocess
 from copy import deepcopy
 from datetime import date
 from pathlib import Path
@@ -15,11 +15,14 @@ from typing import Any, Literal
 from pydantic import TypeAdapter
 
 from MagentaBench.collab.experimental_results import (
+    EXPECTED_SNAPSHOT_SHA256,
+    EXPECTED_SNAPSHOT_SIZE_BYTES,
     ExperimentalResultsError,
     H20ExperimentalResultsSnapshot,
     SnapshotMetricContract,
     SnapshotObservation,
     SnapshotRun,
+    _read_regular_file,
     build_snapshot,
     canonical_json_bytes,
     load_snapshot,
@@ -35,7 +38,10 @@ from MagentaBench.collab.import_models import (
 
 SOURCE_ID = "h20-experimental-results-20260822"
 SOURCE_PATH = "imports/h20-experimental-results-20260822/source_snapshot.json"
-NORMALIZER_ID = "h20-experimental-results-20260822.v1"
+SOURCE_COMMIT = "4dd8c0bd7786899434d1d01c625df6a9f5205ba1"
+SOURCE_TREE = "0bcf574c47f50a1cb27296b6202ec601449f9610"
+SOURCE_BLOB = "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+NORMALIZER_ID = "h20-experimental-results-20260822.v2"
 PUBLICATION_DECISION_SHA256 = (
     "9696c1b1a8da6a34b9288dd8b129e60fef70a8f143b54b125c210657a38fd145"
 )
@@ -80,11 +86,62 @@ def _normalizer_sha256() -> str:
     return _sha256(Path(__file__).read_bytes())
 
 
+def _git_output(project_root: Path, *args: str) -> bytes:
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=project_root,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ProjectionError("approved snapshot Git anchor is unavailable") from error
+
+
+def _validate_snapshot_anchor(
+    snapshot: H20ExperimentalResultsSnapshot,
+    snapshot_bytes: bytes,
+    *,
+    project_root: Path,
+    source_commit: str,
+    source_tree: str,
+    source_blob: str,
+) -> None:
+    if (source_commit, source_tree, source_blob) != (
+        SOURCE_COMMIT,
+        SOURCE_TREE,
+        SOURCE_BLOB,
+    ):
+        raise ProjectionError("source Git anchor differs from the approved identity")
+    if (
+        len(snapshot_bytes) != EXPECTED_SNAPSHOT_SIZE_BYTES
+        or _sha256(snapshot_bytes) != EXPECTED_SNAPSHOT_SHA256
+        or _git_blob_sha1(snapshot_bytes) != SOURCE_BLOB
+        or canonical_json_bytes(snapshot, newline=True) != snapshot_bytes
+    ):
+        raise ProjectionError("snapshot bytes differ from the approved identity")
+    tree = _git_output(project_root, "rev-parse", f"{SOURCE_COMMIT}^{{tree}}")
+    if tree != f"{SOURCE_TREE}\n".encode("ascii"):
+        raise ProjectionError("approved snapshot commit has an unexpected tree")
+    entry = _git_output(project_root, "ls-tree", SOURCE_COMMIT, "--", SOURCE_PATH)
+    expected_entry = f"100644 blob {SOURCE_BLOB}\t{SOURCE_PATH}\n".encode("ascii")
+    if entry != expected_entry:
+        raise ProjectionError("approved snapshot path does not resolve to its blob")
+    if _git_output(project_root, "cat-file", "blob", SOURCE_BLOB) != snapshot_bytes:
+        raise ProjectionError("approved snapshot blob bytes do not match")
+    _git_output(project_root, "merge-base", "--is-ancestor", SOURCE_COMMIT, "HEAD")
+
+
 def _load_aggregate(project_root: Path, record_id: str) -> HistoricalRun:
     matches = sorted((project_root / "imports").glob(f"*/records/{record_id}.json"))
     if len(matches) != 1:
         raise ProjectionError(f"aggregate record {record_id} is not unique")
-    record = _RECORD_ADAPTER.validate_json(matches[0].read_bytes(), strict=True)
+    path = matches[0]
+    relative = path.relative_to(project_root).as_posix()
+    record = _RECORD_ADAPTER.validate_json(
+        _read_regular_file(path, relative=relative), strict=True
+    )
     if not isinstance(record, HistoricalRun) or record.record_id != record_id:
         raise ProjectionError(f"aggregate record {record_id} is not an evaluated run")
     return record
@@ -220,11 +277,11 @@ def _swe_experiment(run: SnapshotRun) -> dict[str, Any]:
         },
         "experiment_id": "swebench-verified-v5-five-case-20260716",
         "harness": {
-            "configuration_sha256": run.configuration.digest,
+            "configuration_sha256": run.evaluator.digest,
             "id": "swebench-official-harness",
             "name": "SWE-bench official harness",
             "protocol_id": run.protocol.id,
-            "version": run.evaluator.version,
+            "version": run.protocol.version,
         },
         "limitations": [
             "five-case-subset",
@@ -251,83 +308,89 @@ def _swe_experiment(run: SnapshotRun) -> dict[str, Any]:
 def _experiment(run: SnapshotRun, aggregate: HistoricalRun | None) -> dict[str, Any]:
     if aggregate is None:
         return _swe_experiment(run)
+    conditions = aggregate.experiment
+    model = conditions.model
+    if (
+        conditions.benchmark.id != run.benchmark_id
+        or conditions.dataset.id != run.dataset.id
+        or conditions.dataset.split != run.dataset.split
+        or conditions.method.id != run.method.id
+        or conditions.method.subject_id != run.method.id
+        or conditions.method.version != run.method.version
+        or conditions.evaluator.id != run.evaluator.id
+        or conditions.evaluator.version != run.evaluator.version
+        or conditions.harness.id != run.evaluator.id
+        or conditions.harness.protocol_id != run.protocol.id
+        or conditions.harness.version != run.protocol.version
+        or conditions.comparability.case_set_sha256 != run.dataset.digest
+        or conditions.comparability.evaluator_sha256 != run.evaluator.digest
+        or conditions.dataset.content_sha256 not in {None, run.dataset.digest}
+    ):
+        raise ProjectionError(f"{run.run_id}: aggregate identity crosswalk is invalid")
+    if run.method.model is None:
+        if model is not None:
+            raise ProjectionError(f"{run.run_id}: aggregate adds an unknown model")
+    elif model is None or run.method.model not in {model.id, model.name}:
+        raise ProjectionError(f"{run.run_id}: aggregate model crosswalk is invalid")
+    protocol_digest = run.protocol.digest
+    inherited_protocol = False
+    if protocol_digest is None:
+        protocol_digest = conditions.comparability.protocol_sha256
+        inherited_protocol = True
+    elif conditions.comparability.protocol_sha256 != protocol_digest:
+        raise ProjectionError(f"{run.run_id}: aggregate protocol digest is invalid")
+    if protocol_digest is None:
+        raise ProjectionError(f"{run.run_id}: protocol digest is unavailable")
+
     experiment = deepcopy(aggregate.experiment.model_dump(mode="json"))
+    experiment["dataset"].update(
+        {
+            "commit_sha": (
+                run.dataset.revision if len(run.dataset.revision) == 40 else None
+            ),
+            "content_sha256": run.dataset.digest,
+            "id": run.dataset.id,
+            "split": run.dataset.split,
+            "version": run.dataset.revision,
+        }
+    )
+    experiment["method"].update(
+        {
+            "id": run.method.id,
+            "subject_id": run.method.id,
+            "version": run.method.version,
+        }
+    )
+    experiment["evaluator"].update(
+        {"id": run.evaluator.id, "version": run.evaluator.version}
+    )
+    experiment["harness"].update(
+        {
+            "configuration_sha256": run.evaluator.digest,
+            "protocol_id": run.protocol.id,
+            "version": run.protocol.version,
+        }
+    )
+    experiment["comparability"].update(
+        {
+            "case_set_sha256": run.dataset.digest,
+            "evaluator_sha256": run.evaluator.digest,
+            "protocol_sha256": protocol_digest,
+        }
+    )
     experiment["execution"] = _execution_from_aggregate(run, aggregate)
     limitations = set(experiment.get("limitations", []))
     limitations.discard("aggregate-only")
+    limitations.discard("dataset-content-unbound")
+    limitations.discard("dataset-revision-unbound")
+    if run.method.model is not None:
+        limitations.discard("model-identity-redacted")
     limitations.add("derived-task-level-owner")
+    limitations.add("source-owner-no-summary-metrics")
+    if inherited_protocol:
+        limitations.add("protocol-digest-inherited-from-approved-aggregate")
     experiment["limitations"] = sorted(limitations)
     return experiment
-
-
-def _metric_value(
-    contract: SnapshotMetricContract, rows: list[SnapshotObservation]
-) -> float:
-    values = [
-        float(row.value)
-        for row in rows
-        if row.status in contract.value_statuses and row.value is not None
-    ]
-    if not values:
-        raise ProjectionError(
-            f"{contract.metric_id}: owner metric has no numeric values"
-        )
-    if contract.aggregation in {"mean", "rate"}:
-        denominator = {
-            "planned_units": len(rows),
-            "observed_units": len(rows),
-            "numeric_units": len(values),
-        }.get(contract.denominator)
-        if denominator is None or denominator <= 0:
-            raise ProjectionError(
-                f"{contract.metric_id}: aggregate denominator is invalid"
-            )
-        return sum(values) / denominator
-    if contract.aggregation == "sum":
-        return sum(values)
-    if contract.aggregation == "minimum":
-        return min(values)
-    if contract.aggregation == "maximum":
-        return max(values)
-    if contract.aggregation == "median":
-        return float(statistics.median(values))
-    raise ProjectionError(f"{contract.metric_id}: unsupported aggregation")
-
-
-def _owner_metric(
-    run: SnapshotRun,
-    contract: SnapshotMetricContract,
-    aggregate: HistoricalRun | None,
-) -> dict[str, Any]:
-    rows = [row for row in run.observations if row.metric_id == contract.metric_id]
-    if len(rows) != run.dataset.planned_count:
-        raise ProjectionError(f"{run.run_id}/{contract.metric_id}: denominator drift")
-    observed = sum(
-        row.status in {"success", "verified_fail"} and row.value is not None
-        for row in rows
-    )
-    missing = sum(row.status in {"missing", "no_output"} for row in rows)
-    invalid = len(rows) - observed - missing
-    definition, unit, direction = _metric_identity(run, contract, aggregate)
-    return {
-        "aggregation": contract.aggregation,
-        "definition_sha256": definition,
-        "denominator": {
-            "excluded_count": 0,
-            "observed_count": observed,
-            "planned_count": run.dataset.planned_count,
-            "unit": "cases",
-        },
-        "direction": direction,
-        "invalid_count": invalid,
-        "metric_id": contract.metric_id,
-        "missing_count": missing,
-        "state": "observed",
-        "uncertainty": None,
-        "unit": unit,
-        "value": _metric_value(contract, rows),
-        "zero_filled_count": 0,
-    }
 
 
 def _provenance(
@@ -363,14 +426,12 @@ def _owner_record(
     }
     payload = {
         "claim_eligible": False,
-        "evidence_tier": "legacy-evaluated",
+        "evidence_tier": "candidate",
         "experiment": _experiment(run, aggregate),
         "format": "magentabench-historical-record-v1",
         "kind": "run",
         "logical_key": f"h20-run-{_sha256(canonical_json_bytes(identity))}",
-        "metrics": [
-            _owner_metric(run, contract, aggregate) for contract in run.metrics
-        ],
+        "metrics": [],
         "parent_run_id": None,
         "provenance": provenance,
         "run_id": run.run_id,
@@ -498,16 +559,14 @@ def project_snapshot(
 ) -> dict[str, Any]:
     """Project one immutable snapshot into canonical historical records."""
 
-    if any(
-        len(value) != 40
-        or any(character not in "0123456789abcdef" for character in value)
-        for value in (source_commit, source_tree, source_blob)
-    ):
-        raise ProjectionError("source commit, tree, and blob must be full SHA-1 values")
-    if _git_blob_sha1(snapshot_bytes) != source_blob:
-        raise ProjectionError(
-            "source blob does not identify the supplied snapshot bytes"
-        )
+    _validate_snapshot_anchor(
+        snapshot,
+        snapshot_bytes,
+        project_root=project_root,
+        source_commit=source_commit,
+        source_tree=source_tree,
+        source_blob=source_blob,
+    )
     output_root = _prepare_output_root(output_root)
     normalizer_sha256 = _normalizer_sha256()
     source = HistoricalSource.model_validate(
@@ -646,8 +705,8 @@ def main(argv: list[str] | None = None) -> int:
                 "unit_count": snapshot.unit_count,
             }
         else:
-            snapshot_bytes = args.snapshot.read_bytes()
             snapshot = load_snapshot(args.snapshot)
+            snapshot_bytes = canonical_json_bytes(snapshot, newline=True)
             summary = project_snapshot(
                 snapshot,
                 snapshot_bytes=snapshot_bytes,

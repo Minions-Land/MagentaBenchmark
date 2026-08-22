@@ -3,8 +3,8 @@
   "format": "magentabench-historical-source-v1",
   "license_id": null,
   "license_status": "not-detected",
-  "normalizer_id": "h20-experimental-results-20260822.v1",
-  "normalizer_sha256": "bedbea0ece64c1de84868e0d8c0f22b8c0b2b874a585eab5051316c4dbace1d8",
+  "normalizer_id": "h20-experimental-results-20260822.v2",
+  "normalizer_sha256": "f77e2d249a18161f7eb7d36cb8057ad75fa30f76a8736e8c70db14f66b664d34",
   "publication_approval": {
     "approval_id": "github-issue-159",
     "approved_at": "2026-08-22",

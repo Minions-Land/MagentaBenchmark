@@ -1,0 +1,115 @@
+{
+  "claim_eligible": false,
+  "evidence_tier": "candidate",
+  "experiment": {
+    "benchmark": {
+      "id": "swebench-verified",
+      "name": "SWE-bench Verified",
+      "version": "historical-v5-five-case"
+    },
+    "comparability": {
+      "case_set_sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd",
+      "comparison_group": "swebench-verified-v5-five-case",
+      "evaluator_sha256": "748fe0b199e5212e413089631b6b7dbd06973a8a813be16ca399eb373c0d3835",
+      "protocol_sha256": "a3e8e1c262843acdfd9fb8b8272eea68536f5f35b03b78fc250756b2ab7aef55",
+      "status": "exact"
+    },
+    "dataset": {
+      "commit_sha": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "content_sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd",
+      "id": "swe-bench-verified-test-subset-v5",
+      "name": "SWE-bench Verified fixed five-case subset",
+      "split": "test",
+      "version": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+    },
+    "evaluator": {
+      "id": "swebench-official-harness",
+      "independent": true,
+      "kind": "deterministic",
+      "name": "SWE-bench official harness",
+      "version": "historical-v5"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": {
+        "max_cases": 5,
+        "max_cost_usd": null,
+        "max_tokens": null,
+        "max_wall_seconds": null
+      },
+      "case_count": 5,
+      "configuration_id": "swebench-verified-v5-historical",
+      "configuration_profiles": [
+        "magenta",
+        "ultra-thinking",
+        "verified5"
+      ],
+      "configuration_sha256": "66a899e0619dc8200a7068b1db8e20f3fe9a1ddf397b5d2b0609616182b87e8e",
+      "factors": [],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "host",
+      "mode": "local-process",
+      "network_policy": "unknown",
+      "order_policy": "fixed",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "swebench-verified-v5-five-case-20260716",
+    "harness": {
+      "configuration_sha256": "748fe0b199e5212e413089631b6b7dbd06973a8a813be16ca399eb373c0d3835",
+      "id": "swebench-official-harness",
+      "name": "SWE-bench official harness",
+      "protocol_id": "swebench-verified-v5-five-case",
+      "version": "2026-07-16"
+    },
+    "limitations": [
+      "five-case-subset",
+      "historical-not-bmp-verified",
+      "runtime-identity-unbound"
+    ],
+    "method": {
+      "id": "magenta-magenta-luna",
+      "name": "magenta-magenta-luna",
+      "subject_id": "magenta-magenta-luna",
+      "version": "v5"
+    },
+    "model": {
+      "id": "magenta-luna",
+      "name": "magenta-luna",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "run",
+  "logical_key": "h20-run-83a706ecf3c4e574d660e2b1c014295f73287200ceb96df5d0b09d77694c4b48",
+  "metrics": [],
+  "parent_run_id": null,
+  "provenance": [
+    {
+      "content_sha256": "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+      },
+      "path": "imports/h20-experimental-results-20260822/source_snapshot.json",
+      "role": "result",
+      "size_bytes": 703813
+    }
+  ],
+  "record_id": "163250a121bbd8454fa71c236a0572ce1d4063a79f33a9589b071675c1bb0c75",
+  "run_id": "swebench-verified-v5-magenta-luna",
+  "source_id": "h20-experimental-results-20260822",
+  "source_snapshot_sha256": "ade3a4834e4bcd4606251f7bcadee32b9dae014c2621aac199346cf592c63cde",
+  "supersedes": [],
+  "terminal_state": "completed"
+}

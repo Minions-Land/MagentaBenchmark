@@ -14,10 +14,12 @@ can derive a claim.
 
 ## H20 catalog snapshot (Issue #159)
 
-The authoritative H20/NAS input is the validated catalog at
-`/mnt/aliyunsb/ProjectManagement/.experimentalResults`. It is read-only
-external evidence, not a Git checkout. The accepted inventory is 197 files and
-4,355,698 bytes with catalog digest
+The authoritative H20/NAS input is the validated catalog resolved by the
+operator as `$BMP_H20_RESULTS_ROOT`. The variable must name the read-only
+catalog root outside the public checkout; its host-specific value is not part
+of the repository contract. The catalog is external evidence, not a Git
+checkout. The accepted inventory is 197 files and 4,355,698 bytes with catalog
+digest
 `6eaacb5c6b9437dfd00a7fdae1b64da888e4ff512ec8712739568a4cfa153b90`.
 Only the 145 structured fact files and four schemas are consumed; generated
 views, README files, `.audit`, and views are not evidence inputs.
@@ -32,27 +34,28 @@ bytes; `git cat-file blob 89dd5d9e...` recovers the exact input. The final
 `source.json` and every imported record point to that content-addressed Git
 object, never to an absolute NAS path.
 
-The import adds 30 owning historical runs and 2,360 unit results (2,390
+The import adds 30 candidate owner records and 2,360 unit results (2,390
 records):
 
-| Benchmark | Owning runs | Unit rows | Unit statuses |
+| Benchmark | Candidate owner envelopes | Unit rows | Unit statuses |
 | --- | ---: | ---: | --- |
 | BiomniBench-DA | 10 | 1,500 | 1,119 success; 381 verified-fail |
 | CMTBench | 8 | 800 | 214 success; 574 verified-fail; 12 invalid-output |
 | SWE-bench Verified | 12 | 60 | 47 success; 11 verified-fail; 2 no-output |
 | NatureBench | 0 (existing records reused) | 0 | aggregate/declaration only |
 
-The 30 owners contain 58 explicit aggregate metric rows because the existing
-historical contract requires a valued `HistoricalRun` owner. These are
-reconciliation rows, not an additional task population: select
-`result_granularity=unit` (or a non-null `source_run_record_id`) for task-level
-tables. Consequently the final legacy ledger has 2,837 observations:
-419 existing + 58 owner aggregates + 2,360 unit rows. The paper task table has
-2,360 new unit rows. Never add owner and unit populations together.
+Each of the 30 owners is a `candidate` identity envelope with `metrics=[]`. It
+binds the source run and complete experiment conditions referenced by its unit
+records, but it emits no ledger observation and carries no aggregate result.
+The final legacy ledger therefore has 2,779 observations: 419 existing
+observations plus 2,360 new unit rows. The paper task table has the same 2,360
+new unit rows.
 
-All imported records are `legacy-evaluated`, `verification_status=unverified`,
-and `claim_eligible=false`. CMT/Biomni rows are derived non-claim views;
-SWE rows retain the historical official-harness class and code commit
+All 2,390 imported records have `claim_eligible=false`. The 2,360 unit results
+are `legacy-evaluated` with `verification_status=unverified`; the 30 candidate
+owners do not contain metrics or verification claims. CMT/Biomni unit rows are
+derived non-claim views; SWE unit rows retain the historical official-harness
+class and code commit
 `174590db9b51b61ace9270dbf1f24d4364c6c640`. Unit denominators are always one;
 negative, invalid, and no-output outcomes remain explicit. No raw answers,
 prompts, gold data, traces, logs, host paths, commands, credentials, or report

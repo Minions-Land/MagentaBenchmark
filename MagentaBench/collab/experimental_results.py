@@ -665,32 +665,158 @@ def _selected_run(benchmark_id: str, run_id: str) -> bool:
     return benchmark_id == "swebench-verified"
 
 
-def _aggregate_records(project_root: Path) -> dict[str, str]:
+def _aggregate_records(project_root: Path) -> dict[str, dict[str, Any]]:
     directories = (
         project_root / "imports" / "aosebench-biomnibench-da-def4dae7" / "records",
         project_root / "imports" / "minionsos2-cmtbench-150fa10" / "records",
     )
-    records: dict[str, str] = {}
+    records: dict[str, dict[str, Any]] = {}
     for directory in directories:
         for path in sorted(directory.glob("*.json")):
-            document = _load_json_bytes(path.read_bytes(), relative=path.name)
+            relative = path.relative_to(project_root).as_posix()
+            document = _load_json_bytes(
+                _read_regular_file(path, relative=relative), relative=relative
+            )
             if isinstance(document, dict) and document.get("kind") == "run":
-                records[str(document["logical_key"])] = str(document["record_id"])
+                logical_key = _required_string(
+                    document.get("logical_key"), relative=relative
+                )
+                _required_string(document.get("record_id"), relative=relative)
+                if logical_key in records:
+                    raise ExperimentalResultsError(
+                        f"{relative}: aggregate logical key is duplicated"
+                    )
+                records[logical_key] = document
     return records
 
 
+def _recomputed_metric_value(
+    contract: SnapshotMetricContract,
+    observations: list[SnapshotObservation],
+    *,
+    planned_count: int,
+    relative: str,
+) -> float:
+    rows = [item for item in observations if item.metric_id == contract.metric_id]
+    if len(rows) != planned_count:
+        raise ExperimentalResultsError(
+            f"{relative}: reconciliation population is incomplete"
+        )
+    values = [
+        float(item.value)
+        for item in rows
+        if item.status in contract.value_statuses and item.value is not None
+    ]
+    if not values:
+        raise ExperimentalResultsError(
+            f"{relative}: reconciliation population has no numeric values"
+        )
+    if contract.aggregation in {"mean", "rate"}:
+        denominators = {
+            "planned_units": planned_count,
+            "observed_units": sum(
+                item.status in contract.value_statuses for item in rows
+            ),
+            "numeric_units": len(values),
+        }
+        denominator = denominators.get(contract.denominator)
+        if denominator is None or denominator <= 0:
+            raise ExperimentalResultsError(
+                f"{relative}: reconciliation denominator is invalid"
+            )
+        result = sum(values) / denominator
+    elif contract.aggregation == "sum":
+        result = sum(values)
+    elif contract.aggregation == "minimum":
+        result = min(values)
+    elif contract.aggregation == "maximum":
+        result = max(values)
+    elif contract.aggregation == "median":
+        ordered = sorted(values)
+        middle = len(ordered) // 2
+        result = (
+            ordered[middle]
+            if len(ordered) % 2
+            else (ordered[middle - 1] + ordered[middle]) / 2
+        )
+    else:  # pragma: no cover - the literal model closes this branch
+        raise ExperimentalResultsError(
+            f"{relative}: reconciliation aggregation is unsupported"
+        )
+    if not math.isfinite(result):
+        raise ExperimentalResultsError(
+            f"{relative}: reconciliation result is not finite"
+        )
+    return result
+
+
 def _metric_reconciliation(
-    benchmark_id: str, run_id: str, metric_id: str
+    contract: SnapshotMetricContract,
+    observations: list[SnapshotObservation],
+    *,
+    planned_count: int,
+    aggregate: dict[str, Any] | None,
+    relative: str,
 ) -> Literal["matched", "not-compared"] | None:
-    if benchmark_id == "swebench-verified":
+    if aggregate is None:
         return None
-    if benchmark_id == "cmtbench":
-        return "matched"
-    if metric_id == "judge-success-rate" or (
-        run_id == "biomnibench-da-xhigh-cellvoyager-task-matrix"
-        and metric_id in {"score-mean", "score-median"}
-    ):
+    metrics = aggregate.get("metrics")
+    if not isinstance(metrics, list):
+        raise ExperimentalResultsError(
+            f"{relative}: aggregate metric population is invalid"
+        )
+    matches = [
+        item
+        for item in metrics
+        if isinstance(item, dict) and item.get("metric_id") == contract.metric_id
+    ]
+    if not matches:
         return "not-compared"
+    if len(matches) != 1:
+        raise ExperimentalResultsError(
+            f"{relative}: aggregate metric identity is duplicated"
+        )
+    metric = matches[0]
+    direction = {
+        "maximize": "higher-is-better",
+        "minimize": "lower-is-better",
+        "descriptive": "neutral",
+    }[contract.direction]
+    if (
+        metric.get("unit") != contract.unit
+        or metric.get("direction") != direction
+        or metric.get("aggregation") != contract.aggregation
+    ):
+        raise ExperimentalResultsError(
+            f"{relative}: aggregate metric semantics differ from unit contract"
+        )
+    denominator = metric.get("denominator")
+    if (
+        not isinstance(denominator, dict)
+        or denominator.get("planned_count") != planned_count
+    ):
+        raise ExperimentalResultsError(
+            f"{relative}: aggregate denominator differs from unit population"
+        )
+    value = metric.get("value")
+    if metric.get("state") != "observed" or value is None:
+        return "not-compared"
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+    ):
+        raise ExperimentalResultsError(f"{relative}: aggregate metric value is invalid")
+    recomputed = _recomputed_metric_value(
+        contract,
+        observations,
+        planned_count=planned_count,
+        relative=relative,
+    )
+    if not math.isclose(recomputed, float(value), rel_tol=0.0, abs_tol=1e-12):
+        raise ExperimentalResultsError(
+            f"{relative}: aggregate metric value differs from unit population"
+        )
     return "matched"
 
 
@@ -699,7 +825,7 @@ def _run_fact(
     benchmark_id: str,
     run_path: Path,
     validators: dict[str, Any],
-    aggregate_records: dict[str, str],
+    aggregate_records: dict[str, dict[str, Any]],
 ) -> SnapshotRun | None:
     run_identity, run_bytes = _file_identity(root, run_path)
     run = _load_json_bytes(run_bytes, relative=run_identity.path)
@@ -789,9 +915,7 @@ def _run_fact(
                     allowed=_METRIC_DENOMINATORS,
                 ),
                 value_statuses=tuple(sorted(value_statuses)),
-                aggregate_reconciliation_status=_metric_reconciliation(
-                    benchmark_id, run_id, metric_id
-                ),
+                aggregate_reconciliation_status=None,
             )
         )
 
@@ -846,13 +970,31 @@ def _run_fact(
         )
 
     base_logical_key = run_id.removesuffix("-task-matrix")
+    aggregate: dict[str, Any] | None = None
     aggregate_record_id = None
     if benchmark_id != "swebench-verified":
-        aggregate_record_id = aggregate_records.get(base_logical_key)
-        if aggregate_record_id is None:
+        aggregate = aggregate_records.get(base_logical_key)
+        if aggregate is None:
             raise ExperimentalResultsError(
                 f"{run_identity.path}: aggregate crosswalk is missing"
             )
+        aggregate_record_id = _required_string(
+            aggregate.get("record_id"), relative=run_identity.path
+        )
+    contracts = [
+        contract.model_copy(
+            update={
+                "aggregate_reconciliation_status": _metric_reconciliation(
+                    contract,
+                    observations,
+                    planned_count=planned,
+                    aggregate=aggregate,
+                    relative=f"{run_identity.path}/{contract.metric_id}",
+                )
+            }
+        )
+        for contract in contracts
+    ]
 
     evidence_class: EvidenceClass = (
         "historical-official-harness-report"
