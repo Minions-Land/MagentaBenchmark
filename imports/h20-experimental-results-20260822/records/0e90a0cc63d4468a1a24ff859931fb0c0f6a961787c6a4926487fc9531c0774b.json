@@ -1,0 +1,167 @@
+{
+  "aggregate_reconciliation_status": "matched",
+  "aggregate_run_record_id": "76e26fac57e662fbf73fd2bafef4dd4f9ad48bf20a92dac77bdbae5e720816b8",
+  "attempt_id": "task-matrix",
+  "claim_eligible": false,
+  "code_commit": null,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "biomnibench-da",
+      "name": "BiomniBench DA",
+      "version": "snapshot-def4dae7"
+    },
+    "comparability": {
+      "case_set_sha256": "2768c95a9abb676078c62e9dcf2c2b001fc5f60f67ae959776d820c6418b74ba",
+      "comparison_group": "biomnibench-da-official-rubric-20260716",
+      "evaluator_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "protocol_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": "2768c95a9abb676078c62e9dcf2c2b001fc5f60f67ae959776d820c6418b74ba",
+      "id": "biomnibench-da-50",
+      "name": "BiomniBench DA 50-case test set",
+      "split": "test",
+      "version": "task-matrix-20260819"
+    },
+    "evaluator": {
+      "id": "biomnibench-da-rubric-judge",
+      "independent": true,
+      "kind": "model",
+      "name": "BiomniBench DA rubric judge",
+      "version": "snapshot-def4dae7"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "h20-task-matrix-projector-v1",
+      "configuration_profiles": [
+        "default",
+        "task-matrix-projector-v1"
+      ],
+      "configuration_sha256": "d99f685de4d5410fc8d744c741fa690a715a29c222662bef8ac18d2fd4c16344",
+      "factors": [
+        {
+          "id": "dataset-byte-count",
+          "unit": "bytes",
+          "value": 82946366733
+        },
+        {
+          "id": "dataset-file-count",
+          "unit": "files",
+          "value": 463
+        },
+        {
+          "id": "reasoning-effort",
+          "unit": null,
+          "value": "default"
+        },
+        {
+          "id": "task-memory-profile",
+          "unit": null,
+          "value": "mixed"
+        },
+        {
+          "id": "task-storage-profile",
+          "unit": null,
+          "value": "mixed"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "container",
+      "mode": "docker",
+      "network_policy": "unknown",
+      "order_policy": "source-defined",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "biomnibench-da-official-20260716",
+    "harness": {
+      "configuration_sha256": "700fc06085831998a71f2990fa227c748684ad3dbc06851d592290c2947d653a",
+      "id": "biomnibench-da-rubric-judge",
+      "name": "BiomniBench DA rubric judge",
+      "protocol_id": "biomnibench-da-rubric-judge.v1",
+      "version": "snapshot-def4dae7"
+    },
+    "limitations": [
+      "budget-unbound",
+      "derived-task-level-owner",
+      "image-digest-unbound",
+      "legacy-not-bmp-verified",
+      "mixed-task-memory-profile",
+      "mixed-task-storage-profile",
+      "model-identity-redacted",
+      "no-run-repetitions",
+      "protocol-digest-inherited-from-approved-aggregate",
+      "provider-identity-redacted",
+      "source-owner-no-summary-metrics",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "codexcli",
+      "name": "CodexCLI",
+      "subject_id": "codexcli",
+      "version": null
+    },
+    "model": null,
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "unit-result",
+  "logical_key": "h20-unit-754b5ff170ce04afa8811b3ce728d41956d5a1cf536c4059353df6e70a54a43b",
+  "metric": {
+    "aggregation": "none",
+    "definition_sha256": "a50661abeea6e003d3ae1566277e117f10205da8a76dcfdc5e14e31b31827fe6",
+    "denominator": {
+      "excluded_count": 0,
+      "observed_count": 1,
+      "planned_count": 1,
+      "unit": "cases"
+    },
+    "direction": "higher-is-better",
+    "invalid_count": 0,
+    "metric_id": "score-median",
+    "missing_count": 0,
+    "state": "observed",
+    "uncertainty": null,
+    "unit": "points",
+    "value": 58.0,
+    "zero_filled_count": 0
+  },
+  "provenance": [
+    {
+      "content_sha256": "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+      },
+      "path": "imports/h20-experimental-results-20260822/source_snapshot.json",
+      "role": "result",
+      "size_bytes": 703813
+    }
+  ],
+  "record_id": "0e90a0cc63d4468a1a24ff859931fb0c0f6a961787c6a4926487fc9531c0774b",
+  "result_reason": "official-evaluator-success",
+  "result_status": "success",
+  "source_evidence_class": "derived-non-claim-view",
+  "source_id": "h20-experimental-results-20260822",
+  "source_run_id": "biomnibench-da-default-codexcli-task-matrix",
+  "source_run_record_id": "21a80ebef50ea5fd39fb3fd3a4d33ad315aa19f322277357cae035505f5e7752",
+  "source_snapshot_sha256": "ade3a4834e4bcd4606251f7bcadee32b9dae014c2621aac199346cf592c63cde",
+  "supersedes": [],
+  "terminal_state": "completed",
+  "unit_id": "da-20-3",
+  "unit_kind": "task",
+  "verification_status": "unverified"
+}

@@ -1,0 +1,148 @@
+{
+  "aggregate_reconciliation_status": "matched",
+  "aggregate_run_record_id": "0b772cccbff8016920735fe35e73bd7ae37d03d239406eb671586463ee7461b9",
+  "attempt_id": "task-matrix",
+  "claim_eligible": false,
+  "code_commit": null,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "cmtbench",
+      "name": "CMTBench",
+      "version": "2026-07-08"
+    },
+    "comparability": {
+      "case_set_sha256": "453bd8d9848cff29b1ff0973245bebf94f57282dd17fc9db6f6ef69cee6489a3",
+      "comparison_group": "cmtbench-corrected-regrade-20260708",
+      "evaluator_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "protocol_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": "453bd8d9848cff29b1ff0973245bebf94f57282dd17fc9db6f6ef69cee6489a3",
+      "id": "cmtbench-50",
+      "name": "CMTBench 50-task set",
+      "split": "test",
+      "version": "task-matrix-20260819"
+    },
+    "evaluator": {
+      "id": "cmt-official-eval-format-repair-v1",
+      "independent": true,
+      "kind": "deterministic",
+      "name": "CMT official evaluator with deterministic format repair",
+      "version": "1"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "h20-task-matrix-projector-v1",
+      "configuration_profiles": [
+        "task-matrix-projector-v1"
+      ],
+      "configuration_sha256": "d99f685de4d5410fc8d744c741fa690a715a29c222662bef8ac18d2fd4c16344",
+      "factors": [
+        {
+          "id": "regrade-pipeline",
+          "unit": null,
+          "value": "cmt-official-eval-format-repair-v1"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "unknown",
+      "mode": "unknown",
+      "network_policy": "unknown",
+      "order_policy": "unknown",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "cmtbench-corrected-regrade-20260708",
+    "harness": {
+      "configuration_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "id": "cmt-official-eval-format-repair-v1",
+      "name": "CMT official evaluator with deterministic format repair",
+      "protocol_id": "cmt-official-eval-format-repair.v1",
+      "version": "1"
+    },
+    "limitations": [
+      "derived-task-level-owner",
+      "evaluator-upstream-unbound",
+      "legacy-not-bmp-verified",
+      "mixed-run-configuration",
+      "model-revision-unbound",
+      "protocol-digest-inherited-from-approved-aggregate",
+      "resource-accounting-provider-specific",
+      "source-owner-no-summary-metrics",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "purellm",
+      "name": "purellm",
+      "subject_id": "purellm",
+      "version": null
+    },
+    "model": {
+      "id": "gpt-5.5",
+      "name": "gpt-5.5",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "unit-result",
+  "logical_key": "h20-unit-e212f1c797a1bfc99a2895046d26624ed14ce6bafdcc795d76218e75e2dccf7b",
+  "metric": {
+    "aggregation": "none",
+    "definition_sha256": "b0b3533aabd1f4dfaaa8210aa998a578b6fdea74964bdd4d9ba25a6ede3f2b1c",
+    "denominator": {
+      "excluded_count": 0,
+      "observed_count": 1,
+      "planned_count": 1,
+      "unit": "cases"
+    },
+    "direction": "higher-is-better",
+    "invalid_count": 0,
+    "metric_id": "adopted-accuracy",
+    "missing_count": 0,
+    "state": "observed",
+    "uncertainty": null,
+    "unit": "fraction",
+    "value": 1,
+    "zero_filled_count": 0
+  },
+  "provenance": [
+    {
+      "content_sha256": "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+      },
+      "path": "imports/h20-experimental-results-20260822/source_snapshot.json",
+      "role": "result",
+      "size_bytes": 703813
+    }
+  ],
+  "record_id": "fd01d982a372386a7e32f01519b52efd3a3c145aaaea83c53d2783d85b543f5e",
+  "result_reason": "official-evaluator-success",
+  "result_status": "success",
+  "source_evidence_class": "derived-non-claim-view",
+  "source_id": "h20-experimental-results-20260822",
+  "source_run_id": "cmtbench-20260708-purellm-task-matrix",
+  "source_run_record_id": "1d1dc52cc6d949d7071878bfd8e4d65edf25a3d4d052cb205ed2aaf58bc6cafe",
+  "source_snapshot_sha256": "ade3a4834e4bcd4606251f7bcadee32b9dae014c2621aac199346cf592c63cde",
+  "supersedes": [],
+  "terminal_state": "completed",
+  "unit_id": "ED/022",
+  "unit_kind": "question",
+  "verification_status": "unverified"
+}

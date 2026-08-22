@@ -15,14 +15,16 @@ header as byte-compatible with v1.
 Run from a clean, pinned checkout with the locked environment:
 
 ```bash
-uv run --frozen python -m MagentaBench.collab.paper_table \
-  --project-root . --format markdown > /mnt/aliyunsb/paper-table.md
+: "${BMP_PAPER_OUTPUT_DIR:?set to an existing writable export directory}"
 
 uv run --frozen python -m MagentaBench.collab.paper_table \
-  --project-root . --format csv > /mnt/aliyunsb/paper-table.csv
+  --project-root . --format markdown > "$BMP_PAPER_OUTPUT_DIR/paper-table.md"
 
 uv run --frozen python -m MagentaBench.collab.paper_table \
-  --project-root . --format json > /mnt/aliyunsb/paper-table.json
+  --project-root . --format csv > "$BMP_PAPER_OUTPUT_DIR/paper-table.csv"
+
+uv run --frozen python -m MagentaBench.collab.paper_table \
+  --project-root . --format json > "$BMP_PAPER_OUTPUT_DIR/paper-table.json"
 ```
 
 For a reproducible appendix subset, repeat a selector rather than editing the
@@ -71,6 +73,17 @@ outcome, and optional aggregate link rather than collapsing into a summary.
 For task-level analysis, select `result_granularity=unit`; use linked aggregate
 rows only as reconciliation evidence so the same source outcomes are not
 counted twice.
+
+For the H20 Issue #159 import, this selector yields exactly 2,360 rows: 1,500
+BiomniBench-DA, 800 CMTBench, and 60 SWE-bench Verified. The full legacy
+ledger has 2,779 observations: 419 existing observations plus those 2,360 unit
+rows. The import's 30 candidate owners are identity envelopes with
+`metrics=[]`, so they appear in the catalog but emit no ledger observation.
+NatureBench contributes its existing aggregate/declaration rows and no new
+task rows. The five-case SWE-bench denominator remains five even though the
+public population is 500. `BiomeBench` and `BioML-Bench` have no authoritative
+H20 task source and must not be inferred into this table. All 2,390 Issue #159
+records have `claim_eligible=false`.
 `row_kind=run` rows preserve failed, non-terminal, or report-less attempts that
 have no observation. Declaration-only designs are intentionally left in the
 ledger's `experiments` and `catalog` tables rather than presented as results.
