@@ -1,0 +1,147 @@
+{
+  "aggregate_reconciliation_status": "matched",
+  "aggregate_run_record_id": "954e315698e85403452fbacd4e752b22f70e7cfc598bb1d204615a12872ee01e",
+  "attempt_id": "task-matrix",
+  "claim_eligible": false,
+  "code_commit": null,
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "cmtbench",
+      "name": "CMTBench",
+      "version": "2026-07-08"
+    },
+    "comparability": {
+      "case_set_sha256": "453bd8d9848cff29b1ff0973245bebf94f57282dd17fc9db6f6ef69cee6489a3",
+      "comparison_group": "cmtbench-corrected-regrade-20260708",
+      "evaluator_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "protocol_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "status": "conditional"
+    },
+    "dataset": {
+      "commit_sha": null,
+      "content_sha256": null,
+      "id": "cmtbench-50",
+      "name": "CMTBench 50-task set",
+      "split": "test",
+      "version": "snapshot-150fa10"
+    },
+    "evaluator": {
+      "id": "cmt-official-eval-format-repair-v1",
+      "independent": true,
+      "kind": "deterministic",
+      "name": "CMT official evaluator with deterministic format repair",
+      "version": "1"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": null,
+      "case_count": 50,
+      "configuration_id": "h20-task-matrix-projector-v1",
+      "configuration_profiles": [
+        "task-matrix-projector-v1"
+      ],
+      "configuration_sha256": "d99f685de4d5410fc8d744c741fa690a715a29c222662bef8ac18d2fd4c16344",
+      "factors": [
+        {
+          "id": "regrade-pipeline",
+          "unit": null,
+          "value": "cmt-official-eval-format-repair-v1"
+        }
+      ],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "unknown",
+      "mode": "unknown",
+      "network_policy": "unknown",
+      "order_policy": "unknown",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "cmtbench-corrected-regrade-20260708",
+    "harness": {
+      "configuration_sha256": "723e2f453f3199d73b9b7e8bd24054d0813a9c927d3a5880c529ad7fdf20f6bb",
+      "id": "cmt-official-eval-format-repair-v1",
+      "name": "CMT official evaluator with deterministic format repair",
+      "protocol_id": "cmt-official-eval-format-repair.v1",
+      "version": "1"
+    },
+    "limitations": [
+      "dataset-revision-unbound",
+      "derived-task-level-owner",
+      "evaluator-upstream-unbound",
+      "legacy-not-bmp-verified",
+      "mixed-run-configuration",
+      "model-revision-unbound",
+      "resource-accounting-provider-specific",
+      "source-private-approved-projection"
+    ],
+    "method": {
+      "id": "purellm_gpt54",
+      "name": "purellm_gpt54",
+      "subject_id": "purellm_gpt54",
+      "version": null
+    },
+    "model": {
+      "id": "gpt-5.4",
+      "name": "gpt-5.4",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "unit-result",
+  "logical_key": "h20-unit-cf8c448ae1abf33d4b1493bac3e05f81e7ae4578b4c9834ee6ce66f5896bba15",
+  "metric": {
+    "aggregation": "none",
+    "definition_sha256": "b0b3533aabd1f4dfaaa8210aa998a578b6fdea74964bdd4d9ba25a6ede3f2b1c",
+    "denominator": {
+      "excluded_count": 0,
+      "observed_count": 1,
+      "planned_count": 1,
+      "unit": "cases"
+    },
+    "direction": "higher-is-better",
+    "invalid_count": 0,
+    "metric_id": "adopted-accuracy",
+    "missing_count": 0,
+    "state": "observed",
+    "uncertainty": null,
+    "unit": "fraction",
+    "value": 0,
+    "zero_filled_count": 0
+  },
+  "provenance": [
+    {
+      "content_sha256": "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+      },
+      "path": "imports/h20-experimental-results-20260822/source_snapshot.json",
+      "role": "result",
+      "size_bytes": 703813
+    }
+  ],
+  "record_id": "9e0f9419dd96eb974bde955d435a26b66ef6e10b869ea4a003786b78b1a3131e",
+  "result_reason": "official-evaluator-verified-failure",
+  "result_status": "verified_fail",
+  "source_evidence_class": "derived-non-claim-view",
+  "source_id": "h20-experimental-results-20260822",
+  "source_run_id": "cmtbench-20260708-purellm-gpt54-task-matrix",
+  "source_run_record_id": "1c306d364830458c56bd0c003e9f68296f39c13706693b6761f0858efacc54ce",
+  "source_snapshot_sha256": "2409cbbf360b7cbd384ff6246d639a65d5a0ecb84d3e06353b90462e1e06392f",
+  "supersedes": [],
+  "terminal_state": "completed",
+  "unit_id": "Other/037",
+  "unit_kind": "question",
+  "verification_status": "unverified"
+}

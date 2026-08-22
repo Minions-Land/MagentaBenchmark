@@ -5,21 +5,69 @@ It records source identity, recoverability, and claim boundaries; it is not a
 leaderboard, a progress board, or a second execution procedure. Repository
 workflow is defined once in [`OPERATING_GUIDE.md`](OPERATING_GUIDE.md).
 
-The publication decision is GitHub Issue #135. Its task-level view is PR #136.
-Every row in that view is explicitly `claim_eligible=false`; only a standalone
+The baseline publication decision is GitHub Issue #135, with its task-level
+view in PR #136. Issue #159 is the later H20 catalog import decision recorded
+below; it extends the typed inventory without changing the baseline claim
+boundary. Every row in either view is explicitly `claim_eligible=false`; only a standalone
 BMP report followed by `bmp-verify-report`, `bmp-lab link-run`, and the ledger
 can derive a claim.
+
+## H20 catalog snapshot (Issue #159)
+
+The authoritative H20/NAS input is the validated catalog at
+`/mnt/aliyunsb/ProjectManagement/.experimentalResults`. It is read-only
+external evidence, not a Git checkout. The accepted inventory is 197 files and
+4,355,698 bytes with catalog digest
+`6eaacb5c6b9437dfd00a7fdae1b64da888e4ff512ec8712739568a4cfa153b90`.
+Only the 145 structured fact files and four schemas are consumed; generated
+views, README files, `.audit`, and views are not evidence inputs.
+
+The sanitized, typed snapshot is retained in Git history at commit
+`4dd8c0bd7786899434d1d01c625df6a9f5205ba1`, tree
+`0bcf574c47f50a1cb27296b6202ec601449f9610`, blob
+`89dd5d9e1250a289c3e5547bac911e7a3cc7198e`, SHA-256
+`39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0`,
+703,813 bytes. The working tree intentionally does not retain the snapshot
+bytes; `git cat-file blob 89dd5d9e...` recovers the exact input. The final
+`source.json` and every imported record point to that content-addressed Git
+object, never to an absolute NAS path.
+
+The import adds 30 owning historical runs and 2,360 unit results (2,390
+records):
+
+| Benchmark | Owning runs | Unit rows | Unit statuses |
+| --- | ---: | ---: | --- |
+| BiomniBench-DA | 10 | 1,500 | 1,119 success; 381 verified-fail |
+| CMTBench | 8 | 800 | 214 success; 574 verified-fail; 12 invalid-output |
+| SWE-bench Verified | 12 | 60 | 47 success; 11 verified-fail; 2 no-output |
+| NatureBench | 0 (existing records reused) | 0 | aggregate/declaration only |
+
+The 30 owners contain 58 explicit aggregate metric rows because the existing
+historical contract requires a valued `HistoricalRun` owner. These are
+reconciliation rows, not an additional task population: select
+`result_granularity=unit` (or a non-null `source_run_record_id`) for task-level
+tables. Consequently the final legacy ledger has 2,837 observations:
+419 existing + 58 owner aggregates + 2,360 unit rows. The paper task table has
+2,360 new unit rows. Never add owner and unit populations together.
+
+All imported records are `legacy-evaluated`, `verification_status=unverified`,
+and `claim_eligible=false`. CMT/Biomni rows are derived non-claim views;
+SWE rows retain the historical official-harness class and code commit
+`174590db9b51b61ace9270dbf1f24d4364c6c640`. Unit denominators are always one;
+negative, invalid, and no-output outcomes remain explicit. No raw answers,
+prompts, gold data, traces, logs, host paths, commands, credentials, or report
+contents are copied.
 
 ## Authority Table
 
 | Benchmark | Fixed source and records | Observed state | Binding gap | Safe next action |
 | --- | --- | --- | --- | --- |
-| CMTBench | `Minions-Land/MinionsOS2-Bench@150fa100ead4ab51acdfc24ed246a8c5b2141466`, tree `3deaec22a778564ae37cbea396765268f959fee5`; `experiment_logs/cmt_bench/evaluation/regrade_reports/20260708-162616/per_answer_regrade.csv`, blob `88fc2f305f97ef1fcaab247602eb20c948c17945`, 221376 bytes, SHA-256 `cde0aa20311f255fcc4892d69ec0b58702d16f8e27473481276c2cdad4cdcbad` | 50 task rows, 8 methods; adopted verdicts and unresolved outcomes are preserved | No BMP run, model/source commit, runtime identity, durable record root, or standalone report | Keep as a typed historical projection; materialize a fresh BMP run before promotion |
-| BiomniBench DA | `Minions-Land/AOSEBench@def4dae7520807d254612b3590eb32b9aa977924`, tree `50e8fe57a14d8f4c89b8357ab91827fe8bfe60ee`; default summary blob `0e5d4e04c830b60d1a54b5f4f0171e1c96382c5f`, 35972 bytes, SHA-256 `af5b16706bf758b79c090ecab73df46d3a23cc1defe6917839a5871b7dd54f5d`; xhigh blob `68e7f39dd8692c904a3a8cc775b5bef2f50b0648`, 37959 bytes, SHA-256 `1d587f28659a5fc026f8d0b6c14e6ef361991484d24d22cf59725afeee117373` | 50 task rows, 10 method/regime columns; scores, no-output, and failures remain visible | Historical judge summaries are not BMP reports and do not bind model/runtime/record root | Compare only as legacy evidence; re-run through a preregistered bundle for claims |
-| NatureBench | `Minions-Land/AOSEBench-NatureBench@4b512029f3ad37746502ce377e4fcc2027fd46db`, tree `e11636f88a5d74e9cb4dcaa06518b9a3a71c87ea`; `manifests/tasks.tsv`, blob `f5821c63e3575fefb501c6e02d3c5cfeddf91cfb`, 5829 bytes, SHA-256 `24d667df9d14a433a460a6115e6c4c24e8d6b7186cc2c528be648c199f7dfc09`; `task-set/cellomics.txt`, blob `18c02dafc5759479c2d91904402b6ce3099e1cd9`, 589 bytes, SHA-256 `10020a26ab2c5d510a916a72db668123396555ec5352661d79f856370f084ac2` | 31 declaration rows; no completed result file exists at the pinned snapshot | H20 dirty CSV has no run/provenance binding and remains quarantine-only | Do not import the CSV; freeze and verify a new source/run if an owner authorizes it |
+| CMTBench | H20 catalog task matrix: `Minions-Land/MagentaBenchmark@3d799a7a4cb274d863a8d00f60048fb2cbc10985`, tree `62597410d42b95eab3cef47f98187c9a89f9f880`; source report SHA-256 `ca29ec764092b99e16226f35e05328e461d0eaea4df6879d7c675edd0570565f`, 179065 bytes | 8 owning runs, 800 unit rows; adopted verdicts and invalid outcomes are preserved | No BMP standalone report or live runtime binding | Keep as typed historical projection; materialize a fresh BMP run before promotion |
+| BiomniBench DA | H20 catalog task matrix: `Minions-Land/MagentaBenchmark@3d799a7a4cb274d863a8d00f60048fb2cbc10985`, tree `62597410d42b95eab3cef47f98187c9a89f9f880`; source report SHA-256 `ca29ec764092b99e16226f35e05328e461d0eaea4df6879d7c675edd0570565f`, 179065 bytes | 10 owning runs, 1500 unit rows; scores, failures, and explicit non-claim outcomes remain visible | Historical judge summaries are not BMP reports and do not bind a live record root | Compare only as legacy evidence; re-run through a preregistered bundle for claims |
+| NatureBench | Existing typed import `Minions-Land/AOSEBench-NatureBench@4b512029f3ad37746502ce377e4fcc2027fd46db`; no new H20 task rows | Existing 8 runs and 12 aggregate observations are reused | No new task-level H20 result source | Keep existing declarations/aggregates; do not duplicate them |
 | BioML-Bench | `Minions-Land/MinionsOS_Paper` revision hint `48173d1`; no immutable source snapshot or publication decision | 8 declaration rows, `external-unavailable`, no numeric result | Dataset, evaluator, and source bytes are unresolved | Keep declaration-only; open a separate source-discovery issue |
 | BiomeBench | No authoritative H20/NAS source, dataset revision, or evaluator located | No rows or result asserted | Identity is unresolved and must not be inferred from BiomniBench or BioML-Bench | Open a separate discovery issue; do not create a metric row |
-| SWE-bench Verified | H20 input lead: HF revision `03e151cf5560b1af6a4363c6a9d766deaaea6b56`, `test`, 500 cases; parquet SHA-256 `bb5b123d29ce70107cc0951cf444894241c570a11d76aec452332c65b01e06d8`, 2480309 bytes | Input-only snapshot; no predictions or official report. The checked-in row is a one-case SWE-bench Lite exploratory probe, not Verified | No Verified model/source binding, evaluator output, run ID, record root, or per-case report | Keep both leads non-claim; a Verified run needs a frozen bundle, official verifier, and fresh root |
+| SWE-bench Verified | H20 catalog official-harness subset: 5 fixed instances from population 500; dataset digest `a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd`; evaluator digest `748fe0b199e5212e413089631b6b7dbd06973a8a813be16ca399eb373c0d3835` | 12 owning runs, 60 unit rows; denominator is five per run, with 47 success, 11 verified-fail, and 2 no-output | Historical reports are not current BMP claims; no fresh Supervisor binding | Keep as non-claim historical evidence; a new claim needs a frozen bundle, official verifier, and fresh root |
 
 The source descriptor digest for the approved NatureBench typed projection is
 `8e054ded30897f7ef7a44bf26f8535db24773040c40c7dd0a45386716756377e`. The

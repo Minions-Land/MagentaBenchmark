@@ -1,0 +1,25 @@
+{
+  "commit_sha": "4dd8c0bd7786899434d1d01c625df6a9f5205ba1",
+  "format": "magentabench-historical-source-v1",
+  "license_id": null,
+  "license_status": "not-detected",
+  "normalizer_id": "h20-experimental-results-20260822.v1",
+  "normalizer_sha256": "bedbea0ece64c1de84868e0d8c0f22b8c0b2b874a585eab5051316c4dbace1d8",
+  "publication_approval": {
+    "approval_id": "github-issue-159",
+    "approved_at": "2026-08-22",
+    "approved_by": "PoorOtterBob",
+    "decision_ref": "Minions-Land/MagentaBenchmark#159",
+    "decision_sha256": "9696c1b1a8da6a34b9288dd8b129e60fef70a8f143b54b125c210657a38fd145",
+    "destination_repository": "Minions-Land/MagentaBenchmark",
+    "scope": "typed-results-only"
+  },
+  "ref_hint": "results/159-h20-experimental-results-import-v1",
+  "repository": "Minions-Land/MagentaBenchmark",
+  "root_tree": {
+    "algorithm": "sha1",
+    "digest": "0bcf574c47f50a1cb27296b6202ec601449f9610"
+  },
+  "source_id": "h20-experimental-results-20260822",
+  "visibility": "private"
+}

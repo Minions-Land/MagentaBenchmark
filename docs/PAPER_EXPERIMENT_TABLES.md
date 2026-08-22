@@ -71,6 +71,15 @@ outcome, and optional aggregate link rather than collapsing into a summary.
 For task-level analysis, select `result_granularity=unit`; use linked aggregate
 rows only as reconciliation evidence so the same source outcomes are not
 counted twice.
+
+For the H20 Issue #159 import, this selector yields exactly 2,360 rows: 1,500
+BiomniBench-DA, 800 CMTBench, and 60 SWE-bench Verified. The full legacy
+ledger has 2,837 observations because 58 owner metrics are retained as
+explicit historical reconciliation rows in addition to the 2,360 unit rows.
+NatureBench contributes its existing aggregate/declaration rows and no new
+task rows. The five-case SWE-bench denominator remains five even though the
+public population is 500. `BiomeBench` and `BioML-Bench` have no authoritative
+H20 task source and must not be inferred into this table.
 `row_kind=run` rows preserve failed, non-terminal, or report-less attempts that
 have no observation. Declaration-only designs are intentionally left in the
 ledger's `experiments` and `catalog` tables rather than presented as results.

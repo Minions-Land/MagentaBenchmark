@@ -1,0 +1,143 @@
+{
+  "aggregate_reconciliation_status": null,
+  "aggregate_run_record_id": null,
+  "attempt_id": "official-harness-v5",
+  "claim_eligible": false,
+  "code_commit": "174590db9b51b61ace9270dbf1f24d4364c6c640",
+  "evidence_tier": "legacy-evaluated",
+  "experiment": {
+    "benchmark": {
+      "id": "swebench-verified",
+      "name": "SWE-bench Verified",
+      "version": "historical-v5-five-case"
+    },
+    "comparability": {
+      "case_set_sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd",
+      "comparison_group": "swebench-verified-v5-five-case",
+      "evaluator_sha256": "748fe0b199e5212e413089631b6b7dbd06973a8a813be16ca399eb373c0d3835",
+      "protocol_sha256": "a3e8e1c262843acdfd9fb8b8272eea68536f5f35b03b78fc250756b2ab7aef55",
+      "status": "exact"
+    },
+    "dataset": {
+      "commit_sha": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+      "content_sha256": "a45b1fe4e2f0c8390b2b2938ac83e92ed5979000856808f3679c07812e9e6dcd",
+      "id": "swe-bench-verified-test-subset-v5",
+      "name": "SWE-bench Verified fixed five-case subset",
+      "split": "test",
+      "version": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a"
+    },
+    "evaluator": {
+      "id": "swebench-official-harness",
+      "independent": true,
+      "kind": "deterministic",
+      "name": "SWE-bench official harness",
+      "version": "historical-v5"
+    },
+    "execution": {
+      "backend_id": null,
+      "budget": {
+        "max_cases": 5,
+        "max_cost_usd": null,
+        "max_tokens": null,
+        "max_wall_seconds": null
+      },
+      "case_count": 5,
+      "configuration_id": "swebench-verified-v5-historical",
+      "configuration_profiles": [
+        "codex",
+        "ultra",
+        "verified5"
+      ],
+      "configuration_sha256": "005487fc024c4b11f19e20a73bdb872a85bcc4d51becc7446c244ed4a8530b36",
+      "factors": [],
+      "hardware": {
+        "accelerator": null,
+        "accelerator_count": null,
+        "architecture": "unknown",
+        "cpu_count": null,
+        "memory_bytes": null
+      },
+      "image_sha256": null,
+      "isolation": "host",
+      "mode": "local-process",
+      "network_policy": "unknown",
+      "order_policy": "fixed",
+      "repetitions_per_case": 1,
+      "seeds": []
+    },
+    "experiment_id": "swebench-verified-v5-five-case-20260716",
+    "harness": {
+      "configuration_sha256": "005487fc024c4b11f19e20a73bdb872a85bcc4d51becc7446c244ed4a8530b36",
+      "id": "swebench-official-harness",
+      "name": "SWE-bench official harness",
+      "protocol_id": "swebench-verified-v5-five-case",
+      "version": "historical-v5"
+    },
+    "limitations": [
+      "five-case-subset",
+      "historical-not-bmp-verified",
+      "runtime-identity-unbound"
+    ],
+    "method": {
+      "id": "codex-gpt-5-6-sol",
+      "name": "codex-gpt-5-6-sol",
+      "subject_id": "codex-gpt-5-6-sol",
+      "version": "v5"
+    },
+    "model": {
+      "id": "gpt-5.6-sol",
+      "name": "gpt-5.6-sol",
+      "revision": null,
+      "version": null
+    },
+    "provider": null,
+    "purpose": "evaluation"
+  },
+  "format": "magentabench-historical-record-v1",
+  "kind": "unit-result",
+  "logical_key": "h20-unit-81587277e07a2b56aca4e01c71c985c414da8d7b7a1bb4101cea91125d187544",
+  "metric": {
+    "aggregation": "none",
+    "definition_sha256": "bc54a0c8fd67e2bbabbe7c237605afff46ca74be53d6b39943fa6d6fc179883c",
+    "denominator": {
+      "excluded_count": 0,
+      "observed_count": 1,
+      "planned_count": 1,
+      "unit": "cases"
+    },
+    "direction": "higher-is-better",
+    "invalid_count": 0,
+    "metric_id": "resolved_rate",
+    "missing_count": 0,
+    "state": "observed",
+    "uncertainty": null,
+    "unit": "fraction",
+    "value": 1,
+    "zero_filled_count": 0
+  },
+  "provenance": [
+    {
+      "content_sha256": "39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0",
+      "git_blob_oid": {
+        "algorithm": "sha1",
+        "digest": "89dd5d9e1250a289c3e5547bac911e7a3cc7198e"
+      },
+      "path": "imports/h20-experimental-results-20260822/source_snapshot.json",
+      "role": "result",
+      "size_bytes": 703813
+    }
+  ],
+  "record_id": "96c0672ca57a709339dba34875eeacc5f35d1b0d17242cd765a26170d550d403",
+  "result_reason": "official-evaluator-success",
+  "result_status": "success",
+  "source_evidence_class": "historical-official-harness-report",
+  "source_id": "h20-experimental-results-20260822",
+  "source_run_id": "swebench-verified-v5-gpt-5-6-sol",
+  "source_run_record_id": "0996bf6bd6656344e93647cd1f436eb79e5edc59a3bdac13c2a800103b140938",
+  "source_snapshot_sha256": "2409cbbf360b7cbd384ff6246d639a65d5a0ecb84d3e06353b90462e1e06392f",
+  "supersedes": [],
+  "terminal_state": "completed",
+  "unit_id": "astropy__astropy-14995",
+  "unit_kind": "instance",
+  "verification_status": "unverified"
+}

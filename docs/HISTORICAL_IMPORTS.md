@@ -40,6 +40,20 @@ explicit blockers rather than being interpreted as permission. A branch is
 only a `ref_hint`; it never means "latest". Changing the source commit or
 normalizer creates a new snapshot directory.
 
+The approved H20 import uses a two-stage provenance anchor. The sanitized
+snapshot is committed first, then removed from the final tree after its Git
+commit/tree/blob IDs are recorded in `source.json` and every record's
+`ProvenanceRef`. For Issue #159 those IDs are commit
+`4dd8c0bd7786899434d1d01c625df6a9f5205ba1`, tree
+`0bcf574c47f50a1cb27296b6202ec601449f9610`, blob
+`89dd5d9e1250a289c3e5547bac911e7a3cc7198e`, and snapshot SHA-256
+`39cf16dbd2337768c6c0c5e6f02b8aa32ec677782375b59db302eed3a580bfa0`.
+This is a recoverability anchor, not permission to publish source bytes. The
+reader and normalizer are
+`MagentaBench/collab/experimental_results.py` and
+`scripts/historical_imports/h20_experimental_results_v1.py`; they fail closed
+on inventory, schema, identity, claim, symlink, and file-drift violations.
+
 Records are typed as declarations, evaluated runs, unit results, or assets.
 They carry whitelisted benchmark, dataset, method, model, evaluator,
 execution, metric, denominator, uncertainty, and provenance fields. Arbitrary
@@ -177,7 +191,19 @@ uv run --frozen bmp-collab ledger --table assets
 # An authorized private companion remains outside the public checkout.
 uv run --frozen bmp-collab validate-imports --imports-dir /authorized/imports
 uv run --frozen bmp-collab ledger --imports-dir /authorized/imports
+
+# H20 Issue #159 (read-only source; output is a new isolated import root)
+uv run --frozen python scripts/historical_imports/h20_experimental_results_v1.py \
+  snapshot --source-root /mnt/aliyunsb/ProjectManagement/.experimentalResults \
+  --output /mnt/aliyunsb/h20-evidence/source_snapshot.json
+uv run --frozen bmp-collab validate-imports
 ```
+
+The H20 snapshot gate must report 30 owners and 2,360 unit facts. The import
+contains 2,390 records; the ledger reports 2,837 legacy observations because
+58 owner metrics are explicit reconciliation rows. The paper projection must
+select unit rows and report 2,360 rows. This distinction is intentional and is
+part of the acceptance contract, not a generated-cache count.
 
 The catalog stores a deterministic
 `magentabench-catalog-condition-set-v1` wrapper and its digest. Every variant in
